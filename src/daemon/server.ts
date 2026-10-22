@@ -30,6 +30,8 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".json": "application/json",
   ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
 };
 
 /**
@@ -194,7 +196,8 @@ function serveStatic(root: string, req: IncomingMessage, res: ServerResponse): v
   res.writeHead(200, {
     "content-type": MIME[extname(file)] ?? "application/octet-stream",
     "x-content-type-options": "nosniff",
-    "cache-control": file.endsWith("index.html") ? "no-cache" : "max-age=31536000, immutable",
+    // Only Vite's hashed bundles may be cached for good; the shell, sw.js and icons must stay fresh.
+    "cache-control": pathname.startsWith("/assets/") ? "max-age=31536000, immutable" : "no-cache",
   });
   createReadStream(file).pipe(res);
 }

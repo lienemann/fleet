@@ -19,3 +19,13 @@ test: develop
 run: develop
     npm run build:web
     npm start
+
+# Build the web UI and start the daemon with scripted agents
+demo: develop
+    npm run build:web
+    FLEET_DEMO=1 npm start
+
+# End-to-end tests in Chromium, Firefox and WebKit
+e2e: develop
+    npx playwright install chromium firefox webkit
+    npm run test:e2e

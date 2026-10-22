@@ -20,6 +20,8 @@ const apply = (state: FleetState, action: Action): FleetState =>
   action.type === "snapshot" ? action.state : reduceAll(action.events, state);
 
 const MAX_BACKOFF_MS = 10_000;
+// Request ids only need to be unique per page; crypto.randomUUID is missing outside secure contexts.
+let requestCounter = 0;
 
 export interface Fleet {
   state: FleetState;
@@ -128,7 +130,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           reject(new Error("Not connected to the daemon"));
           return;
         }
-        const id = crypto.randomUUID();
+        const id = String(++requestCounter);
         fileRequests.current.set(id, { resolve, reject });
         send({ type: "read_file", id, agent, path });
       }),

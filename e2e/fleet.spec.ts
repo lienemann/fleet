@@ -97,6 +97,8 @@ test("the director spawns a worker per line and reports to the user", async ({ p
 
 test("everything works from the keyboard", async ({ page }) => {
   await page.goto("/");
+  // Keys only work once the app has mounted; the host name arrives from the daemon after that.
+  await expect(page.locator(".host")).toHaveText("test");
   await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText(
     "Request changes",
@@ -132,4 +134,14 @@ test("everything works from the keyboard", async ({ page }) => {
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
   await page.keyboard.press("t");
   await expect(page.getByRole("button", { name: /^Report/ })).toHaveClass(/active/);
+});
+
+test("can be installed as an app", async ({ page, request }) => {
+  const manifest = await (await request.get("/manifest.webmanifest")).json();
+  expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });
+  for (const icon of manifest.icons) expect((await request.get(icon.src)).ok()).toBe(true);
+
+  await page.goto("/");
+  const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+  expect(scope).toMatch(/\/$/);
 });
