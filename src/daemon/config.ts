@@ -33,6 +33,14 @@ const ConfigFile = z.object({
     .object({ enabled: z.boolean().default(true), path: z.string().optional() })
     .default({ enabled: true }),
   workspaces: z.array(WorkspaceConfig).default([]),
+  /** jj orbit for the history view; the repo defaults to the director's workspace. */
+  history: z
+    .object({
+      enabled: z.boolean().default(true),
+      repo: z.string().optional(),
+      python: z.string().default("python3"),
+    })
+    .default({ enabled: true, python: "python3" }),
 });
 
 export interface Workspace {
@@ -50,6 +58,8 @@ export interface Config {
   model?: string;
   /** Working directory of the director, if there is one. */
   director?: string;
+  /** Repository the history view shows, and the Python that runs jj orbit. */
+  history?: { repo: string; python: string };
   workspaces: Workspace[];
 }
 
@@ -73,6 +83,14 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     wip: parsed.wip,
     model: parsed.model,
     director: parsed.director.enabled ? expandHome(parsed.director.path ?? fallbackCwd) : undefined,
+    history: parsed.history.enabled
+      ? {
+          repo: expandHome(
+            parsed.history.repo ?? parsed.director.path ?? workspaces[0]?.path ?? fallbackCwd,
+          ),
+          python: parsed.history.python,
+        }
+      : undefined,
     workspaces: workspaces.map((ws) => ({
       name: ws.name,
       path: expandHome(ws.path),

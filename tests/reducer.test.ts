@@ -111,3 +111,35 @@ describe("projection", () => {
     expect(state.agents.a?.pending).toBe(1);
   });
 });
+
+describe("timeline", () => {
+  it("records each lane change with its start, and only changes", () => {
+    const agent = run(
+      running,
+      working,
+      { kind: "log", agent: "a", role: "assistant", text: "busy" },
+      request,
+      { kind: "decision_resolved", agent: "a", requestId: "r", outcome: "allowed" },
+      { kind: "activity", agent: "a", activity: "stopped" },
+    );
+    expect(agent.history.map((s) => [s.lane, s.from])).toEqual([
+      ["queued", 0],
+      ["stopped", 1000], // the task runs before its session does
+      ["running", 2000],
+      ["needs_you", 4000],
+      ["running", 5000],
+      ["stopped", 6000],
+    ]);
+  });
+
+  it("shows the director idle, not waiting, between requests", () => {
+    const state = reduceAll(
+      events(
+        worker("d", { role: "director" }),
+        { kind: "activity", agent: "d", activity: "working" },
+        { kind: "activity", agent: "d", activity: "idle" },
+      ),
+    );
+    expect(state.agents.d?.history.map((s) => s.lane)).toEqual(["idle", "running", "idle"]);
+  });
+});

@@ -1178,3 +1178,99 @@ button.ln:hover {
 .hljs-variable {
   color: var(--msg);
 }
+
+/* Timeline */
+.timeline header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.timeline header h2 {
+  margin: 0 8px 0 0;
+}
+.lane {
+  display: grid;
+  grid-template-columns: 110px 1fr 70px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.lane-name {
+  font-weight: 600;
+  text-align: left;
+}
+.track {
+  position: relative;
+  height: 18px;
+  background: var(--col);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+}
+.axis {
+  display: grid;
+  grid-template-columns: 110px 1fr 70px;
+  gap: 10px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.axis-range {
+  display: flex;
+  justify-content: space-between;
+}
+.lane-running {
+  background: var(--run);
+}
+.lane-needs_you {
+  background: var(--warn);
+}
+.lane-review {
+  background: var(--rev);
+}
+.lane-changes_requested {
+  background: var(--chg);
+}
+.lane-accepted {
+  background: var(--ok);
+}
+.lane-queued,
+.lane-idle {
+  background: var(--track);
+}
+.lane-stopped {
+  background: repeating-linear-gradient(45deg, var(--track) 0 4px, transparent 4px 8px);
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.swatch-box {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* History */
+.history {
+  height: 100%;
+}
+.history iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg2);
+}

@@ -15,7 +15,9 @@ import { Ticker } from "./shell/Ticker.tsx";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
 import { Grid } from "./views/Grid.tsx";
+import { History } from "./views/History.tsx";
 import { Inbox } from "./views/Inbox.tsx";
+import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
 
 type Overlay = "new-task" | "shortcuts" | "palette";
@@ -279,6 +281,8 @@ export function App() {
             />
           )}
           {view === "flow" && <Flow onOpen={select} />}
+          {view === "timeline" && <Timeline onOpen={select} />}
+          {view === "history" && <History />}
         </main>
         {agent && view !== "grid" && (
           <Drawer agent={agent} tab={tab} onTab={setTab} onClose={() => setSelected(undefined)} />

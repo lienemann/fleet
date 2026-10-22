@@ -5,6 +5,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery } from "./demo.ts";
 import { EventLog } from "./eventLog.ts";
+import { Orbit } from "./orbit.ts";
 import { createFleetServer } from "./server.ts";
 import { Supervisor } from "./supervisor.ts";
 
@@ -17,7 +18,9 @@ const log = new EventLog(join(home, "fleet.db"));
 const queryFn = process.env.FLEET_DEMO ? demoQuery() : query;
 const supervisor = new Supervisor({ log, queryFn, config });
 
+const orbit = config.history && new Orbit(config.history.repo, config.history.python);
 const { server, close } = createFleetServer({
+  orbit,
   log,
   supervisor,
   info: {
@@ -41,6 +44,7 @@ const shutdown = async (): Promise<void> => {
   if (stopping) return;
   stopping = true;
   close();
+  orbit?.stop();
   await supervisor.shutdown();
   log.close();
   process.exit(0);

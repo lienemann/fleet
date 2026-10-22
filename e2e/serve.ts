@@ -23,7 +23,8 @@ const workspaces = ["ws1", "ws2"].map((name) => {
 });
 writeFileSync(
   join(home, "config.toml"),
-  `port = ${process.env.PORT ?? 7791}\nhost = "test"\n\n${workspaces.join("\n")}`,
+  // The director (and so the history view) works in ws1.
+  `port = ${process.env.PORT ?? 7791}\nhost = "test"\n\n[director]\npath = "${join(home, "ws1")}"\n\n${workspaces.join("\n")}`,
 );
 
 process.env.FLEET_HOME = home;

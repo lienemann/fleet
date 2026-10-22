@@ -163,6 +163,25 @@ test("everything works from the keyboard", async ({ page }) => {
   await expect(page.getByRole("button", { name: /^Diff/ })).toHaveClass(/active/);
 });
 
+test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".host")).toHaveText("test");
+  await page.keyboard.press("g");
+  await page.keyboard.press("t");
+  await expect(page.locator(".lane").first()).toBeVisible();
+  await expect(page.locator(".timeline")).toContainText("waited on you");
+  await page.keyboard.press("w");
+  await expect(page.getByRole("button", { name: "2 h" })).toHaveClass(/active/);
+  await shot(page, "timeline");
+
+  await page.keyboard.press("g");
+  await page.keyboard.press("h");
+  await expect(page.locator("iframe[title^='jj orbit']")).toBeVisible();
+  await expect
+    .poll(() => page.frame({ url: /\/orbit\/$/ })?.title(), { timeout: 20_000 })
+    .toBe("jj orbit");
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

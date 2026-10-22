@@ -1,5 +1,11 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  request,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import type { FleetEvent } from "../shared/events.ts";
@@ -10,6 +16,7 @@ import {
   type ServerMessage,
 } from "../shared/protocol.ts";
 import type { EventLog } from "./eventLog.ts";
+import type { Orbit } from "./orbit.ts";
 import type { Supervisor } from "./supervisor.ts";
 
 export interface ServerOptions {
@@ -20,6 +27,8 @@ export interface ServerOptions {
   staticDir: string;
   allowedOrigins: string[];
   allowedHosts: string[];
+  /** The history view, proxied under /orbit/. */
+  orbit?: Pick<Orbit, "port">;
 }
 
 /** A client further behind than this gets a snapshot instead of a replay. */
@@ -65,13 +74,17 @@ function parseHost(value: string | undefined): URL | undefined {
 }
 
 export function createFleetServer(options: ServerOptions): { server: Server; close: () => void } {
-  const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins } = options;
+  const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit } = options;
   const allowed = (req: IncomingMessage): boolean =>
     isAllowedRequest(req.headers, allowedHosts, allowedOrigins);
 
   const server = createServer((req, res) => {
     if (!allowed(req)) {
       res.writeHead(403).end();
+      return;
+    }
+    if (orbit && (req.url === "/orbit" || req.url?.startsWith("/orbit/"))) {
+      void proxyOrbit(orbit, req, res);
       return;
     }
     serveStatic(staticDir, req, res);
@@ -196,4 +209,42 @@ function serveStatic(root: string, req: IncomingMessage, res: ServerResponse): v
     "cache-control": pathname.startsWith("/assets/") ? "max-age=31536000, immutable" : "no-cache",
   });
   createReadStream(file).pipe(res);
+}
+
+/** Streams a request to jj orbit and back, server-sent events included. */
+async function proxyOrbit(
+  orbit: Pick<Orbit, "port">,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.url === "/orbit") {
+    res.writeHead(301, { location: "/orbit/" }).end();
+    return;
+  }
+  let port: number;
+  try {
+    port = await orbit.port();
+  } catch (error) {
+    res.writeHead(502, { "content-type": "text/plain" }).end(errorText(error));
+    return;
+  }
+  const upstream = request(
+    {
+      host: "127.0.0.1",
+      port,
+      method: req.method,
+      path: req.url?.slice("/orbit".length) || "/",
+      headers: { ...req.headers, host: `127.0.0.1:${port}` },
+    },
+    (response) => {
+      res.writeHead(response.statusCode ?? 502, response.headers);
+      response.pipe(res);
+    },
+  );
+  upstream.on("error", (error) => {
+    if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
+    res.end(errorText(error));
+  });
+  res.on("close", () => upstream.destroy());
+  req.pipe(upstream);
 }

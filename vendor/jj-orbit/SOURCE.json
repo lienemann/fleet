@@ -1,0 +1,23 @@
+{
+  "name": "jj-orbit",
+  "version": "0.32.2",
+  "files": {
+    "README.md": "7fcb87ec1c1308c65647cda8482212b5f0a183525e26823605db42b81c46e8a8",
+    "jj-orbit.html": "b3189e0dfbbc2ff0befbf174d6152c8b83bb3828c1c94493c5715bac4b3c371e",
+    "jj_export.py": "72c676999800979f3d1844fce76dca5474b22b60b30a8980724ece1d1f84e974",
+    "jj_orbit_server.py": "1e5389354fed0237b40043d6399dc370912b2135e0c77fd820879cf28fa0dc5a",
+    "reviewdiff-core.js": "3cb94298d0df67ec7b6c110169a6bc57f551539a1ad3e6784d66d222b0dd71a3",
+    "vendor/highlight.LICENSE": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490",
+    "vendor/highlight.min.js": "837a6fa5b0c736b52bbde2b2b6190f305da3fc9ed41681db5321507057b5c846",
+    "vendor/three/LICENSE": "fbf3943930dacbf56aabb8dc5d816440bd16aa6f4cc78ddbdf12106ee1807832",
+    "vendor/three/build/three.min.js": "f34446bf875b5fb0dcd93819ffe1d9e182d46634ee855f5d904c6c4ac7cdbc95",
+    "vendor/three/examples/js/controls/OrbitControls.js": "b4c6e53f98538535b11fd6655627d47fb5877b3ad972568bff0a7026c4b6d5c4",
+    "vendor/three/examples/js/postprocessing/EffectComposer.js": "6c8bf2f6b06778fdadf7cfd09ef4c17d881428d1cdee953e3348b3f54df4bc75",
+    "vendor/three/examples/js/postprocessing/RenderPass.js": "3c1a07df004b36c1fac6af2a443953ef589f88fb024dd0f01d5f9f6252dfc371",
+    "vendor/three/examples/js/postprocessing/ShaderPass.js": "f0d8d767e089c99ad04f6714cd4fac29363d6b0207543cd4335922ea143856a6",
+    "vendor/three/examples/js/postprocessing/UnrealBloomPass.js": "1a5b8476addc578c179200bed5a0da54bb176c1b41ef89d2174ff76b0a4410e7",
+    "vendor/three/examples/js/renderers/CSS2DRenderer.js": "5c882ec17aa928eeefa7aac6fce8ffb3d5aa83254e02f82ed6d31a8381fbe0df",
+    "vendor/three/examples/js/shaders/CopyShader.js": "249592106188290488cb9419fc6231b701983cdc23c25c7805536cf06800ff48",
+    "vendor/three/examples/js/shaders/LuminosityHighPassShader.js": "3c8552bb514a01009c07eb17e576f14db43cff64ce8cfab01667ab8db2e85afe"
+  }
+}

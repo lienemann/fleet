@@ -12,7 +12,8 @@
       "!package-lock.json",
       "!**/*.md",
       "!vendor/reviewdiff/src",
-      "!vendor/reviewdiff/dist"
+      "!vendor/reviewdiff/dist",
+      "!vendor/jj-orbit"
     ]
   },
   "formatter": {

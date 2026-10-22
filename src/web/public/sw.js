@@ -7,7 +7,10 @@ self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim(
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-  if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  // The history view streams server-sent events; caching would buffer them forever.
+  if (url.pathname.startsWith("/orbit/")) return;
   event.respondWith(
     fetch(request)
       .then((response) => {

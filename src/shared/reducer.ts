@@ -18,6 +18,15 @@ import type { ReviewComment, ReviewEdit } from "./review.ts";
 /** Board column: the task state, except that an active task waiting on the user needs you. */
 export type Column = TaskState | "needs_you";
 
+/** What a timeline lane shows: the column, or for the director and stopped sessions what they do. */
+export type Lane = Column | "idle" | "stopped";
+
+export interface Segment {
+  lane: Lane;
+  /** Start time; a segment lasts until the next one starts. */
+  from: number;
+}
+
 export interface LogLine {
   seq: number;
   role: LogRole;
@@ -103,6 +112,8 @@ export interface AgentView {
   note?: string;
   /** Hunks approved in the diff view, as of its last load. */
   reviewProgress?: { approved: number; total: number };
+  /** Lane changes over time, newest last, for the timeline. */
+  history: Segment[];
   /** Draft review comments, not yet sent. */
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
@@ -125,6 +136,8 @@ export const LOG_LIMIT = 2000;
 export const TEXT_LIMIT = 4000;
 /** Bus messages kept in the projection. */
 export const MESSAGE_LIMIT = 500;
+/** Timeline segments kept per agent. */
+export const HISTORY_LIMIT = 400;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
@@ -139,6 +152,15 @@ export function columnOf(agent: AgentView): Column {
  */
 export const needsUser = (agent: AgentView): boolean =>
   agent.role === "director" ? agent.pending > 0 : columnOf(agent) === "needs_you";
+
+/** The timeline lane of an agent right now. */
+export function laneOf(agent: AgentView): Lane {
+  if (agent.role === "director") {
+    return agent.pending > 0 ? "needs_you" : agent.activity === "working" ? "running" : "idle";
+  }
+  const column = columnOf(agent);
+  return column === "running" && agent.activity === "stopped" ? "stopped" : column;
+}
 
 export const emptyState = (): FleetState => ({
   lastSeq: 0,
@@ -206,6 +228,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       subagents: [],
       comments: [],
       edits: [],
+      history: [{ lane: event.role === "director" ? "idle" : "queued", from: event.ts }],
       costUsd: 0,
       reconnecting: false,
       unseen: false,
@@ -348,11 +371,16 @@ function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): 
     (needsUser(now) && !needsUser(old)) ||
     (moved && column === "review") ||
     event.kind === "open_points";
-  if (!moved && !news) return after;
+  const lane = laneOf(now);
+  const laneChanged = now.history.at(-1)?.lane !== lane;
+  if (!moved && !news && !laneChanged) return after;
   const updated = {
     ...now,
     columnSince: moved ? event.ts : now.columnSince,
     unseen: now.unseen || news,
+    history: laneChanged
+      ? [...now.history.slice(-(HISTORY_LIMIT - 1)), { lane, from: event.ts }]
+      : now.history,
   };
   return { ...after, agents: { ...after.agents, [event.agent]: updated } };
 }
