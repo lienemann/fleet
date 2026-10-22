@@ -119,7 +119,9 @@ export class AgentSession {
     if (this.running) return;
     this.running = true;
     const generation = ++this.generation;
-    this.setActivity("idle");
+    // With a prompt already queued the session goes straight to work; a moment of "idle"
+    // would flash the task through Needs you.
+    if (this.activity !== "working") this.setActivity("idle");
     this.done = this.run(generation);
   }
 

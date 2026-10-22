@@ -138,8 +138,8 @@ export class Supervisor implements ToolHost {
       if (agent.reconnecting) this.append(agent.name, { kind: "connection", reconnecting: false });
       if (agent.activity === "working" || agent.activity === "idle") {
         const session = this.session(agent.name);
-        session?.start();
         if (agent.activity === "working") session?.prompt(RESTART_NOTE);
+        session?.start();
       }
     }
     this.schedule();
@@ -464,8 +464,9 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (!agent || agent.task === "queued") return;
     const session = this.session(name);
-    session?.start();
+    // Queue first, so the session starts working instead of starting idle.
     session?.prompt(text, images);
+    session?.start();
   }
 
   /** A message lands in the recipient's transcript as a prompt, starting it if needed. */
@@ -506,11 +507,12 @@ export class Supervisor implements ToolHost {
       if (agent.task !== "queued") continue;
       if (this.activeCount() >= this.config.wip.running) return;
       if (!this.workspaceFree(agent.workspace, agent.name)) continue;
-      this.append(agent.name, { kind: "task_state", state: "running" });
       const session = this.session(agent.name);
-      session?.start();
       // A reopened task has its conversation already; it waits for the user's next word.
+      // The task prompt goes first, so the task turns running with its session at work.
       if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
+      this.append(agent.name, { kind: "task_state", state: "running" });
+      session?.start();
     }
   }
 

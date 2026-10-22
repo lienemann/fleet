@@ -52,6 +52,14 @@ describe("Supervisor", () => {
     expect(log.state.agents.alpha?.unseen).toBe(true);
   });
 
+  it("starts a new task straight into work, without a moment in Needs you", () => {
+    const { log, supervisor } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    const lanes = log.state.agents.alpha?.history.map((s) => s.lane);
+    expect(lanes).toEqual(["queued", "running"]);
+    expect(log.state.agents.alpha?.unseen).toBe(false);
+  });
+
   it("queues a task until its workspace is free", async () => {
     const { log, supervisor } = setup();
     supervisor.createTask("first", "one", "ws1");
