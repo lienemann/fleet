@@ -899,3 +899,86 @@ h2 {
   gap: 8px;
   align-items: center;
 }
+
+/* Keyboard */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.chord-hint {
+  position: fixed;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 80vw;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px var(--shadow);
+  z-index: 20;
+}
+.keycap {
+  color: var(--fg2);
+  background: var(--btn);
+  border: 1px solid var(--btnline);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.shortcuts {
+  width: min(860px, 94vw);
+}
+.shortcut-groups {
+  columns: 3 240px;
+  column-gap: 24px;
+}
+.shortcut-groups section {
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+.shortcut-groups h3 {
+  margin: 0 0 4px;
+  font: 600 13px var(--title);
+  color: var(--accent);
+}
+.shortcut-groups dl {
+  margin: 0;
+}
+.shortcut-groups dl div {
+  display: flex;
+  gap: 10px;
+  padding: 1px 0;
+}
+.shortcut-groups dt {
+  min-width: 70px;
+  display: flex;
+  gap: 4px;
+}
+.shortcut-groups dd {
+  margin: 0;
+  color: var(--fg3);
+}
+.palette {
+  width: min(560px, 92vw);
+  margin-top: 12vh;
+}
+.palette input {
+  width: 100%;
+  font-size: 15px;
+}
+.palette ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.palette .menu-item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.palette .menu-item kbd {
+  margin-left: auto;
+}

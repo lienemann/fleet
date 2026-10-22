@@ -1,26 +1,36 @@
 import { useEffect, useState } from "react";
-import { agentList } from "../shared/reducer.ts";
+import { DIRECTOR, PERMISSION_MODES, type UserMove } from "../shared/events.ts";
+import { agentList, pendingDecisions } from "../shared/reducer.ts";
 import { useFleet } from "./fleet.tsx";
+import { ChordHint } from "./keys/ChordHint.tsx";
+import { type Command, useCommands } from "./keys/keymap.tsx";
+import { Palette } from "./keys/Palette.tsx";
+import { Shortcuts } from "./keys/Shortcuts.tsx";
 import { DirectorDock } from "./shell/DirectorDock.tsx";
-import { Drawer } from "./shell/Drawer.tsx";
+import { DRAWER_TABS, Drawer, type DrawerTab } from "./shell/Drawer.tsx";
 import { Header } from "./shell/Header.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
-import { useHotkeys } from "./useHotkeys.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
 import { Grid } from "./views/Grid.tsx";
 import { Inbox } from "./views/Inbox.tsx";
-import type { View } from "./views.ts";
+import { VIEWS, type View } from "./views.ts";
+
+type Overlay = "new-task" | "shortcuts" | "palette";
+
+const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
 export function App() {
-  const { state, connected, error, send } = useFleet();
+  const { state, connected, error, send, toggleTheme } = useFleet();
   const [view, setView] = useState<View>("board");
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
-  const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<DrawerTab>("live");
+  const [overlay, setOverlay] = useState<Overlay>();
   const agent = selected ? state.agents[selected] : undefined;
+  const agents = agentList(state);
 
   const select = (name: string): void => setSelected(name);
   const open = (name: string): void => {
@@ -35,27 +45,223 @@ export function App() {
     if (selected && unseen) send({ type: "open", agent: selected });
   }, [selected, unseen, send]);
 
-  // j/k walk through agents everywhere except the inbox, which walks its own list.
-  const step = (delta: number) => () => {
-    const names = agentList(state).map((a) => a.name);
-    const index = selected ? names.indexOf(selected) : -1;
-    const next = names[Math.max(0, Math.min(names.length - 1, index + delta))];
-    if (next) select(next);
-  };
+  useCommands([
+    ...VIEWS.map(
+      (v): Command => ({
+        id: `view.${v.id}`,
+        label: v.label,
+        group: "Go to",
+        keys: [`g ${v.mnemonic}`, v.key],
+        run: () => setView(v.id),
+      }),
+    ),
+    {
+      id: "go.director",
+      label: "Director",
+      group: "Go to",
+      keys: ["g d"],
+      run: () => select(DIRECTOR),
+    },
+    {
+      id: "task.new",
+      label: "New task",
+      group: "Fleet",
+      keys: ["n"],
+      run: () => setOverlay("new-task"),
+    },
+    {
+      id: "director.message",
+      label: "Message the director",
+      group: "Fleet",
+      keys: ["d"],
+      run: () => focus("[data-dock]"),
+    },
+    {
+      id: "seen.all",
+      label: "Mark all seen",
+      group: "Fleet",
+      keys: ["u"],
+      run: () => send({ type: "mark_all_seen" }),
+    },
+    { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    {
+      id: "help",
+      label: "Keyboard shortcuts",
+      group: "Help",
+      keys: ["?"],
+      run: () => setOverlay("shortcuts"),
+    },
+    {
+      id: "palette",
+      label: "Command palette",
+      group: "Help",
+      keys: ["mod+k"],
+      global: true,
+      paletteHidden: true,
+      run: () => setOverlay("palette"),
+    },
+    ...walkCommands(
+      agents.map((a) => a.name),
+      selected,
+      select,
+    ),
+    ...agentCommands(selected),
+    ...agents.map(
+      (a): Command => ({
+        id: `open.${a.name}`,
+        label: `${a.name}: ${a.title}`,
+        group: "Agents",
+        run: () => select(a.name),
+      }),
+    ),
+  ]);
 
-  useHotkeys({
-    "1": () => setView("board"),
-    "2": () => setView("inbox"),
-    "3": () => setView("grid"),
-    "5": () => setView("flow"),
-    n: () => setCreating(true),
-    ...(view !== "inbox" && { j: step(1), k: step(-1) }),
-    escape: () => selected && send({ type: "interrupt", agent: selected }),
-  });
+  /** Always registered, so the shortcut overlay lists them; without a selection they do nothing. */
+  function agentCommands(selection: string | undefined): Command[] {
+    const name = selection ?? "";
+    const current = state.agents[name];
+    const live = current?.activity === "working" || current?.activity === "idle";
+    const decision = pendingDecisions(state).find(
+      (d) => d.agent === name && d.decision === "permission",
+    );
+    const answer =
+      (behavior: "allow" | "deny", alwaysAllow = false) =>
+      () =>
+        decision &&
+        send({
+          type: "answer",
+          requestId: decision.requestId,
+          answer: behavior === "allow" ? { behavior, alwaysAllow } : { behavior },
+        });
+    const move = (to: UserMove) => () => send({ type: "move", agent: name, to });
+    const mode = current?.permissionMode ?? "default";
+    const nextMode =
+      PERMISSION_MODES[(PERMISSION_MODES.indexOf(mode) + 1) % PERMISSION_MODES.length];
+    const nextTab = (step: number) => () =>
+      setTab(
+        DRAWER_TABS[(DRAWER_TABS.indexOf(tab) + step + DRAWER_TABS.length) % DRAWER_TABS.length] ??
+          "live",
+      );
+    const commands: Command[] = [
+      {
+        id: "agent.open",
+        label: "Open in the grid",
+        group: "Selected agent",
+        keys: ["o", "enter"],
+        run: () => open(name),
+      },
+      {
+        id: "agent.prompt",
+        label: "Write to the agent",
+        group: "Selected agent",
+        keys: ["p"],
+        run: () => focus(`[data-prompt="${name}"]`),
+      },
+      {
+        id: "agent.interrupt",
+        label: "Interrupt",
+        group: "Selected agent",
+        keys: ["escape"],
+        run: () => send({ type: "interrupt", agent: name }),
+      },
+      {
+        id: "agent.session",
+        label: live ? "Stop the session" : "Start the session",
+        group: "Selected agent",
+        keys: ["s"],
+        run: () => send({ type: live ? "stop" : "start", agent: name }),
+      },
+      {
+        id: "agent.mode",
+        label: "Next permission mode",
+        group: "Selected agent",
+        keys: ["shift+m"],
+        run: () => nextMode && send({ type: "set_mode", agent: name, mode: nextMode }),
+      },
+      {
+        id: "agent.approve",
+        label: "Approve its permission request",
+        group: "Selected agent",
+        keys: ["a"],
+        run: answer("allow"),
+      },
+      {
+        id: "agent.always",
+        label: "Always allow its request",
+        group: "Selected agent",
+        keys: ["shift+a"],
+        run: answer("allow", true),
+      },
+      {
+        id: "agent.reject",
+        label: "Reject its permission request",
+        group: "Selected agent",
+        keys: ["r"],
+        run: answer("deny"),
+      },
+      {
+        id: "move.review",
+        label: "Move to review",
+        group: "Move the selected task",
+        keys: ["m r"],
+        run: move("review"),
+      },
+      {
+        id: "move.changes",
+        label: "Request changes",
+        group: "Move the selected task",
+        keys: ["m c"],
+        run: move("changes_requested"),
+      },
+      {
+        id: "move.accept",
+        label: "Accept",
+        group: "Move the selected task",
+        keys: ["m a"],
+        run: move("accepted"),
+      },
+      {
+        id: "move.reopen",
+        label: "Reopen",
+        group: "Move the selected task",
+        keys: ["m o"],
+        run: move("running"),
+      },
+      {
+        id: "drawer.next",
+        label: "Next drawer tab",
+        group: "Drawer",
+        keys: ["t"],
+        run: nextTab(1),
+      },
+      {
+        id: "drawer.previous",
+        label: "Previous drawer tab",
+        group: "Drawer",
+        keys: ["shift+t"],
+        run: nextTab(-1),
+      },
+      {
+        id: "drawer.close",
+        label: "Close the drawer",
+        group: "Drawer",
+        keys: ["x"],
+        run: () => setSelected(undefined),
+      },
+    ];
+    return selection
+      ? commands
+      : commands.map((c) => ({ ...c, paletteHidden: true, run: () => {} }));
+  }
 
   return (
     <div className="shell">
-      <Header view={view} onView={setView} onNewTask={() => setCreating(true)} />
+      <Header
+        view={view}
+        onView={setView}
+        onNewTask={() => setOverlay("new-task")}
+        onHelp={() => setOverlay("shortcuts")}
+      />
       <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
       {error && <div className="banner">{error}</div>}
@@ -64,7 +270,6 @@ export function App() {
         <main className="main">
           {view === "board" && <Board selected={selected} onSelect={select} />}
           {view === "inbox" && <Inbox onOpen={open} />}
-          {view === "flow" && <Flow onOpen={select} />}
           {view === "grid" && (
             <Grid
               selected={selected}
@@ -73,13 +278,48 @@ export function App() {
               onEnlarge={setEnlarged}
             />
           )}
+          {view === "flow" && <Flow onOpen={select} />}
         </main>
         {agent && view !== "grid" && (
-          <Drawer agent={agent} onClose={() => setSelected(undefined)} />
+          <Drawer agent={agent} tab={tab} onTab={setTab} onClose={() => setSelected(undefined)} />
         )}
       </div>
       <DirectorDock onOpen={select} />
-      {creating && <NewTask onClose={() => setCreating(false)} />}
+      <ChordHint />
+      {overlay === "new-task" && <NewTask onClose={() => setOverlay(undefined)} />}
+      {overlay === "shortcuts" && <Shortcuts onClose={() => setOverlay(undefined)} />}
+      {overlay === "palette" && <Palette onClose={() => setOverlay(undefined)} />}
     </div>
   );
+}
+
+/** j/k walk through the agents in rail order. */
+function walkCommands(
+  names: string[],
+  selected: string | undefined,
+  select: (n: string) => void,
+): Command[] {
+  const step = (delta: number) => () => {
+    const index = selected ? names.indexOf(selected) : -1;
+    const next = names[Math.max(0, Math.min(names.length - 1, index + delta))];
+    if (next) select(next);
+  };
+  return [
+    {
+      id: "agent.next",
+      label: "Next agent",
+      group: "Selected agent",
+      keys: ["j"],
+      paletteHidden: true,
+      run: step(1),
+    },
+    {
+      id: "agent.previous",
+      label: "Previous agent",
+      group: "Selected agent",
+      keys: ["k"],
+      paletteHidden: true,
+      run: step(-1),
+    },
+  ];
 }

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { USER } from "../../shared/events.ts";
 import { type OpenPointsDoc, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { useCommands } from "../keys/keymap.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
-import { useHotkeys } from "../useHotkeys.ts";
 
 /** What waits on me? Decisions and permissions, open points, and messages addressed to me. */
 export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
@@ -21,13 +21,47 @@ export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
   const answer = (behavior: "allow" | "deny") =>
     focused && send({ type: "answer", requestId: focused.requestId, answer: { behavior } });
 
-  useHotkeys({
-    j: () => setCursor(Math.min(index + 1, items.length - 1)),
-    k: () => setCursor(Math.max(index - 1, 0)),
-    a: () => focused?.decision === "permission" && answer("allow"),
-    r: () => focused?.decision === "permission" && answer("deny"),
-    enter: () => focused && onOpen(focused.agent),
-  });
+  // While the inbox is shown, j/k walk its decisions and a/r answer the focused one.
+  const inboxCommand = { group: "Inbox", priority: 1 };
+  useCommands([
+    {
+      ...inboxCommand,
+      id: "inbox.next",
+      label: "Next decision",
+      keys: ["j"],
+      paletteHidden: true,
+      run: () => setCursor(Math.min(index + 1, items.length - 1)),
+    },
+    {
+      ...inboxCommand,
+      id: "inbox.previous",
+      label: "Previous decision",
+      keys: ["k"],
+      paletteHidden: true,
+      run: () => setCursor(Math.max(index - 1, 0)),
+    },
+    {
+      ...inboxCommand,
+      id: "inbox.approve",
+      label: "Approve the focused permission",
+      keys: ["a"],
+      run: () => focused?.decision === "permission" && answer("allow"),
+    },
+    {
+      ...inboxCommand,
+      id: "inbox.reject",
+      label: "Reject the focused permission",
+      keys: ["r"],
+      run: () => focused?.decision === "permission" && answer("deny"),
+    },
+    {
+      ...inboxCommand,
+      id: "inbox.open",
+      label: "Open the focused decision's agent",
+      keys: ["o", "enter"],
+      run: () => focused && onOpen(focused.agent),
+    },
+  ]);
 
   return (
     <div className="inbox">

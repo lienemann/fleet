@@ -1,19 +1,25 @@
-import { useState } from "react";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { Tile } from "../tile/Tile.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 
-type Tab = "live" | "report" | "messages";
+export const DRAWER_TABS = ["live", "report", "messages"] as const;
+export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 /** The selected task beside the board and inbox. */
-export function Drawer({ agent, onClose }: { agent: AgentView; onClose: () => void }) {
+interface Props {
+  agent: AgentView;
+  tab: DrawerTab;
+  onTab: (tab: DrawerTab) => void;
+  onClose: () => void;
+}
+
+export function Drawer({ agent, tab, onTab, onClose }: Props) {
   const { state } = useFleet();
-  const [tab, setTab] = useState<Tab>("live");
   const messages = state.messages
     .filter((m) => m.from === agent.name || m.to === agent.name)
     .reverse();
-  const tabs: Array<{ id: Tab; label: string }> = [
+  const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
     { id: "report", label: agent.report ? "Report" : "Report (none yet)" },
     { id: "messages", label: `Messages · ${messages.length}` },
@@ -27,7 +33,7 @@ export function Drawer({ agent, onClose }: { agent: AgentView; onClose: () => vo
             key={t.id}
             type="button"
             className={tab === t.id ? "active" : ""}
-            onClick={() => setTab(t.id)}
+            onClick={() => onTab(t.id)}
           >
             {t.label}
           </button>

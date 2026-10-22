@@ -1,9 +1,12 @@
 export type View = "board" | "inbox" | "grid" | "flow";
 
-// Keys follow the numbering in the design: 1 board, 2 inbox, 3 grid, 4 timeline, 5 flow, 6 history.
-export const VIEWS: Array<{ id: View; key: string; label: string }> = [
-  { id: "board", key: "1", label: "Board" },
-  { id: "inbox", key: "2", label: "Inbox" },
-  { id: "grid", key: "3", label: "Grid" },
-  { id: "flow", key: "5", label: "Flow" },
+/**
+ * Views as numbered in the design (1 board … 6 history), each also reachable as
+ * `g` + mnemonic: g b, g i, g g, g f.
+ */
+export const VIEWS: Array<{ id: View; key: string; mnemonic: string; label: string }> = [
+  { id: "board", key: "1", mnemonic: "b", label: "Board" },
+  { id: "inbox", key: "2", mnemonic: "i", label: "Inbox" },
+  { id: "grid", key: "3", mnemonic: "g", label: "Grid" },
+  { id: "flow", key: "5", mnemonic: "f", label: "Flow" },
 ];

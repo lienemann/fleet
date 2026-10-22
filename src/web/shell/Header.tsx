@@ -6,9 +6,10 @@ interface Props {
   view: View;
   onView: (view: View) => void;
   onNewTask: () => void;
+  onHelp: () => void;
 }
 
-export function Header({ view, onView, onNewTask }: Props) {
+export function Header({ view, onView, onNewTask, onHelp }: Props) {
   const { state, info, send, theme, toggleTheme } = useFleet();
   const agents = agentList(state);
   const counts = {
@@ -60,6 +61,14 @@ export function Header({ view, onView, onNewTask }: Props) {
       </button>
       <button type="button" onClick={toggleTheme} title="Toggle theme">
         {theme === "dark" ? "Dark" : "Light"}
+      </button>
+      <button
+        type="button"
+        onClick={onHelp}
+        title="Keyboard shortcuts"
+        aria-label="Keyboard shortcuts"
+      >
+        ?
       </button>
     </header>
   );

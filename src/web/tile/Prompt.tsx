@@ -57,6 +57,7 @@ export function Prompt({ name, commands, onSend }: Props) {
         </ul>
       )}
       <textarea
+        data-prompt={name}
         value={draft}
         placeholder={`Message ${name}… (/ for commands)`}
         rows={2}

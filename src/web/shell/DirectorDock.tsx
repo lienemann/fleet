@@ -33,6 +33,7 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
           : (reply?.text.split("\n")[0] ?? "Tell the director what to get done.")}
       </span>
       <textarea
+        data-dock
         value={draft}
         rows={Math.min(6, draft.split("\n").length)}
         onChange={(e) => setDraft(e.target.value)}

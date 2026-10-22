@@ -94,3 +94,42 @@ test("the director spawns a worker per line and reports to the user", async ({ p
   await expect(page.locator(".flow-messages")).toContainText("Started 2 worker(s).");
   await shot(page, "flow");
 });
+
+test("everything works from the keyboard", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText(
+    "Request changes",
+  );
+  await page.keyboard.press("Escape");
+
+  // g then a mnemonic goes to a view; the hint lists the ways on.
+  await page.keyboard.press("g");
+  await expect(page.locator(".chord-hint")).toContainText("Inbox");
+  await page.keyboard.press("i");
+  await expect(page.getByRole("button", { name: "Inbox 2" })).toHaveClass(/active/);
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("textbox", { name: "Command" }).fill("brd");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Board 1" })).toHaveClass(/active/);
+
+  await page.keyboard.press("n");
+  await page.keyboard.type("Keyboard only task");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".card", { hasText: "Keyboard only task" })).toBeVisible();
+
+  // Pick an agent waiting for permission by name, approve, write to it, leave the field again.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("textbox", { name: "Command" }).fill("First in ws2");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".drawer .decision")).toContainText("uv run pytest -x");
+  await page.keyboard.press("a");
+  await expect(page.locator(".drawer .log")).toContainText("12 passed, 1 failed");
+  await page.keyboard.press("p");
+  await expect(page.locator(".drawer textarea[data-prompt]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
+  await page.keyboard.press("t");
+  await expect(page.getByRole("button", { name: /^Report/ })).toHaveClass(/active/);
+});
