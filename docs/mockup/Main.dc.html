@@ -1,0 +1,1412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent supervisor — app shell</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;family=Source+Serif+4:wght@600&amp;display=swap">
+<style>
+body{margin:0;background:#0d1017}
+a{color:#6cb2ff}a:hover{color:#a9d1ff}
+button,input{font-family:inherit}
+.th-dark{--bg0:#0d1017;--bg1:#0f131a;--bg2:#11151d;--panel:#151a23;--card:#1a202c;--col:#121720;--line:#2a3142;--line2:#222a38;--btn:#232a38;--btnline:#34405a;--sel:#2a3550;--selrow:#1f2738;--track:#2f3748;--userbg:#1f2633;--term:#0d1017;--fg:#e7eaf0;--strong:#ffffff;--fg2:#d7dce6;--fg3:#c4cad6;--muted:#a3acbd;--dim:#8c96aa;--accent:#6cb2ff;--onaccent:#0b1220;--warn:#ffa24c;--onwarn:#1a1206;--warnbg:#2b2113;--warnline:#5a4220;--warnfg:#ffd9ad;--run:#6cb2ff;--runbg:#16263d;--runfg:#9fcbff;--rev:#b59cff;--revbg:#251d3d;--revfg:#cdb8ff;--ok:#9be7b4;--okbg:#15291e;--okfg:#a8efc2;--chg:#e6c27a;--chgbg:#2e2714;--tool:#7ee2a8;--msg:#c792ea;--msgfg:#dcc6f2;--sysfg:#ffd0a1;--addbg:rgba(126,226,168,.10);--addfg:#a8efc2;--delbg:rgba(255,138,138,.10);--delfg:#ffb4b4;--hunk:#cdb8ff;--notebg:#16223a;--noteline:#34507a;--notefg:#cfe3ff;--shadow:rgba(0,0,0,.5);--title:Inter,system-ui,sans-serif}
+.th-light{--bg0:#f3ebdd;--bg1:#efe5d4;--bg2:#f8f2e7;--panel:#fbf7ef;--card:#fffdf8;--col:#f2eadc;--line:#dccdb5;--line2:#e5d9c5;--btn:#efe4d2;--btnline:#cbb99c;--sel:#ecd3cc;--selrow:#f1dfd7;--track:#d6c5aa;--userbg:#efe2cf;--term:#fdf9f2;--fg:#2a1f1a;--strong:#170f0b;--fg2:#3b2f28;--fg3:#4d4037;--muted:#6b5c50;--dim:#73645a;--accent:#8b1e2d;--onaccent:#fff8f0;--warn:#b4530a;--onwarn:#fff8f0;--warnbg:#fbe7cc;--warnline:#e0b277;--warnfg:#6e3606;--run:#1f5f8b;--runbg:#dbe8f2;--runfg:#1b4f74;--rev:#6b3fa0;--revbg:#ebe0f4;--revfg:#55308a;--ok:#2f6b3a;--okbg:#dfeedd;--okfg:#24572e;--chg:#8a6d14;--chgbg:#f3e8c4;--tool:#2f6b3a;--msg:#7b3fa0;--msgfg:#5b2f7a;--sysfg:#7a3d0a;--addbg:rgba(47,107,58,.10);--addfg:#24572e;--delbg:rgba(139,30,45,.08);--delfg:#8b1e2d;--hunk:#6b3fa0;--notebg:#f6e6e1;--noteline:#d9a9a0;--notefg:#5e1520;--shadow:rgba(60,30,20,.18);--title:'Source Serif 4',Georgia,serif}
+@keyframes busdot{0%{left:0%}100%{left:calc(100% - 8px)}}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,162,76,.65)}70%{box-shadow:0 0 0 7px rgba(255,162,76,0)}100%{box-shadow:0 0 0 0 rgba(255,162,76,0)}}
+@keyframes orbit{from{transform:rotateX(-14deg) rotateY(0deg)}to{transform:rotateX(-14deg) rotateY(360deg)}}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="min-height: 980px; display: flex; flex-direction: column; background: var(--bg0); color: var(--fg); font-family: Inter, system-ui, sans-serif; font-size: 13px; position: relative">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg2)">
+    <div style="display: flex; align-items: baseline; gap: 10px">
+      <span style="font-weight: 700; font-size: 17px; letter-spacing: 0.02em; font-family: var(--title); color: var(--accent)">fleet</span>
+      <span style="color: var(--muted); font-size: 12px; font-family: 'JetBrains Mono', monospace">MacBook + 2 Coder pods · laboneq</span>
+    </div>
+    <nav aria-label="Views" style="display: flex; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; flex-wrap: wrap">
+      <sc-for list="{{views}}" as="v" hint-placeholder-count="6">
+        <button onClick="{{v.pick}}" style="border: 0; border-radius: 6px; padding: 6px 11px; min-height: 34px; cursor: pointer; background: {{v.bg}}; color: {{v.fg}}; font-size: 13px; font-weight: 500; display: flex; gap: 7px; align-items: center">
+          <span>{{v.label}}</span>
+          <sc-if value="{{v.hasBadge}}" hint-placeholder-val="{{false}}">
+            <span style="background: var(--warn); color: var(--onwarn); border-radius: 9px; padding: 0 6px; font-size: 11px; font-weight: 700">{{v.badge}}</span>
+          </sc-if>
+          <span style="color: var(--dim); font-size: 11px; font-family: 'JetBrains Mono', monospace">{{v.key}}</span>
+        </button>
+      </sc-for>
+    </nav>
+    <div style="flex: 1"></div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{counters}}" as="c" hint-placeholder-count="4">
+        <button onClick="{{c.pick}}" style="display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 4px 10px; min-height: 30px; color: var(--fg); cursor: pointer; font-size: 12px">
+          <span style="width: 8px; height: 8px; border-radius: 4px; background: {{c.color}}"></span>
+          <span style="font-weight: 600">{{c.n}}</span>
+          <span style="color: var(--muted)">{{c.label}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <button onClick="{{toggleSpawn}}" style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 8px; padding: 7px 12px; min-height: 34px; font-weight: 600; cursor: pointer; font-size: 13px">+ New task</button>
+    <button onClick="{{toggleAwake}}" aria-pressed="{{awake}}" style="background: {{awakeBg}}; color: {{awakeFg}}; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; min-height: 34px; cursor: pointer; font-size: 12.5px; display: flex; align-items: center; gap: 7px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>
+      <span>{{awakeLabel}}</span>
+    </button>
+    <button onClick="{{toggleTheme}}" aria-label="Switch light or dark theme" style="background: var(--panel); color: var(--fg3); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; min-height: 34px; cursor: pointer; font-size: 12.5px; display: flex; align-items: center; gap: 7px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+      <span>{{themeLabel}}</span>
+    </button>
+    <button onClick="{{togglePalette}}" style="background: var(--panel); color: var(--fg3); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; min-height: 34px; cursor: pointer; font-size: 12.5px; display: flex; gap: 10px; align-items: center">
+      <span>Command</span><span style="font-family: 'JetBrains Mono', monospace; color: var(--dim)">⌘K</span>
+    </button>
+  </header>
+
+  <div style="display: flex; align-items: center; gap: 18px; padding: 6px 16px; border-bottom: 1px solid var(--line); background: var(--bg1); font-size: 12px; flex-wrap: wrap; min-height: 22px">
+    <span style="color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10.5px; font-weight: 600">Bus</span>
+    <sc-for list="{{ticker}}" as="m" hint-placeholder-count="2">
+      <div style="display: flex; align-items: center; gap: 8px; min-width: 0">
+        <span style="color: {{m.fromColor}}; font-weight: 600; font-family: 'JetBrains Mono', monospace">{{m.from}}</span>
+        <span aria-hidden="true" style="position: relative; width: 70px; height: 8px; display: inline-block">
+          <span style="position: absolute; top: 3.5px; left: 0; right: 0; height: 1px; background: var(--track)"></span>
+          <span style="position: absolute; top: 0; width: 8px; height: 8px; border-radius: 4px; background: {{m.fromColor}}; animation: busdot 1.4s linear infinite"></span>
+        </span>
+        <span style="color: {{m.toColor}}; font-weight: 600; font-family: 'JetBrains Mono', monospace">{{m.to}}</span>
+        <span style="color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px">{{m.text}}</span>
+        <span style="color: var(--dim)">{{m.ago}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{awake}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--warnbg); border-bottom: 1px solid var(--warnline); color: var(--warnfg); font-size: 12.5px; flex-wrap: wrap">
+      <span style="font-weight: 600">Sleep disabled</span>
+      <span style="font-family: 'JetBrains Mono', monospace">sudo pmset disablesleep 1</span>
+      <span>Re-enables itself when all agents are idle, after 2 h, or below 20 % battery. Builds and benchmarks on this Mac pause while the lid is closed; Coder pods keep going.</span>
+      <div style="flex: 1"></div>
+      <button onClick="{{toggleAwake}}" style="background: var(--warn); color: var(--onwarn); border: 0; border-radius: 6px; padding: 5px 10px; min-height: 30px; font-weight: 600; cursor: pointer">Turn off</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{spawnOpen}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--bg1); border-bottom: 1px solid var(--line); flex-wrap: wrap">
+      <label for="spawn-input" style="color: var(--muted); font-size: 12px">New task for director</label>
+      <input id="spawn-input" value="{{spawnText}}" onChange="{{onSpawnText}}" placeholder="Describe the task; director adds context and picks a worker" style="flex: 1 1 360px; min-width: 0; background: var(--card); border: 1px solid var(--btnline); border-radius: 6px; color: var(--fg); padding: 8px 10px; font-size: 13px">
+      <span style="color: var(--muted); font-size: 12px">Workspace</span>
+      <div style="display: flex; gap: 4px">
+        <sc-for list="{{wsPicks}}" as="w" hint-placeholder-count="4">
+          <button onClick="{{w.pick}}" style="background: {{w.bg}}; color: {{w.fg}}; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; min-height: 30px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{w.label}}</button>
+        </sc-for>
+      </div>
+      <button onClick="{{spawn}}" style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 6px; padding: 7px 12px; min-height: 32px; font-weight: 600; cursor: pointer">Spawn</button>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; align-items: flex-start; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap">
+    <button onClick="{{openDirector}}" style="display: flex; align-items: center; gap: 7px; background: transparent; border: 1px solid var(--line); border-radius: 16px; padding: 4px 10px; min-height: 30px; cursor: pointer; color: var(--fg)">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: {{dirColor}}"></span>
+      <span style="color: {{dirColor}}; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12px">director</span>
+      <span style="color: var(--muted); font-size: 11.5px">{{dirState}}</span>
+    </button>
+    <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 12.5px; color: var(--fg2); white-space: pre-line; line-height: 1.45; max-height: 92px; overflow-y: auto">{{dirLast}}</div>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <label for="dir-input" style="position: absolute; left: -9999px">Message the director</label>
+        <input id="dir-input" value="{{dirDraft}}" onChange="{{onDirDraft}}" onKeyDown="{{onDirKey}}" placeholder="Ask the director: status, priorities, a new task… (try “status”)" style="flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--btnline); border-radius: 6px; color: var(--fg); padding: 7px 10px; font-size: 12.5px">
+        <button onClick="{{sendDir}}" style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 6px; padding: 6px 12px; min-height: 32px; font-weight: 600; cursor: pointer; font-size: 12.5px">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; flex: 1; align-items: stretch; min-height: 0">
+
+    <aside aria-label="Agents" style="flex: 1 1 240px; max-width: 290px; border-right: 1px solid var(--line); background: var(--bg2); padding: 12px 8px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; align-items: center; padding: 0 8px 6px">
+          <span style="color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; flex: 1">Agents</span>
+          <sc-if value="{{anyUnseen}}" hint-placeholder-val="{{false}}">
+            <button onClick="{{markAllSeen}}" style="background: transparent; border: 0; color: var(--accent); cursor: pointer; font-size: 11.5px; min-height: 24px">Mark all seen</button>
+          </sc-if>
+        </div>
+        <sc-for list="{{tree}}" as="r" hint-placeholder-count="8">
+          <button onClick="{{r.pick}}" style="display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; border-radius: 6px; padding: 6px 8px 6px {{r.pad}}px; background: {{r.bg}}; color: var(--fg); cursor: pointer; font-size: 12.5px; min-height: 32px; box-sizing: border-box">
+            <span style="width: 8px; height: 8px; border-radius: 4px; background: {{r.dot}}; flex: 0 0 8px; animation: {{r.anim}}"></span>
+            <span style="color: {{r.color}}; font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.name}}</span>
+            <span style="color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; font-weight: {{r.weight}}">{{r.title}}</span>
+            <sc-if value="{{r.unseen}}" hint-placeholder-val="{{false}}">
+              <span style="background: var(--accent); color: var(--onaccent); border-radius: 8px; padding: 0 5px; font-size: 10px; font-weight: 700">new</span>
+            </sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; padding: 0 8px">Hosts · jj workspaces</div>
+        <sc-for list="{{workspaces}}" as="w" hint-placeholder-count="4">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 4px 8px; flex-wrap: wrap">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--fg); width: 30px">{{w.name}}</span>
+            <span style="font-size: 11px; color: var(--muted); width: 92px">{{w.host}}</span>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap">
+              <sc-for list="{{w.agents}}" as="x" hint-placeholder-count="1">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{x.color}}; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px">{{x.name}}</span>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin: 0; padding: 0 8px; color: var(--dim); font-size: 11.5px; line-height: 1.5">Sample data. Agents advance every ~1.5 s; answer, approve or start them to see cards travel. “new” stays until you look.</p>
+    </aside>
+
+    <main style="flex: 999 1 560px; min-width: 0; padding: 14px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+
+      <sc-if value="{{isBoard}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">Board</h1>
+          <span style="color: var(--muted); font-size: 12px">Columns show whose turn it is. Cards move by themselves; the buttons are the moves you would drag.</span>
+        </div>
+        <div style="overflow-x: auto; padding-bottom: 6px">
+          <div style="display: flex; gap: 10px; align-items: flex-start; width: max-content">
+            <sc-for list="{{columns}}" as="col" hint-placeholder-count="6">
+              <section style="width: 240px; background: var(--col); border: 1px solid {{col.border}}; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 580px; box-sizing: border-box">
+                <div style="display: flex; align-items: center; gap: 6px; padding: 2px 4px">
+                  <span style="width: 8px; height: 8px; border-radius: 4px; background: {{col.color}}"></span>
+                  <h2 style="margin: 0; font-size: 12.5px; font-weight: 600">{{col.label}}</h2>
+                  <span style="color: var(--muted); font-size: 12px">{{col.count}}</span>
+                  <div style="flex: 1"></div>
+                  <sc-if value="{{col.hasWip}}" hint-placeholder-val="{{false}}">
+                    <span style="font-size: 11px; color: {{col.wipColor}}; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px">WIP {{col.wip}}</span>
+                  </sc-if>
+                </div>
+                <sc-for list="{{col.cards}}" as="c" hint-placeholder-count="2">
+                  <article style="background: var(--card); border: 1px solid {{c.ring}}; border-radius: 8px; padding: 9px; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 1px 2px var(--shadow)">
+                    <button onClick="{{c.select}}" style="display: flex; flex-direction: column; gap: 5px; text-align: left; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; width: 100%">
+                      <span style="display: flex; align-items: center; gap: 6px; width: 100%">
+                        <span style="width: 8px; height: 8px; border-radius: 4px; background: {{c.color}}"></span>
+                        <span style="color: {{c.color}}; font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{c.name}}</span>
+                        <span style="color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11px">{{c.ws}}</span>
+                        <span style="flex: 1"></span>
+                        <sc-if value="{{c.unseen}}" hint-placeholder-val="{{false}}">
+                          <span style="background: var(--accent); color: var(--onaccent); border-radius: 8px; padding: 0 5px; font-size: 10px; font-weight: 700">new</span>
+                        </sc-if>
+                        <span style="color: var(--muted); font-size: 11px">{{c.elapsed}}</span>
+                      </span>
+                      <span style="font-weight: 600; font-size: 13px; line-height: 1.35">{{c.title}}</span>
+                      <span style="color: var(--fg3); font-size: 12px">▸ {{c.todo}}</span>
+                    </button>
+                    <sc-if value="{{c.hasDecision}}" hint-placeholder-val="{{false}}">
+                      <div style="background: var(--warnbg); border: 1px solid var(--warnline); border-radius: 6px; padding: 6px 7px; display: flex; flex-direction: column; gap: 4px">
+                        <span style="font-size: 11.5px; color: var(--warnfg); font-family: 'JetBrains Mono', monospace; word-break: break-word">{{c.decisionText}}</span>
+                        <span style="font-size: 11.5px; color: var(--warnfg); line-height: 1.4; opacity: 0.9">{{c.decisionWhy}}</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{c.hasNote}}" hint-placeholder-val="{{false}}">
+                      <div style="background: var(--notebg); border: 1px solid var(--noteline); border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: var(--notefg); line-height: 1.4"><strong>You should know:</strong> {{c.note}}</div>
+                    </sc-if>
+                    <div style="display: flex; gap: 8px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap">
+                      <span>{{c.host}}</span>
+                      <sc-if value="{{c.hasSubs}}" hint-placeholder-val="{{false}}"><span>{{c.subsLabel}}</span></sc-if>
+                      <sc-if value="{{c.hasForYou}}" hint-placeholder-val="{{false}}"><span style="color: var(--rev)">{{c.forYouLabel}}</span></sc-if>
+                      <sc-if value="{{c.hasHunks}}" hint-placeholder-val="{{false}}"><span style="color: var(--rev)">{{c.hunksLabel}}</span></sc-if>
+                      <sc-if value="{{c.hasPoints}}" hint-placeholder-val="{{false}}"><span style="color: var(--warn)">{{c.pointsLabel}}</span></sc-if>
+                      <span>ctx {{c.ctx}}</span>
+                    </div>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap">
+                      <sc-for list="{{c.actions}}" as="act" hint-placeholder-count="2">
+                        <button onClick="{{act.run}}" style="background: {{act.bg}}; color: {{act.fg}}; border: 1px solid {{act.border}}; border-radius: 6px; padding: 4px 8px; min-height: 28px; font-size: 12px; font-weight: 500; cursor: pointer">{{act.label}}</button>
+                      </sc-for>
+                    </div>
+                  </article>
+                </sc-for>
+              </section>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isInbox}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">Inbox</h1>
+          <span style="color: var(--muted); font-size: 12px">Everything waiting on you, oldest first, with Claude’s explanation. Answer inline.</span>
+        </div>
+        <sc-if value="{{inboxEmpty}}" hint-placeholder-val="{{false}}">
+          <div style="padding: 40px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px">Nothing waits on you. Agents keep working.</div>
+        </sc-if>
+        <sc-for list="{{inbox}}" as="it" hint-placeholder-count="3">
+          <article style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <span style="background: {{it.kindBg}}; color: {{it.kindFg}}; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600">{{it.kind}}</span>
+              <span style="color: {{it.color}}; font-weight: 600; font-family: 'JetBrains Mono', monospace">{{it.name}}</span>
+              <span style="color: var(--muted)">{{it.title}}</span>
+              <span style="color: var(--muted); font-size: 11.5px">· {{it.host}}</span>
+              <div style="flex: 1"></div>
+              <span style="color: var(--muted); font-size: 12px">waiting {{it.waiting}}</span>
+              <button onClick="{{it.open}}" style="background: transparent; color: var(--accent); border: 0; cursor: pointer; font-size: 12px; min-height: 28px">Open</button>
+            </div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--fg); background: var(--term); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; word-break: break-word">{{it.text}}</div>
+            <div style="color: var(--fg2); font-size: 12.5px; line-height: 1.5; white-space: pre-line">{{it.context}}</div>
+            <sc-if value="{{it.hasRisk}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                <sc-for list="{{it.risk}}" as="rk" hint-placeholder-count="3">
+                  <span style="border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--muted)">{{rk}}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap">
+              <sc-for list="{{it.actions}}" as="act" hint-placeholder-count="3">
+                <button onClick="{{act.run}}" style="background: {{act.bg}}; color: {{act.fg}}; border: 1px solid {{act.border}}; border-radius: 6px; padding: 6px 12px; min-height: 32px; font-size: 12.5px; font-weight: 500; cursor: pointer">{{act.label}}</button>
+              </sc-for>
+            </div>
+          </article>
+        </sc-for>
+        <sc-if value="{{hasPointDocs}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin: 8px 0 0; font-size: 13px; font-weight: 600">Open points <span style="color: var(--muted); font-weight: 400; font-size: 12px">· collected from the Markdown files agents wrote for you; answers go back to the agent</span></h2>
+          <sc-for list="{{pointDocs}}" as="pd" hint-placeholder-count="2">
+            <article style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+                <span style="color: {{pd.color}}; font-weight: 600; font-family: 'JetBrains Mono', monospace">{{pd.name}}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--fg2)">{{pd.path}}</span>
+                <span style="font-size: 11.5px; color: {{pd.statusColor}}">{{pd.status}}</span>
+                <div style="flex: 1"></div>
+                <button onClick="{{pd.view}}" style="background: transparent; color: var(--accent); border: 0; cursor: pointer; font-size: 12px; min-height: 28px">Open file</button>
+              </div>
+              <sc-for list="{{pd.points}}" as="pt" hint-placeholder-count="3">
+                <div style="display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; background: var(--bg1); border: 1px solid var(--line2); border-radius: 6px">
+                  <span style="font-size: 12.5px; line-height: 1.45">{{pt.text}}</span>
+                  <sc-if value="{{pt.answered}}" hint-placeholder-val="{{false}}">
+                    <span style="font-size: 12px; color: var(--ok)">✓ {{pt.answer}}</span>
+                  </sc-if>
+                  <sc-if value="{{pt.open}}" hint-placeholder-val="{{true}}">
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">
+                      <sc-for list="{{pt.quick}}" as="qk" hint-placeholder-count="3">
+                        <button onClick="{{qk.run}}" style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 3px 9px; min-height: 28px; cursor: pointer; font-size: 12px">{{qk.label}}</button>
+                      </sc-for>
+                      <input value="{{pt.draft}}" onChange="{{pt.onDraft}}" placeholder="or write an answer" aria-label="Answer" style="flex: 1 1 200px; min-width: 0; background: var(--card); border: 1px solid var(--btnline); border-radius: 6px; color: var(--fg); padding: 5px 8px; font-size: 12px">
+                      <button onClick="{{pt.submit}}" style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 6px; padding: 4px 10px; min-height: 28px; cursor: pointer; font-size: 12px; font-weight: 600">Answer</button>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </article>
+          </sc-for>
+        </sc-if>
+        <sc-if value="{{hasFyi}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin: 8px 0 0; font-size: 13px; font-weight: 600">You should know <span style="color: var(--muted); font-weight: 400; font-size: 12px">· side-agent notes, no action required</span></h2>
+          <sc-for list="{{fyi}}" as="fy" hint-placeholder-count="2">
+            <div style="display: flex; align-items: flex-start; gap: 10px; background: var(--notebg); border: 1px solid var(--noteline); border-radius: 8px; padding: 9px 11px">
+              <span style="color: {{fy.color}}; font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{fy.name}}</span>
+              <span style="color: var(--notefg); font-size: 12.5px; line-height: 1.45; flex: 1">{{fy.text}}</span>
+              <button onClick="{{fy.forward}}" style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 3px 8px; min-height: 26px; cursor: pointer; font-size: 11.5px">Tell {{fy.name}}</button>
+              <button onClick="{{fy.dismiss}}" style="background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; min-height: 26px; cursor: pointer; font-size: 11.5px">Dismiss</button>
+            </div>
+          </sc-for>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{gridNormal}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">Grid</h1>
+          <span style="color: var(--muted); font-size: 12px">Live sessions. Filter each tile to main or subagent output; enlarge any tile.</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 10px">
+          <sc-for list="{{tiles}}" as="t" hint-placeholder-count="6">
+            <dc-import name="Tile" agent="{{t}}" height="{{tileH}}" hint-size="100%,400px"></dc-import>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{gridBig}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">
+          <button onClick="{{unenlarge}}" style="background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12px">← All tiles</button>
+          <sc-for list="{{others}}" as="o" hint-placeholder-count="5">
+            <button onClick="{{o.pick}}" style="display: flex; align-items: center; gap: 6px; background: var(--panel); color: var(--fg); border: 1px solid {{o.ring}}; border-radius: 16px; padding: 4px 10px; min-height: 30px; cursor: pointer; font-size: 12px">
+              <span style="width: 8px; height: 8px; border-radius: 4px; background: {{o.dot}}; animation: {{o.anim}}"></span>
+              <span style="color: {{o.color}}; font-family: 'JetBrains Mono', monospace; font-weight: 600">{{o.name}}</span>
+              <span style="color: var(--muted)">{{o.stateLabel}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <dc-import name="Tile" agent="{{bigTile}}" height="{{bigH}}" hint-size="100%,680px"></dc-import>
+      </sc-if>
+
+      <sc-if value="{{isTimeline}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">Timeline</h1>
+          <span style="color: var(--muted); font-size: 12px">One lane per agent. Orange stretches are time the agent waited on you.</span>
+          <div style="flex: 1"></div>
+          <div role="group" aria-label="Time window" style="display: flex; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px">
+            <sc-for list="{{windows}}" as="wn" hint-placeholder-count="2">
+              <button onClick="{{wn.pick}}" style="background: {{wn.bg}}; color: {{wn.fg}}; border: 0; border-radius: 6px; padding: 4px 10px; min-height: 28px; cursor: pointer; font-size: 12px">{{wn.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 7px">
+          <div style="display: grid; grid-template-columns: 170px minmax(0, 1fr) 130px; gap: 10px">
+            <span></span>
+            <div style="position: relative; height: 16px; font-size: 11px; color: var(--dim)">
+              <sc-for list="{{axis}}" as="ax" hint-placeholder-count="5">
+                <span style="position: absolute; left: {{ax.left}}%; transform: translateX({{ax.shift}}%)">{{ax.label}}</span>
+              </sc-for>
+            </div>
+            <span></span>
+          </div>
+          <sc-for list="{{lanes}}" as="ln" hint-placeholder-count="7">
+            <div style="display: grid; grid-template-columns: 170px minmax(0, 1fr) 130px; gap: 10px; align-items: center">
+              <button onClick="{{ln.pick}}" style="display: flex; align-items: center; gap: 7px; background: transparent; border: 0; color: var(--fg); cursor: pointer; text-align: left; min-height: 28px; padding: 0; min-width: 0">
+                <span style="color: {{ln.color}}; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12px">{{ln.name}}</span>
+                <span style="color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ln.title}}</span>
+              </button>
+              <div style="position: relative; height: 24px; background: var(--col); border: 1px solid var(--line2); border-radius: 5px; overflow: hidden">
+                <sc-for list="{{ln.segs}}" as="sg" hint-placeholder-count="3">
+                  <span title="{{sg.tip}}" style="position: absolute; top: 4px; bottom: 4px; left: {{sg.left}}%; width: {{sg.width}}%; background: {{sg.color}}; border-radius: 3px; opacity: {{sg.op}}"></span>
+                </sc-for>
+                <sc-for list="{{ln.marks}}" as="mk" hint-placeholder-count="2">
+                  <span title="{{mk.tip}}" style="position: absolute; top: 0; bottom: 0; left: {{mk.left}}%; width: 2px; background: var(--msg)"></span>
+                </sc-for>
+              </div>
+              <span style="font-size: 11.5px; color: var(--warn)">{{ln.waitLabel}}</span>
+            </div>
+          </sc-for>
+          <div style="display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); padding-top: 6px; border-top: 1px solid var(--line2)">
+            <sc-for list="{{legend}}" as="lg" hint-placeholder-count="5">
+              <span style="display: flex; align-items: center; gap: 5px"><span style="width: 14px; height: 8px; border-radius: 2px; background: {{lg.color}}"></span>{{lg.label}}</span>
+            </sc-for>
+            <span style="display: flex; align-items: center; gap: 5px"><span style="width: 2px; height: 12px; background: var(--msg)"></span>message</span>
+            <div style="flex: 1"></div>
+            <span style="color: var(--fg2)">{{bottleneck}}</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isFlow}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">Flow</h1>
+          <span style="color: var(--muted); font-size: 12px">Dots are messages in flight, colored by sender. Click a link to filter the log; click an agent to open it.</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start">
+          <div style="flex: 999 1 560px; min-width: 0; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; box-sizing: border-box">
+            <svg viewBox="0 0 920 460" role="img" aria-label="Agents and the messages flowing between them" style="width: 100%; height: auto; display: block">
+              <sc-for list="{{edges}}" as="e" hint-placeholder-count="6">
+                <path d="{{e.d}}" fill="none" onClick="{{e.pick}}" style="cursor: pointer; stroke: {{e.stroke}}; stroke-width: {{e.w}}; stroke-dasharray: {{e.dash}}"></path>
+              </sc-for>
+              <sc-for list="{{packets}}" as="p" hint-placeholder-count="3">
+                <circle r="{{p.r}}" style="fill: {{p.color}}">
+                  <animateMotion dur="{{p.dur}}" repeatCount="indefinite" path="{{p.d}}"></animateMotion>
+                </circle>
+              </sc-for>
+              <sc-for list="{{nodes}}" as="nd" hint-placeholder-count="8">
+                <g onClick="{{nd.pick}}" style="cursor: pointer">
+                  <sc-if value="{{nd.needs}}" hint-placeholder-val="{{false}}">
+                    <circle cx="{{nd.x}}" cy="{{nd.y}}" r="{{nd.ringR}}" fill="none" stroke-width="2" stroke-dasharray="4 4" style="stroke: var(--warn)"></circle>
+                  </sc-if>
+                  <circle cx="{{nd.x}}" cy="{{nd.y}}" r="{{nd.r}}" stroke-width="{{nd.sw}}" opacity="{{nd.op}}" style="fill: var(--card); stroke: {{nd.color}}"></circle>
+                  <text x="{{nd.x}}" y="{{nd.ty}}" text-anchor="middle" font-size="{{nd.fs}}" font-weight="600" font-family="JetBrains Mono, monospace" style="fill: {{nd.color}}">{{nd.name}}</text>
+                  <text x="{{nd.x}}" y="{{nd.sy}}" text-anchor="middle" font-size="11" font-family="Inter, sans-serif" style="fill: var(--muted)">{{nd.stateLabel}}</text>
+                </g>
+              </sc-for>
+            </svg>
+          </div>
+          <aside aria-label="Message log" style="flex: 1 1 300px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <h2 style="margin: 0; font-size: 12.5px; font-weight: 600">Messages</h2>
+              <span style="color: var(--muted); font-size: 12px">{{flowFilterLabel}}</span>
+              <div style="flex: 1"></div>
+              <sc-if value="{{hasFlowSel}}" hint-placeholder-val="{{false}}">
+                <button onClick="{{clearFlow}}" style="background: transparent; color: var(--accent); border: 0; cursor: pointer; font-size: 12px; min-height: 28px">Show all</button>
+              </sc-if>
+            </div>
+            <sc-if value="{{flowLogEmpty}}" hint-placeholder-val="{{false}}">
+              <div style="color: var(--muted); font-size: 12px; padding: 8px 0">No messages on this link yet. Subagent links carry tool traffic, not messages.</div>
+            </sc-if>
+            <sc-for list="{{flowLog}}" as="m" hint-placeholder-count="5">
+              <div style="display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; background: var(--bg1); border: 1px solid var(--line2); border-radius: 6px">
+                <div style="display: flex; gap: 6px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+                  <span style="color: {{m.fromColor}}; font-weight: 600">{{m.from}}</span>
+                  <span style="color: var(--dim)">→</span>
+                  <span style="color: {{m.toColor}}; font-weight: 600">{{m.to}}</span>
+                  <div style="flex: 1"></div>
+                  <span style="color: var(--dim); font-family: Inter, sans-serif">{{m.ago}}</span>
+                </div>
+                <div style="color: var(--fg2); font-size: 12.5px; line-height: 1.45; white-space: pre-line">{{m.text}}</div>
+              </div>
+            </sc-for>
+          </aside>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isHistory}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+          <h1 style="margin: 0; font-size: 16px; font-weight: 600; font-family: var(--title)">History <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); font-weight: 400">jj</span></h1>
+          <span style="color: var(--muted); font-size: 12px">All workspaces in one graph. The op slider is your checkpoint list.</span>
+          <div style="flex: 1"></div>
+          <div role="group" aria-label="Graph style" style="display: flex; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px">
+            <sc-for list="{{histModes}}" as="hm" hint-placeholder-count="2">
+              <button onClick="{{hm.pick}}" aria-pressed="{{hm.on}}" style="background: {{hm.bg}}; color: {{hm.fg}}; border: 0; border-radius: 6px; padding: 4px 10px; min-height: 28px; cursor: pointer; font-size: 12px">{{hm.label}}</button>
+            </sc-for>
+          </div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px">mutable() | trunk()</span>
+          <button style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12px">Open in jj orbit ↗</button>
+        </div>
+
+        <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <label for="op-slider" style="font-size: 12px; color: var(--muted)">Operation</label>
+          <input id="op-slider" type="range" min="0" max="{{opMax}}" value="{{opIdx}}" onChange="{{onOp}}" style="flex: 1 1 260px; accent-color: var(--accent)">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--fg)">{{opSel.id}}</span>
+          <span style="color: {{opSel.color}}; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12px">{{opSel.who}}</span>
+          <span style="font-size: 12.5px">{{opSel.what}}</span>
+          <span style="color: var(--muted); font-size: 12px">{{opSel.t}}</span>
+          <sc-if value="{{opPast}}" hint-placeholder-val="{{false}}">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--warnfg); background: var(--warnbg); border: 1px solid var(--warnline); border-radius: 6px; padding: 3px 7px">jj op restore {{opSel.id}}</span>
+            <button style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 4px 9px; min-height: 28px; cursor: pointer; font-size: 12px">Preview</button>
+            <button style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 6px; padding: 4px 9px; min-height: 28px; cursor: pointer; font-size: 12px; font-weight: 600">Restore…</button>
+          </sc-if>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start">
+          <div style="flex: 999 1 560px; min-width: 0; background: var(--term); border: 1px solid var(--line); border-radius: 10px; padding: 10px; box-sizing: border-box; overflow-x: auto">
+            <sc-if value="{{histClassic}}" hint-placeholder-val="{{true}}">
+              <div style="position: relative; min-width: 640px">
+                <svg width="{{gW}}" height="{{gH}}" aria-hidden="true" style="position: absolute; left: 0; top: 0">
+                  <sc-for list="{{gEdges}}" as="ge" hint-placeholder-count="8">
+                    <path d="{{ge.d}}" fill="none" stroke-width="2" style="stroke: {{ge.color}}; opacity: {{ge.op}}"></path>
+                  </sc-for>
+                  <sc-for list="{{gNodes}}" as="gn" hint-placeholder-count="10">
+                    <circle cx="{{gn.x}}" cy="{{gn.y}}" r="{{gn.r}}" stroke-width="2.5" stroke-dasharray="{{gn.dash}}" style="fill: {{gn.fill}}; stroke: {{gn.stroke}}; opacity: {{gn.op}}"></circle>
+                  </sc-for>
+                </svg>
+                <sc-for list="{{gRows}}" as="gr" hint-placeholder-count="10">
+                  <div style="height: 34px; display: flex; align-items: center; gap: 8px; padding-left: {{gW}}px; opacity: {{gr.op}}; font-size: 12.5px; white-space: nowrap">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px"><span style="color: var(--accent); font-weight: 600">{{gr.pre}}</span><span style="color: var(--dim)">{{gr.rest}}</span></span>
+                    <sc-for list="{{gr.chips}}" as="ch" hint-placeholder-count="1">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{ch.color}}; border: 1px solid {{ch.color}}; border-radius: 4px; padding: 0 5px">{{ch.label}}</span>
+                    </sc-for>
+                    <span style="color: {{gr.descColor}}; overflow: hidden; text-overflow: ellipsis">{{gr.desc}}</span>
+                    <sc-if value="{{gr.hasAgent}}" hint-placeholder-val="{{false}}">
+                      <span style="color: {{gr.agentColor}}; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">· {{gr.agent}}</span>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{hist3d}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; align-items: center; gap: 10px; padding-bottom: 6px">
+                <button onClick="{{toggleSpin}}" style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 4px 10px; min-height: 28px; cursor: pointer; font-size: 12px">{{spinLabel}}</button>
+                <span style="color: var(--muted); font-size: 12px">Lanes layout: one lane per workspace around trunk, height = generation. Mockup in CSS 3D; the real view is jj orbit’s three.js renderer (lanes, spiral, flat).</span>
+              </div>
+              <div style="height: 430px; perspective: 1100px; display: flex; align-items: center; justify-content: center; overflow: hidden">
+                <div style="position: relative; width: 0; height: 0; transform-style: preserve-3d; animation: orbit 36s linear infinite; animation-play-state: {{spinState}}">
+                  <sc-for list="{{threads}}" as="th" hint-placeholder-count="6">
+                    <span style="position: absolute; left: -1px; top: -200px; width: 2px; height: 360px; background: {{th.color}}; opacity: 0.35; transform: rotateY({{th.a}}deg) translateZ({{th.r}}px)"></span>
+                  </sc-for>
+                  <sc-for list="{{orbitNodes}}" as="on" hint-placeholder-count="10">
+                    <div style="position: absolute; left: 0; top: 0; transform: rotateY({{on.a}}deg) translateZ({{on.r}}px) translateY({{on.y}}px); display: flex; align-items: center; gap: 6px; white-space: nowrap; backface-visibility: hidden; opacity: {{on.op}}">
+                      <span style="width: 14px; height: 14px; margin-left: -7px; margin-top: -7px; border-radius: 7px; border: 2.5px solid {{on.stroke}}; background: {{on.fill}}; box-sizing: border-box"></span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; margin-top: -7px">{{on.label}}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+          <aside aria-label="Operation log" style="flex: 1 1 280px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box">
+            <h2 style="margin: 0 0 4px; font-size: 12.5px; font-weight: 600">Op log <span style="color: var(--muted); font-weight: 400">· who changed the repo</span></h2>
+            <sc-for list="{{opRows}}" as="op" hint-placeholder-count="8">
+              <button onClick="{{op.pick}}" style="display: flex; align-items: center; gap: 8px; background: {{op.bg}}; border: 0; border-radius: 6px; padding: 5px 7px; min-height: 30px; cursor: pointer; text-align: left; color: var(--fg); font-size: 12px">
+                <span style="font-family: 'JetBrains Mono', monospace; color: var(--dim); font-size: 11px">{{op.short}}</span>
+                <span style="color: {{op.color}}; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 11.5px; width: 56px">{{op.who}}</span>
+                <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{op.what}}</span>
+                <span style="color: var(--muted); font-size: 11px">{{op.t}}</span>
+              </button>
+            </sc-for>
+          </aside>
+        </div>
+      </sc-if>
+    </main>
+
+    <sc-if value="{{hasDrawer}}" hint-placeholder-val="{{true}}">
+      <aside aria-label="Selected task" style="flex: 1 1 380px; max-width: 470px; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; min-width: 0; box-sizing: border-box">
+        <div style="padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line)">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <span style="width: 9px; height: 9px; border-radius: 5px; background: {{d.color}}"></span>
+            <span style="color: {{d.color}}; font-family: 'JetBrains Mono', monospace; font-weight: 600">{{d.name}}</span>
+            <span style="color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 12px">{{d.ws}} · {{d.host}}</span>
+            <span style="background: {{d.stateBg}}; color: {{d.stateColor}}; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 600">{{d.stateLabel}}</span>
+            <div style="flex: 1"></div>
+            <button onClick="{{d.enlarge}}" style="background: transparent; color: var(--accent); border: 0; cursor: pointer; font-size: 12px; min-height: 28px">Open in grid</button>
+            <button onClick="{{closeDrawer}}" aria-label="Close panel" style="background: transparent; color: var(--muted); border: 0; cursor: pointer; min-height: 28px; min-width: 28px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+          </div>
+          <div style="font-size: 14px; font-weight: 600">{{d.title}}</div>
+          <div style="color: var(--muted); font-size: 12px">{{d.elapsed}} · ctx {{d.ctx}} · ▸ {{d.todo}}</div>
+        </div>
+        <div role="tablist" style="display: flex; gap: 2px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap">
+          <sc-for list="{{tabs}}" as="tb" hint-placeholder-count="5">
+            <button role="tab" aria-selected="{{tb.on}}" onClick="{{tb.pick}}" style="background: {{tb.bg}}; color: {{tb.fg}}; border: 0; border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12.5px">{{tb.label}}</button>
+          </sc-for>
+        </div>
+        <div style="padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+          <sc-if value="{{tabLive}}" hint-placeholder-val="{{true}}">
+            <dc-import name="Tile" agent="{{d}}" height="{{drawerH}}" hint-size="100%,560px"></dc-import>
+          </sc-if>
+          <sc-if value="{{tabFiles}}" hint-placeholder-val="{{false}}">
+            <sc-if value="{{d.noFiles}}" hint-placeholder-val="{{false}}">
+              <div style="color: var(--muted); padding: 10px 2px">No files yet.</div>
+            </sc-if>
+            <sc-for list="{{d.fileRows}}" as="f" hint-placeholder-count="3">
+              <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; flex-wrap: wrap">
+                <span style="background: {{f.kindBg}}; color: {{f.kindFg}}; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600">{{f.k}}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; flex: 1; min-width: 0; word-break: break-all">{{f.n}}</span>
+                <span style="color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{f.d}}</span>
+                <button style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 3px 8px; min-height: 26px; cursor: pointer; font-size: 11.5px">View</button>
+                <button style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 3px 8px; min-height: 26px; cursor: pointer; font-size: 11.5px">VS Code</button>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{tabDiff}}" hint-placeholder-val="{{false}}">
+            <sc-if value="{{d.noDiff}}" hint-placeholder-val="{{false}}">
+              <div style="color: var(--muted); padding: 10px 2px">No changes yet.</div>
+            </sc-if>
+            <div style="background: var(--term); border: 1px solid var(--line2); border-radius: 6px; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6">
+              <sc-for list="{{d.diffRows}}" as="dl" hint-placeholder-count="6">
+                <div style="white-space: pre; padding: 0 10px; background: {{dl.bg}}; color: {{dl.fg}}">{{dl.t}}</div>
+              </sc-for>
+            </div>
+            <sc-if value="{{d.hasRd}}" hint-placeholder-val="{{false}}">
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px">
+                  <span style="font-weight: 600">ReviewDiff</span>
+                  <span>{{d.rdLabel}}</span>
+                  <span style="color: var(--muted)">{{d.rdDetail}}</span>
+                </div>
+                <span style="position: relative; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; display: block"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: {{d.rdPct}}%; background: var(--ok)"></span></span>
+                <span style="font-size: 11.5px; color: var(--muted)">Approvals are keyed by hunk content and shared by all jj workspaces, so after “Request changes” only the hunks the agent touched come back.</span>
+              </div>
+            </sc-if>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap">
+              <button style="background: var(--accent); color: var(--onaccent); border: 0; border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12px; font-weight: 600">Review in VS Code</button>
+              <button onClick="{{openHistory}}" style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12px">Show in jj history</button>
+              <button style="background: var(--btn); color: var(--fg); border: 1px solid var(--btnline); border-radius: 6px; padding: 5px 10px; min-height: 30px; cursor: pointer; font-size: 12px">Walkthrough</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{tabReport}}" hint-placeholder-val="{{false}}">
+            <sc-if value="{{d.noReport}}" hint-placeholder-val="{{false}}">
+              <div style="color: var(--muted); padding: 10px 2px">No report yet. Workers file one through report_result when done.</div>
+            </sc-if>
+            <sc-if value="{{d.hasReport}}" hint-placeholder-val="{{false}}">
+              <dl style="margin: 0; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px 10px; font-size: 12.5px">
+                <dt style="color: var(--muted)">Summary</dt><dd style="margin: 0">{{d.report.summary}}</dd>
+                <dt style="color: var(--muted)">Change</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{d.report.change}}</dd>
+                <dt style="color: var(--muted)">Tests</dt><dd style="margin: 0">{{d.report.tests}}</dd>
+                <dt style="color: var(--muted)">Open</dt>
+                <dd style="margin: 0; display: flex; flex-direction: column; gap: 4px">
+                  <sc-for list="{{d.report.open}}" as="q" hint-placeholder-count="2"><span>• {{q}}</span></sc-for>
+                </dd>
+              </dl>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{tabMsgs}}" hint-placeholder-val="{{false}}">
+            <sc-if value="{{d.noMsgs}}" hint-placeholder-val="{{false}}">
+              <div style="color: var(--muted); padding: 10px 2px">No messages for this agent.</div>
+            </sc-if>
+            <sc-for list="{{d.msgRows}}" as="m" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px">
+                <div style="display: flex; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+                  <span style="color: {{m.fromColor}}; font-weight: 600">{{m.from}}</span><span style="color: var(--dim)">→</span><span style="color: {{m.toColor}}; font-weight: 600">{{m.to}}</span>
+                  <div style="flex: 1"></div><span style="color: var(--dim); font-family: Inter, sans-serif">{{m.ago}}</span>
+                </div>
+                <div style="font-size: 12.5px; color: var(--fg2); white-space: pre-line; line-height: 1.45">{{m.text}}</div>
+              </div>
+            </sc-for>
+          </sc-if>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{paletteOpen}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; top: 70px; left: 50%; transform: translateX(-50%); width: min(560px, 92%); background: var(--panel); border: 1px solid var(--btnline); border-radius: 10px; box-shadow: 0 18px 50px var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 4px; z-index: 5">
+      <label for="palette-input" style="position: absolute; left: -9999px">Command</label>
+      <input id="palette-input" placeholder="Type a command or an agent name" style="background: var(--card); border: 1px solid var(--btnline); border-radius: 6px; color: var(--fg); padding: 9px 10px; font-size: 13px">
+      <sc-for list="{{commands}}" as="cm" hint-placeholder-count="5">
+        <button onClick="{{cm.run}}" style="display: flex; justify-content: space-between; background: transparent; color: var(--fg); border: 0; border-radius: 6px; padding: 8px 10px; min-height: 34px; cursor: pointer; font-size: 13px; text-align: left">
+          <span>{{cm.label}}</span><span style="color: var(--dim); font-family: 'JetBrains Mono', monospace; font-size: 12px">{{cm.key}}</span>
+        </button>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const L = (k, t, w) => ({ kind: k, src: k === 'sub' ? 'sub' : 'main', who: w || '', text: t });
+    this.L = L;
+    this.SC = {
+      running: { label: 'working', color: 'var(--run)', bg: 'var(--runbg)' },
+      needs: { label: 'needs you', color: 'var(--warn)', bg: 'var(--warnbg)' },
+      review: { label: 'in review', color: 'var(--rev)', bg: 'var(--revbg)' },
+      changes: { label: 'changes requested', color: 'var(--chg)', bg: 'var(--chgbg)' },
+      accepted: { label: 'accepted', color: 'var(--ok)', bg: 'var(--okbg)' },
+      queued: { label: 'queued', color: 'var(--dim)', bg: 'var(--btn)' }
+    };
+    this.LIGHT = { '#c792ea': '#7b3fa0', '#4fd1c5': '#0f766e', '#f6c453': '#8a5a00', '#f78fb3': '#b0175a', '#74b9ff': '#1d4ed8', '#a3e635': '#4d7c0f', '#fdba74': '#b13d08', '#7dd3fc': '#0369a1', '#fca5a5': '#9f1d1d', '#d8b4fe': '#6d28d9', '#8bd3dd': '#0e7490', '#e9b872': '#8a5a00', '#9fb4ff': '#4338ca', '#c3e88d': '#4d7c0f', '#ffffff': '#170f0b', '#a3acbd': '#6b5c50' };
+    this.POS = { director: [460, 225], alpha: [210, 105], bravo: [690, 105], charlie: [210, 345], delta: [690, 345], echo: [460, 410], foxtrot: [460, 45], 'explore#1': [855, 45], 'test-writer#2': [865, 175], 'explore#3': [865, 405] };
+    this.SPARE = [[75, 225], [845, 270], [300, 425]];
+    this.POOL = [['golf', '#7dd3fc'], ['hotel', '#fca5a5'], ['india', '#d8b4fe']];
+    const directorQ = [
+      { k: 'tool', t: 'ledger.status()' },
+      { k: 'out', t: 'bravo working · delta working · alpha needs Jan · charlie in review' },
+      { k: 'text', t: 'Holding echo until ws1 is free.' },
+      { msg: { to: 'delta', t: 'Reminder: skip hardware-dependent cases.' } },
+      { k: 'tool', t: 'ledger.update("bravo", "property tests in progress")' },
+      { msg: { to: 'bravo', t: 'Two things:\n1. Keep the Python API stable; the docs depend on it.\n2. Before you finish, compare against the Python reference on the example suite.' } },
+      { loop: 0 }
+    ];
+    const bravoQ = [
+      { k: 'tool', t: 'Read(laboneq/compiler/pulse_sheet.py)' },
+      { k: 'sub', w: 'explore#1', t: 'Grep("PulseSheet", laboneq/) → call sites in 9 files' },
+      { k: 'text', t: 'Only three call sites touch the hot loop. Keeping the Python wrapper, moving the core.' },
+      { note: 'explore#1 found a call site in laboneq/dsl that bravo’s plan does not mention.' },
+      { k: 'sub', w: 'test-writer#2', t: 'Write(rust/pulse_sheet/tests/props.rs) +64' },
+      { k: 'tool', t: 'Bash(cargo test -p pulse_sheet)' },
+      { k: 'out', t: 'test result: ok' },
+      { k: 'sub', w: 'explore#1', t: 'Read(docs/design/pulse_sheet.md)' },
+      { msg: { to: 'director', t: 'Status:\n- core loop ported to Rust\n- property tests in progress (3 of 5)\n- open points written to docs/design/pulse_sheet_open.md' } },
+      { doc: { path: 'docs/design/pulse_sheet_open.md', points: [{ id: 'b1', text: 'Keep the Python fallback path for one release, or drop it now?' }, { id: 'b2', text: 'Ship the Rust pass behind a feature flag in the next release?' }] }, k: 'text', t: 'I’ve written the open points to docs/design/pulse_sheet_open.md for you to check and decide.' },
+      { k: 'tool', t: 'Edit(laboneq/compiler/pulse_sheet.py) +12 −88' },
+      { k: 'sub', w: 'test-writer#2', t: 'Bash(cargo test props) → new cases pass' },
+      { k: 'text', t: 'Next: compare outputs with the Python reference on the example suite.' },
+      { k: 'tool', t: 'Bash(uv run pytest tests/compiler -k pulse_sheet)' },
+      { k: 'out', t: 'passed' },
+      { loop: 10 }
+    ];
+    const deltaQ = [
+      { k: 'tool', t: 'Bash(just bench codegen --quick)' },
+      { k: 'out', t: 'no baseline found' },
+      { k: 'text', t: 'I need a baseline before I can compare anything.' },
+      { decision: { kind: 'Question', text: 'Which baseline should the codegen benchmark compare against?', context: 'Comparing against main isolates the effect of the open changes but hides any drift since the last release.\nThe release tag shows what users would notice. Both doubles the benchmark time.', risk: ['no side effects', 'affects run time only'], options: [{ id: 'main', label: 'main today', primary: true }, { id: 'rel', label: 'Last release tag' }, { id: 'both', label: 'Both' }] } },
+      { k: 'tool', t: 'Bash(jj new main -m "bench baseline")' },
+      { k: 'tool', t: 'Bash(just bench codegen --save-baseline)' },
+      { k: 'out', t: 'baseline stored' },
+      { note: 'The baseline was built in debug mode; release-build numbers will differ.' },
+      { k: 'sub', w: 'explore#3', t: 'Grep("emit_seqc", laboneq/) → hot paths listed' },
+      { k: 'text', t: 'Profiling the two slowest cases.' },
+      { msg: { to: 'director', t: 'Baseline stored; profiling now.' } },
+      { loop: 8 }
+    ];
+    this.alphaAfter = [
+      { k: 'tool', t: 'Bash(uv run pytest tests/sweep -x --count=50)' },
+      { k: 'out', t: '50 passed' },
+      { k: 'text', t: 'Flake gone: the tolerance now scales with measured runner jitter.' },
+      { files: [{ n: '.fleet/alpha/report.md', k: 'for you', d: 'report' }] },
+      { msg: { to: 'director', t: 'Report ready: 50 of 50 runs green.' } },
+      { set: 'review' }
+    ];
+    const agents = {
+      director: {
+        color: '#c792ea', ws: 'hub', host: 'mac', title: 'Coordinator for this week’s tasks', state: 'running', ctx: '41%', elapsed: '1h 52m', todo: 'Tracking 6 tasks', waiting: '',
+        subs: [], notes: [], files: [{ n: '.fleet/ledger.md', k: 'ledger', d: '6 tasks' }], diff: [], report: null, unseen: false, queue: directorQ, qi: 0,
+        hist: [{ st: 'running', t: -6720 }], docs: [],
+        todos: [{ t: 'Plan the week’s tasks', s: 'done' }, { t: 'Spawn workers with context packs', s: 'done' }, { t: 'Track progress and unblock', s: 'active' }, { t: 'Integrate accepted work', s: 'open' }],
+        lines: [
+          L('user', 'Plan this week’s tasks, one worker per jj workspace. Max 4 running, 2 in review.'),
+          L('text', 'Splitting into 6 tasks and spawning workers with context packs.'),
+          L('tool', 'spawn_task("Fix flaky sweep timing test", ws1) → alpha'),
+          L('tool', 'spawn_task("Port pulse-sheet pass to Rust", ws2, host=coder) → bravo'),
+          L('tool', 'spawn_task("Migration guide for v3 API", ws3) → charlie'),
+          L('tool', 'spawn_task("Benchmark seqc codegen", ws4, host=coder) → delta'),
+          L('text', 'echo waits for ws1. foxtrot is accepted.')
+        ]
+      },
+      alpha: {
+        color: '#4fd1c5', ws: 'ws1', host: 'mac', title: 'Fix flaky sweep timing test', state: 'needs', ctx: '63%', elapsed: '18m', todo: 'Waiting for your permission', waiting: '4m',
+        subs: ['explore#1'], unseen: true, queue: [], qi: 0, after: this.alphaAfter, todoAfter: 'Confirming the fix (50 runs)',
+        notes: ['Two other tests in tests/sweep use the same fixed 1 ms tolerance.'],
+        decision: { kind: 'Permission', text: 'Bash(uv run pytest tests/sweep -x --count=50)', context: 'The fix changes a tolerance, so a single green run proves little. 50 repetitions take about a minute.\nIt only runs the tests in tests/sweep: no network, and it writes nothing outside .pytest_cache.', risk: ['local only', 'no network', 'writes .pytest_cache', '~1 min'], options: [{ id: 'once', label: 'Allow once', primary: true }, { id: 'always', label: 'Always in ws1' }, { id: 'deny', label: 'Deny' }] },
+        files: [{ n: 'tests/sweep/test_timing.py', k: 'modified', d: '+6 −3' }],
+        diff: ['@@ tests/sweep/test_timing.py @@', ' def test_sweep_timing(runner, sweep):', '     dt = run_and_measure(runner, sweep)', '-    assert abs(dt - sweep.expected) < 1e-3', '+    # CI runners jitter more than 1 ms', '+    tol = max(1e-3, 4 * runner.jitter())', '+    assert abs(dt - sweep.expected) < tol'],
+        report: null, rd: { total: 2, approved: 0, moves: 0, fmt: 0, wt: false },
+        reportAfter: { summary: 'Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.', change: 'jj zmplwqrs · ws1', tests: '50 of 50 repetitions green', open: ['Apply the same fix to the two similar sweep tests?'] },
+        hist: [{ st: 'running', t: -1080 }, { st: 'needs', t: -240 }], docs: [],
+        todos: [{ t: 'Reproduce the flake', s: 'done' }, { t: 'Find the root cause', s: 'done' }, { t: 'Fix the tolerance', s: 'done' }, { t: 'Confirm with 50 runs', s: 'active' }, { t: 'Write the report', s: 'open' }],
+        lines: [
+          L('user', 'Fix the flaky test in tests/sweep/test_timing.py. It fails about 1 in 5 on CI.'),
+          L('text', 'I’ll reproduce it first, then look at the timing assertions.'),
+          L('tool', 'Bash(uv run pytest tests/sweep/test_timing.py --count=20)'),
+          L('out', '3 failed, 17 passed'),
+          L('sub', 'Task: find all uses of wait_until in tests/', 'explore#1'),
+          L('sub', 'Grep("wait_until", tests/) → 14 matches', 'explore#1'),
+          L('text', 'The assertion uses a fixed 1 ms tolerance; CI runners jitter more than that.'),
+          L('tool', 'Edit(tests/sweep/test_timing.py) +6 −3'),
+          L('text', 'Before I report, I want to run the sweep tests 50 times. A single green run proves little for a flake.'),
+          L('sys', 'Permission needed: Bash(uv run pytest tests/sweep -x --count=50)')
+        ]
+      },
+      bravo: {
+        color: '#f6c453', ws: 'ws2', host: 'coder · jan-ws2', title: 'Port pulse-sheet pass to Rust', state: 'running', ctx: '37%', elapsed: '46m', todo: 'Property tests', waiting: '',
+        subs: ['explore#1', 'test-writer#2'], notes: [], unseen: false, queue: bravoQ, qi: 0, report: null, rd: { total: 14, approved: 0, moves: 3, fmt: 2, wt: false },
+        hist: [{ st: 'running', t: -2760 }], docs: [],
+        todos: [{ t: 'Map call sites', s: 'done' }, { t: 'Port the core loop', s: 'done' }, { t: 'Property tests', s: 'active' }, { t: 'Compare with the Python reference', s: 'open' }, { t: 'Report', s: 'open' }],
+        files: [{ n: 'rust/pulse_sheet/src/lib.rs', k: 'created', d: '+212' }, { n: 'rust/pulse_sheet/tests/props.rs', k: 'created', d: '+64' }],
+        diff: ['@@ laboneq/compiler/pulse_sheet.py @@', '-def build_pulse_sheet(events):', '-    sheet = PulseSheet()', '-    for ev in sorted(events, key=lambda e: e.time):', '+from laboneq._rust import pulse_sheet as _ps', '+', '+def build_pulse_sheet(events):', '+    return _ps.build(events)'],
+        lines: [
+          L('user', 'Port the pulse-sheet pass to Rust. Keep the Python API stable.'),
+          L('text', 'Spawning an explorer for call sites and a test writer for property tests.'),
+          L('sub', 'Task: map all PulseSheet call sites', 'explore#1'),
+          L('sub', 'Task: property tests for ordering invariants', 'test-writer#2'),
+          L('tool', 'Write(rust/pulse_sheet/src/lib.rs) +212')
+        ]
+      },
+      charlie: {
+        color: '#f78fb3', ws: 'ws3', host: 'mac', title: 'Migration guide for the v3 API', state: 'review', ctx: '55%', elapsed: '31m', todo: 'Done — report ready', waiting: '12m',
+        subs: [], notes: [], unseen: true, queue: [], qi: 0,
+        hist: [{ st: 'running', t: -1860 }, { st: 'needs', t: -1500 }, { st: 'running', t: -1380 }, { st: 'review', t: -720 }],
+        todos: [{ t: 'Collect renamed and removed symbols', s: 'done' }, { t: 'Draft the guide', s: 'done' }, { t: 'Build the docs', s: 'done' }, { t: 'Write open points for Jan', s: 'done' }],
+        docs: [{ path: '.fleet/charlie/open-points.md', points: [{ id: 'c1', text: 'Cover the v2 compatibility shim here, or link out to the API docs?' }, { id: 'c2', text: 'Should the code samples run in CI? It adds a few minutes per run.' }, { id: 'c3', text: 'Target 3.0 only, or also list the 3.1 deprecations?' }] }],
+        files: [{ n: 'docs/migration-v3.md', k: 'for you', d: '+184' }, { n: '.fleet/charlie/report.md', k: 'for you', d: 'report' }, { n: '.fleet/charlie/open-points.md', k: 'decide', d: '3 points' }],
+        diff: ['@@ docs/migration-v3.md (new file) @@', '+# Migrating to the v3 API', '+', '+## Renamed symbols', '+Most renames are mechanical: [SEARCH-AND-REPLACE TABLE]', '+', '+## Removed features', '+[LIST OF REMOVED SYMBOLS WITH REPLACEMENTS]'],
+        rd: { total: 9, approved: 3, moves: 0, fmt: 1, wt: true },
+        report: { summary: 'Guide drafted from the changelog and the deprecation list.', change: 'jj ykvzqtmo · ws3', tests: 'Docs build passes', open: ['Cover the v2 compatibility shim here, or link out?', 'Should the code samples run in CI?'] },
+        lines: [
+          L('user', 'Write a migration guide for the v3 API from the changelog and the deprecation list.'),
+          L('tool', 'Read(CHANGELOG.md)'),
+          L('tool', 'Read(docs/deprecations.md)'),
+          L('sub', 'Task: collect renamed and removed symbols', 'explore#1'),
+          L('sub', 'Collected renamed and removed symbols', 'explore#1'),
+          L('tool', 'Write(docs/migration-v3.md) +184'),
+          L('tool', 'Bash(just docs)'),
+          L('out', 'build succeeded'),
+          L('msg', '→ director: Report ready, 2 open questions.')
+        ]
+      },
+      delta: {
+        color: '#74b9ff', ws: 'ws4', host: 'coder · jan-bench', title: 'Benchmark seqc codegen', state: 'running', ctx: '22%', elapsed: '9m', todo: 'Measuring', waiting: '',
+        subs: [], notes: [], unseen: false, queue: deltaQ, qi: 0, files: [], diff: [], report: null, todoAfter: 'Profiling',
+        hist: [{ st: 'running', t: -540 }], docs: [],
+        todos: [{ t: 'Quick run', s: 'done' }, { t: 'Get a baseline', s: 'active' }, { t: 'Profile the slowest cases', s: 'open' }, { t: 'Report', s: 'open' }],
+        lines: [L('user', 'Benchmark seqc codegen on the example suite and flag regressions.')]
+      },
+      echo: {
+        color: '#a3e635', ws: 'ws1', host: 'mac', title: 'Triage nightly CI failures', state: 'queued', ctx: '—', elapsed: '—', todo: 'Waits for ws1', waiting: '',
+        subs: [], notes: [], unseen: false, queue: [], qi: 0, files: [], diff: [], report: null, lines: [],
+        hist: [{ st: 'queued', t: -1000 }], docs: [], todos: []
+      },
+      foxtrot: {
+        color: '#fdba74', ws: 'ws2', host: 'mac', title: 'Towncrier check for jj workspaces', state: 'accepted', ctx: '—', elapsed: '24m', todo: 'Accepted — ready to integrate', waiting: '',
+        subs: [], notes: [], unseen: false, queue: [], qi: 0, rd: { total: 2, approved: 2, moves: 0, fmt: 0, wt: false }, report: { summary: 'Replaced towncrier check with a jj-native shim in agent workspaces.', change: 'jj qtlnrmvo · ws2', tests: 'All checks pass', open: [] },
+        hist: [{ st: 'running', t: -2400 }, { st: 'review', t: -1500 }, { st: 'accepted', t: -1200 }], docs: [], todos: [{ t: 'Write the shim', s: 'done' }, { t: 'Run checks', s: 'done' }],
+        files: [{ n: 'tools/towncrier_jj.sh', k: 'created', d: '+31' }], diff: ['@@ tools/towncrier_jj.sh (new file) @@', '+#!/usr/bin/env bash', '+# towncrier check that understands jj workspaces'],
+        lines: [L('text', 'Replaced towncrier check with a jj-native shim.'), L('out', 'all checks pass')]
+      }
+    };
+    this.COMMITS = [
+      { id: 'zmplwqrs', lane: 1, parents: ['tnvslqmz'], desc: 'tests: jitter-aware tolerance in sweep timing', ws: 'ws1', agent: 'alpha', wc: true, op: 9, gen: 3 },
+      { id: 'wxlmpnqo', lane: 2, parents: ['vqtwmrxk'], desc: '(no description set)', ws: 'ws2', agent: 'bravo', wc: true, empty: true, op: 6, gen: 5 },
+      { id: 'vqtwmrxk', lane: 2, parents: ['rkpltnoz'], desc: 'pulse_sheet: thin Python wrapper', agent: 'bravo', op: 6, gen: 4 },
+      { id: 'rkpltnoz', lane: 2, parents: ['tnvslqmz'], desc: 'pulse_sheet: Rust core', agent: 'bravo', op: 3, gen: 3 },
+      { id: 'ykvzqtmo', lane: 3, parents: ['tnvslqmz'], desc: 'docs: v3 migration guide', ws: 'ws3', agent: 'charlie', wc: true, op: 4, gen: 3 },
+      { id: 'snkwpqxl', lane: 4, parents: ['oqrmnzts'], desc: '(no description set)', ws: 'ws4', agent: 'delta', wc: true, empty: true, op: 8, gen: 4 },
+      { id: 'oqrmnzts', lane: 4, parents: ['tnvslqmz'], desc: 'bench: codegen baseline', agent: 'delta', op: 7, gen: 3 },
+      { id: 'qtlnrmvo', lane: 5, parents: ['tnvslqmz'], desc: 'tools: towncrier shim for jj workspaces', agent: 'foxtrot', bm: ['agent/foxtrot'], op: 2, gen: 3 },
+      { id: 'tnvslqmz', lane: 0, parents: ['ypwqkxlo'], desc: 'compiler: tidy pass order', bm: ['main'], immutable: true, op: 0, gen: 2 },
+      { id: 'ypwqkxlo', lane: 0, parents: ['lmrtqzvw'], desc: 'Merge !412: sweep scheduler fixes', immutable: true, op: 0, gen: 1 },
+      { id: 'lmrtqzvw', lane: 0, parents: [], desc: 'release 2.61', immutable: true, tag: '2.61.0', op: 0, gen: 0 }
+    ];
+    this.OPS = [
+      { id: '3e91c0a7d2f4', who: 'you', what: 'git fetch', t: '2h 05m ago' },
+      { id: 'b07d4c19e8a2', who: 'director', what: 'workspace add ws1 ws2 ws3 ws4', t: '1h 52m ago' },
+      { id: '5fa2e8c3b190', who: 'foxtrot', what: 'describe qtlnrmvo', t: '1h 20m ago' },
+      { id: 'c4d81b7e02a6', who: 'bravo', what: 'commit rkpltnoz', t: '38m ago' },
+      { id: '9e0b3f6a1c58', who: 'charlie', what: 'describe ykvzqtmo', t: '24m ago' },
+      { id: '1a7c5d92e4b0', who: 'alpha', what: 'snapshot working copy', t: '14m ago' },
+      { id: 'e2f84a0c7b3d', who: 'bravo', what: 'commit vqtwmrxk', t: '11m ago' },
+      { id: '68b3d1e9f0a4', who: 'delta', what: 'new oqrmnzts on main', t: '8m ago' },
+      { id: 'd9c2a7f41e05', who: 'delta', what: 'commit oqrmnzts', t: '5m ago' },
+      { id: '0f4e6b8d2a91', who: 'alpha', what: 'describe zmplwqrs', t: '2m ago' }
+    ];
+    this.state = {
+      view: 'board', sel: 'charlie', enlarged: null, tab: 'live', awake: false, spawnOpen: false, spawnText: '', spawnWs: 'ws3',
+      paletteOpen: false, tick: 0, flowSel: null, poolIdx: 0, theme: null, win: 900, histMode: 'classic', opIdx: 9, spin: true, dirDraft: '', pointDrafts: {},
+      order: ['director', 'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'],
+      agents: agents,
+      msgs: [
+        { id: 'i1', from: 'director', to: 'bravo', text: 'Context for the pulse-sheet port:\n- design notes: docs/design/pulse_sheet.md\n- keep the Python API stable\n- report through report_result when done', at: -40 },
+        { id: 'i2', from: 'bravo', to: 'director', text: 'Started; spawned explore#1 and test-writer#2.', at: -34 },
+        { id: 'i3', from: 'charlie', to: 'director', text: 'Report ready.\nI’ve put the open points in .fleet/charlie/open-points.md for Jan to check and decide (3 items).', at: -9 },
+        { id: 'i4', from: 'director', to: 'delta', text: 'Benchmark only seqc codegen; skip hardware-dependent cases.', at: -4 }
+      ]
+    };
+  }
+
+  componentDidMount() { this.timer = setInterval(() => this.tick(), 1500); }
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  light() { return (this.state.theme || this.props.theme || 'dark') === 'light'; }
+  ac(c) { return this.light() ? (this.LIGHT[c] || c) : c; }
+  now() { return this.state.tick * 1.5; }
+
+  copyAgent(agents, n) {
+    const a = agents[n];
+    const c = Object.assign({}, a, { lines: a.lines.slice(), files: a.files.slice(), notes: (a.notes || []).slice(), hist: a.hist.slice(), docs: (a.docs || []).map((d) => Object.assign({}, d, { points: d.points.map((p) => Object.assign({}, p)) })), todos: (a.todos || []).slice() });
+    agents[n] = c;
+    return c;
+  }
+
+  setSt(a, st, tick) { a.state = st; a.hist.push({ st: st, t: tick * 1.5 }); }
+
+  apply(n, a, item, agents, msgs, tick) {
+    const L = this.L;
+    if (item.k) a.lines.push(L(item.k, item.t, item.w));
+    if (item.msg) {
+      const to = item.msg.to;
+      msgs.push({ id: 'm' + tick + n, from: n, to: to, text: item.msg.t, at: tick });
+      a.lines.push(L('msg', '→ ' + to + ': ' + item.msg.t));
+      if (agents[to]) { const b = this.copyAgent(agents, to); b.lines.push(L('msg', '← ' + n + ': ' + item.msg.t)); }
+    }
+    if (item.note) { a.notes.push(item.note); a.unseen = true; }
+    if (item.doc && !a.docs.some((d) => d.path === item.doc.path)) {
+      a.docs.push({ path: item.doc.path, points: item.doc.points.map((p) => Object.assign({}, p)) });
+      a.files = a.files.concat([{ n: item.doc.path, k: 'decide', d: item.doc.points.length + ' points' }]);
+      a.unseen = true;
+    }
+    if (item.decision) { a.decision = item.decision; this.setSt(a, 'needs', tick); a.waiting = 'just now'; a.todo = 'Waiting for your answer'; a.unseen = true; a.lines.push(L('text', item.decision.context.split('\n')[0])); a.lines.push(L('sys', 'Question for you: ' + item.decision.text)); }
+    if (item.files) { a.files = a.files.concat(item.files); a.unseen = true; }
+    if (item.set) {
+      this.setSt(a, item.set, tick);
+      if (item.set === 'review') { a.todo = 'Done — report ready'; a.waiting = 'just now'; a.unseen = true; a.queue = []; a.qi = 0; if (a.reportAfter) a.report = a.reportAfter; }
+    }
+    a.lines = a.lines.slice(-80);
+  }
+
+  tick() {
+    this.setState((s) => {
+      const tick = s.tick + 1;
+      const agents = Object.assign({}, s.agents);
+      const msgs = s.msgs.slice();
+      const live = s.order.filter((n) => {
+        const a = agents[n];
+        return (a.state === 'running' || a.state === 'changes') && a.queue && a.queue.length > 0;
+      });
+      if (!live.length) return { tick: tick };
+      const n = live[tick % live.length];
+      const a = this.copyAgent(agents, n);
+      let item = a.queue[a.qi];
+      if (!item) return { tick: tick };
+      a.qi += 1;
+      if (item.loop !== undefined) { a.qi = item.loop; item = a.queue[a.qi]; a.qi += 1; }
+      this.apply(n, a, item, agents, msgs, tick);
+      if (n === s.sel || n === s.enlarged) a.unseen = false;
+      return { tick: tick, agents: agents, msgs: msgs.slice(-40) };
+    });
+  }
+
+  decide(n, id) {
+    if (id === 'take') { this.enlarge(n); return; }
+    this.setState((s) => {
+      const L = this.L;
+      const agents = Object.assign({}, s.agents);
+      const msgs = s.msgs.slice();
+      const a = this.copyAgent(agents, n);
+      if (a.state === 'review') {
+        if (id === 'accept') {
+          this.setSt(a, 'accepted', s.tick); a.todo = 'Accepted — ready to integrate'; a.lines.push(L('user', 'Accepted.'));
+          msgs.push({ id: 'a' + s.tick + n, from: 'you', to: 'director', text: n + ' accepted. Integrate when CI is green.', at: s.tick });
+        } else if (id === 'changes') {
+          this.setSt(a, 'changes', s.tick); a.todo = 'Addressing your comments';
+          a.lines.push(L('user', 'Changes requested: tighten the intro and add one before/after example.'));
+          a.queue = [{ k: 'text', t: 'Understood — addressing your comments.' }, { k: 'tool', t: 'Edit(' + (a.files[0] ? a.files[0].n : 'file') + ') +18 −6' }, { k: 'out', t: 'checks pass' }, { msg: { to: 'director', t: 'Revised per review.' } }, { set: 'review' }];
+          a.qi = 0;
+        }
+      } else if (a.decision) {
+        const opt = a.decision.options.find((o) => o.id === id) || { label: id };
+        if (a.decision.kind === 'Permission') a.lines.push(L('user', id === 'deny' ? 'Denied.' : 'Allowed: ' + opt.label));
+        else a.lines.push(L('user', 'Answer: ' + opt.label));
+        if (a.after) { a.queue = a.after; a.qi = 0; a.after = null; }
+        a.decision = null; this.setSt(a, 'running', s.tick); a.todo = a.todoAfter || 'Working'; a.waiting = '';
+      }
+      return { agents: agents, msgs: msgs };
+    });
+  }
+
+  start(n) {
+    this.setState((s) => {
+      const L = this.L;
+      const agents = Object.assign({}, s.agents);
+      const msgs = s.msgs.slice();
+      const a = this.copyAgent(agents, n);
+      this.setSt(a, 'running', s.tick); a.todo = 'Reading context'; a.elapsed = '0m'; a.ctx = '3%';
+      a.lines.push(L('user', 'Task from director: ' + a.title));
+      a.queue = [
+        { k: 'text', t: 'Reading the context pack director attached.' },
+        { k: 'tool', t: 'Read(.fleet/' + n + '/context.md)' },
+        { k: 'tool', t: 'Bash(jj log -r "mine() & ~empty()" --limit 5)' },
+        { k: 'sub', w: 'explore#4', t: 'Task: survey the relevant files' },
+        { k: 'text', t: 'Plan: reproduce first, then fix, then report.' },
+        { k: 'tool', t: 'Bash(just test -k smoke)' },
+        { k: 'out', t: 'ok' },
+        { loop: 1 }
+      ];
+      a.qi = 0;
+      msgs.push({ id: 's' + s.tick + n, from: 'director', to: n, text: 'Context pack attached; report back via report_result.', at: s.tick });
+      return { agents: agents, msgs: msgs };
+    });
+  }
+
+  stop(n) {
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n);
+      this.setSt(a, 'queued', s.tick); a.todo = 'Stopped by you'; a.lines.push(this.L('sys', 'Stopped by you. Session kept; Start resumes it.'));
+      return { agents: agents };
+    });
+  }
+
+  send(n, text) {
+    if (!text || !text.trim()) return;
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n);
+      a.lines.push(this.L('user', text.trim()));
+      if ((a.state === 'running' || a.state === 'changes') && a.queue.length) {
+        a.queue = a.queue.slice(); a.queue.splice(a.qi, 0, { k: 'text', t: 'Got it — taking that into account.' });
+      } else {
+        a.lines.push(this.L('text', 'Noted. I’ll pick this up when I resume.'));
+      }
+      return { agents: agents };
+    });
+  }
+
+  dismissNote(n, forward) {
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n);
+      const note = a.notes.shift();
+      if (forward && note) {
+        a.lines.push(this.L('user', 'From the side agent: ' + note + ' Please take this into account.'));
+        if ((a.state === 'running' || a.state === 'changes') && a.queue.length) { a.queue = a.queue.slice(); a.queue.splice(a.qi, 0, { k: 'text', t: 'Good catch — adding it to the plan.' }); }
+      }
+      return { agents: agents };
+    });
+  }
+
+  setColor(n, hex) {
+    this.setState((s) => { const agents = Object.assign({}, s.agents); const a = this.copyAgent(agents, n); a.color = hex; return { agents: agents }; });
+  }
+
+  sysLine(n, text, patch) {
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n);
+      a.lines.push(this.L('sys', text));
+      if (patch) patch(a, s);
+      return { agents: agents };
+    });
+  }
+
+  answerPoint(n, path, id, answer) {
+    if (!answer || !String(answer).trim()) return;
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const msgs = s.msgs.slice();
+      const a = this.copyAgent(agents, n);
+      const doc = a.docs.find((d) => d.path === path);
+      if (!doc) return {};
+      const pt = doc.points.find((p) => p.id === id);
+      pt.answer = String(answer).trim();
+      a.lines.push(this.L('user', 'Open point (' + path + '):\n' + pt.text + '\n→ ' + pt.answer));
+      const drafts = Object.assign({}, s.pointDrafts); delete drafts[id];
+      if (doc.points.every((p) => p.answer)) {
+        msgs.push({ id: 'p' + s.tick + n, from: 'you', to: n, text: 'All open points in ' + path + ' are answered:\n' + doc.points.map((p) => '- ' + p.text + ' → ' + p.answer).join('\n'), at: s.tick });
+      }
+      return { agents: agents, msgs: msgs, pointDrafts: drafts };
+    });
+  }
+
+  sendDirector(text) {
+    if (!text || !text.trim()) return;
+    const t = text.trim();
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, 'director');
+      a.lines.push(this.L('user', t));
+      return { agents: agents, dirDraft: '' };
+    });
+    setTimeout(() => {
+      this.setState((s) => {
+        const A = s.agents;
+        const agents = Object.assign({}, A);
+        const a = this.copyAgent(agents, 'director');
+        let reply;
+        if (/status|how|what/i.test(t)) {
+          reply = 'Current state:\n' + s.order.filter((n) => n !== 'director').map((n) => '- ' + n + ': ' + this.SC[A[n].state].label + ' — ' + A[n].todo).join('\n');
+        } else {
+          reply = 'On it. I’ll fold that into the ledger and tell you when something needs you.';
+        }
+        a.lines.push(this.L('text', reply));
+        return { agents: agents };
+      });
+    }, 900);
+  }
+
+  enlarge(n) {
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n); a.unseen = false;
+      const same = s.view === 'grid' && s.enlarged === n;
+      return { agents: agents, view: 'grid', enlarged: same ? null : n, sel: n };
+    });
+  }
+
+  select(n) {
+    this.setState((s) => {
+      const agents = Object.assign({}, s.agents);
+      const a = this.copyAgent(agents, n); a.unseen = false;
+      if (s.view === 'grid') return { agents: agents, enlarged: n, sel: n };
+      if (s.view === 'history' || s.view === 'timeline') return { agents: agents, sel: n };
+      return { agents: agents, sel: n };
+    });
+  }
+
+  markAllSeen() {
+    this.setState((s) => {
+      const agents = {};
+      Object.keys(s.agents).forEach((n) => { agents[n] = Object.assign({}, s.agents[n], { unseen: false }); });
+      return { agents: agents };
+    });
+  }
+
+  spawn() {
+    this.setState((s) => {
+      const L = this.L;
+      if (s.poolIdx >= this.POOL.length) return { spawnOpen: false };
+      const pick = this.POOL[s.poolIdx];
+      const n = pick[0];
+      const title = (s.spawnText || '').trim() || 'New task';
+      const agents = Object.assign({}, s.agents);
+      agents[n] = { color: pick[1], ws: s.spawnWs, host: 'mac', title: title, state: 'queued', ctx: '—', elapsed: '—', todo: 'Queued by director', waiting: '', subs: [], notes: [], unseen: true, queue: [], qi: 0, files: [], diff: [], report: null, lines: [], docs: [], todos: [], hist: [{ st: 'queued', t: s.tick * 1.5 }] };
+      this.POS[n] = this.SPARE[s.poolIdx];
+      const b = this.copyAgent(agents, 'director');
+      b.lines.push(L('user', 'New task: ' + title));
+      b.lines.push(L('tool', 'spawn_task("' + title + '", ' + s.spawnWs + ') → ' + n));
+      const msgs = s.msgs.concat([{ id: 'n' + s.tick, from: 'you', to: 'director', text: 'New task: ' + title, at: s.tick }]);
+      return { agents: agents, msgs: msgs, order: s.order.concat([n]), poolIdx: s.poolIdx + 1, spawnOpen: false, spawnText: '', sel: n };
+    });
+  }
+
+  ago(at) {
+    const secs = Math.max(0, (this.state.tick - at) * 1.5);
+    if (secs < 3) return 'now';
+    if (secs < 60) return Math.round(secs) + ' s ago';
+    return Math.round(secs / 60) + ' min ago';
+  }
+
+  dur(secs) {
+    const m = Math.floor(secs / 60), sec = Math.round(secs % 60);
+    return m > 0 ? m + 'm ' + sec + 's' : sec + 's';
+  }
+
+  colorOf(n) {
+    if (n === 'you') return this.ac('#ffffff');
+    const a = this.state.agents[n];
+    return a ? this.ac(a.color) : 'var(--muted)';
+  }
+
+  btn(primary) {
+    return primary ? { bg: 'var(--accent)', fg: 'var(--onaccent)', border: 'var(--accent)' } : { bg: 'var(--btn)', fg: 'var(--fg)', border: 'var(--btnline)' };
+  }
+
+  decisionOf(n) {
+    const a = this.state.agents[n];
+    if (a.state === 'review') {
+      const r = a.report || {};
+      return { kind: 'Review', text: 'Ready for review: ' + a.files.map((f) => f.n).join(', '), context: (r.summary || 'Report and diff are ready.') + (r.open && r.open.length ? '\nOpen questions: ' + r.open.join(' · ') : ''), risk: r.tests ? [r.tests] : [], options: [{ id: 'accept', label: a.rd && a.rd.approved < a.rd.total ? 'Accept (' + (a.rd.total - a.rd.approved) + ' hunks unreviewed)' : 'Accept', primary: true }, { id: 'changes', label: 'Request changes' }, { id: 'take', label: 'Take over' }] };
+    }
+    return a.decision || null;
+  }
+
+  av(n) {
+    const s = this.state;
+    const a = s.agents[n];
+    const sc = this.SC[a.state];
+    const dec = this.decisionOf(n);
+    const forYou = a.files.filter((f) => f.k === 'for you').length;
+    const kindStyle = { 'for you': ['var(--revbg)', 'var(--revfg)'], created: ['var(--okbg)', 'var(--okfg)'], modified: ['var(--runbg)', 'var(--runfg)'], ledger: ['var(--btn)', 'var(--fg3)'], decide: ['var(--warnbg)', 'var(--warnfg)'] };
+    const myMsgs = s.msgs.filter((m) => m.from === n || m.to === n).slice().reverse();
+    const notes = a.notes || [];
+    return {
+      key: n, name: n, color: this.ac(a.color), ws: a.ws, host: a.host, title: a.title, state: a.state, stateLabel: sc.label, stateColor: sc.color, stateBg: sc.bg,
+      ctx: a.ctx, elapsed: a.elapsed, todo: a.todo, waiting: a.waiting, unseen: !!a.unseen, lines: a.lines, subs: a.subs,
+      queued: a.state === 'queued', files: a.files, light: this.light(),
+      note: notes.length ? notes[0] : '', hasNote: notes.length > 0,
+      dismissNote: () => this.dismissNote(n, false), forwardNote: () => this.dismissNote(n, true),
+      decision: dec ? Object.assign({}, dec, { options: dec.options.map((o) => Object.assign({}, o, { run: () => this.decide(n, o.id) })) }) : null,
+      fileRows: a.files.map((f) => { const ks = kindStyle[f.k] || kindStyle.ledger; return Object.assign({}, f, { kindBg: ks[0], kindFg: ks[1] }); }),
+      noFiles: a.files.length === 0,
+      diffRows: a.diff.map((t) => ({ t: t, bg: t[0] === '+' ? 'var(--addbg)' : t[0] === '-' ? 'var(--delbg)' : 'transparent', fg: t[0] === '+' ? 'var(--addfg)' : t[0] === '-' ? 'var(--delfg)' : t[0] === '@' ? 'var(--hunk)' : 'var(--muted)' })),
+      noDiff: a.diff.length === 0,
+      report: a.report || { summary: '', change: '', tests: '', open: [] }, hasReport: !!a.report, noReport: !a.report,
+      msgRows: myMsgs.map((m) => ({ from: m.from, to: m.to, text: m.text, ago: this.ago(m.at), fromColor: this.colorOf(m.from), toColor: this.colorOf(m.to) })),
+      noMsgs: myMsgs.length === 0,
+      forYou: forYou,
+      enlarge: () => this.enlarge(n), send: (t) => this.send(n, t), start: () => this.start(n), select: () => this.select(n),
+      todos: (a.todos || []).map((td) => ({ t: td.t, mark: td.s === 'done' ? '✓' : (td.s === 'active' ? '▸' : '○'), color: td.s === 'done' ? 'var(--ok)' : (td.s === 'active' ? 'var(--run)' : 'var(--dim)'), textColor: td.s === 'done' ? 'var(--muted)' : 'var(--fg)' })),
+      hasRd: !!a.rd, rdPct: a.rd ? Math.round(a.rd.approved / a.rd.total * 100) : 0,
+      rdLabel: a.rd ? a.rd.approved + '/' + a.rd.total + ' hunks approved' : '',
+      rdDetail: a.rd ? [a.rd.moves ? a.rd.moves + ' moves' : '', a.rd.fmt ? a.rd.fmt + ' formatting-only' : '', a.rd.wt ? 'walkthrough ✓' : 'no walkthrough'].filter((x) => x).join(' · ') : '',
+      openPoints: (a.docs || []).reduce((k, d) => k + d.points.filter((p) => !p.answer).length, 0),
+      swatches: ['#4fd1c5', '#f6c453', '#f78fb3', '#74b9ff', '#a3e635', '#fdba74', '#c792ea', '#fca5a5', '#7dd3fc', '#d8b4fe'].map((h) => ({ show: this.ac(h), on: h === a.color, pick: () => this.setColor(n, h) })),
+      interrupt: () => this.sysLine(n, 'Interrupted by you (Esc). Waiting for your next message.', (x, s) => { if (x.state === 'running') { this.setSt(x, 'queued', s.tick); x.todo = 'Interrupted'; } }),
+      rewind: () => this.sysLine(n, 'Rewound to before the last turn: conversation and files (jj op restore).'),
+      compact: () => this.sysLine(n, '/compact: conversation summarized, context freed.', (x) => { x.ctx = '12%'; })
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const A = s.agents;
+    const order = s.order;
+    const isLight = this.light();
+    const workers = order.filter((n) => n !== 'director');
+    const count = (st) => workers.filter((n) => A[n].state === st).length;
+    const inboxNames = order.filter((n) => A[n].state === 'needs' || A[n].state === 'review');
+    const inboxCount = inboxNames.length;
+    const unseenCount = order.filter((n) => A[n].unseen).length;
+    const pointDocs = [];
+    order.forEach((n) => (A[n].docs || []).forEach((d) => {
+      const open = d.points.filter((p) => !p.answer).length;
+      pointDocs.push({ name: n, color: this.ac(A[n].color), path: d.path, status: open ? open + ' of ' + d.points.length + ' open' : 'all answered', statusColor: open ? 'var(--warn)' : 'var(--ok)', view: () => this.setState({ sel: n, tab: 'files' }),
+        points: d.points.map((p) => ({ text: p.text, answered: !!p.answer, open: !p.answer, answer: p.answer || '', draft: s.pointDrafts[p.id] || '',
+          onDraft: (e) => { const v = e.target.value; this.setState((st) => ({ pointDrafts: Object.assign({}, st.pointDrafts, { [p.id]: v }) })); },
+          submit: () => this.answerPoint(n, d.path, p.id, s.pointDrafts[p.id]),
+          quick: ['Yes', 'No', 'Defer'].map((q) => ({ label: q, run: () => this.answerPoint(n, d.path, p.id, q) })) })) });
+    }));
+    const totalPoints = order.reduce((k, n) => k + (A[n].docs || []).reduce((j, d) => j + d.points.filter((p) => !p.answer).length, 0), 0);
+    const dirA = A.director;
+    const dirTexts = dirA.lines.filter((l) => l.kind === 'text');
+    const dirLast = dirTexts.length ? dirTexts[dirTexts.length - 1].text : '';
+    const tabBg = (on) => on ? 'var(--sel)' : 'transparent';
+    const tabFg = (on) => on ? 'var(--strong)' : 'var(--fg3)';
+
+    const views = [['board', 'Board', '1'], ['inbox', 'Inbox', '2'], ['grid', 'Grid', '3'], ['timeline', 'Timeline', '4'], ['flow', 'Flow', '5'], ['history', 'History', '6']].map((v) => ({
+      label: v[1], key: v[2], pick: () => this.setState({ view: v[0] }),
+      bg: tabBg(s.view === v[0]), fg: tabFg(s.view === v[0]),
+      hasBadge: v[0] === 'inbox' && (inboxCount + totalPoints) > 0, badge: inboxCount + totalPoints
+    }));
+
+    const counters = [
+      { n: count('running') + count('changes') + (A.director.state === 'running' ? 1 : 0), label: 'working', color: 'var(--run)', pick: () => this.setState({ view: 'grid', enlarged: null }) },
+      { n: count('needs'), label: 'need you', color: 'var(--warn)', pick: () => this.setState({ view: 'inbox' }) },
+      { n: count('review'), label: 'in review', color: 'var(--rev)', pick: () => this.setState({ view: 'inbox' }) },
+      { n: totalPoints, label: 'open points', color: 'var(--warn)', pick: () => this.setState({ view: 'inbox' }) },
+      { n: unseenCount, label: 'new', color: 'var(--accent)', pick: () => this.setState({ view: 'board' }) }
+    ];
+
+    const ticker = s.msgs.slice(-2).reverse().map((m) => { const ls = m.text.split('\n'); return { from: m.from, to: m.to, text: ls[0] + (ls.length > 1 ? '  (+' + (ls.length - 1) + ' lines)' : ''), ago: this.ago(m.at), fromColor: this.colorOf(m.from), toColor: this.colorOf(m.to) }; });
+
+    const tree = [];
+    order.forEach((n) => {
+      const a = A[n];
+      const depth = n === 'director' ? 0 : 1;
+      tree.push({ name: n, title: a.title, color: this.ac(a.color), dot: this.SC[a.state].color, anim: a.state === 'needs' ? 'pulse 1.6s infinite' : 'none', pad: 8 + depth * 16, bg: s.sel === n ? 'var(--selrow)' : 'transparent', unseen: !!a.unseen, weight: a.unseen ? 600 : 400, pick: () => this.select(n) });
+      if ((a.state === 'running' || a.state === 'changes') && a.subs.length) {
+        a.subs.forEach((w) => tree.push({ name: w, title: 'subagent of ' + n, color: 'var(--fg3)', dot: 'var(--run)', anim: 'none', pad: 40, bg: 'transparent', unseen: false, weight: 400, pick: () => this.select(n) }));
+      }
+      if (n === 'delta' && a.state === 'running' && a.lines.some((l) => l.who === 'explore#3')) {
+        tree.push({ name: 'explore#3', title: 'subagent of delta', color: 'var(--fg3)', dot: 'var(--run)', anim: 'none', pad: 40, bg: 'transparent', unseen: false, weight: 400, pick: () => this.select('delta') });
+      }
+    });
+
+    const wsNames = ['ws1', 'ws2', 'ws3', 'ws4'];
+    const wsHost = { ws1: 'Mac', ws2: 'Coder jan-ws2', ws3: 'Mac', ws4: 'Coder jan-bench' };
+    const workspaces = wsNames.map((w) => ({ name: w, host: wsHost[w], agents: workers.filter((n) => A[n].ws === w && A[n].state !== 'accepted').map((n) => ({ name: n, color: this.ac(A[n].color) })) }));
+    const wsPicks = wsNames.map((w) => ({ label: w, pick: () => this.setState({ spawnWs: w }), bg: tabBg(s.spawnWs === w), fg: tabFg(s.spawnWs === w) }));
+
+    const colDefs = [['queued', 'Queued', 0], ['running', 'Running', 4], ['needs', 'Needs you', 0], ['review', 'Review', 2], ['changes', 'Changes requested', 0], ['accepted', 'Accepted', 0]];
+    const card = (n) => {
+      const v = this.av(n);
+      const a = A[n];
+      let actions = [];
+      if (a.state === 'queued') actions = [{ label: 'Start', run: () => this.start(n), primary: true }];
+      else if (a.state === 'running' || a.state === 'changes') actions = [{ label: 'Peek', run: () => this.enlarge(n), primary: false }, { label: 'Stop', run: () => this.stop(n), primary: false }];
+      else if (v.decision) actions = v.decision.options.map((o) => ({ label: o.label, run: o.run, primary: !!o.primary }));
+      else if (a.state === 'accepted') actions = [{ label: 'Diff', run: () => this.setState({ sel: n, tab: 'diff' }), primary: false }, { label: 'History', run: () => this.setState({ view: 'history', sel: n }), primary: false }];
+      return {
+        name: n, color: v.color, ws: a.ws, host: a.host, elapsed: a.elapsed, title: a.title, todo: a.todo, ctx: a.ctx, unseen: !!a.unseen,
+        ring: s.sel === n ? 'var(--accent)' : (a.state === 'needs' ? 'var(--warnline)' : 'var(--line)'),
+        hasDecision: a.state === 'needs' && !!v.decision, decisionText: v.decision ? v.decision.text : '', decisionWhy: v.decision ? (v.decision.context || '').split('\n')[0] : '',
+        hasHunks: !!a.rd && (a.state === 'review' || a.state === 'accepted'), hunksLabel: a.rd ? 'hunks ' + a.rd.approved + '/' + a.rd.total : '',
+        hasNote: v.hasNote, note: v.note, hasPoints: v.openPoints > 0, pointsLabel: v.openPoints + (v.openPoints === 1 ? ' open point' : ' open points'),
+        hasSubs: a.subs.length > 0 && (a.state === 'running' || a.state === 'changes'), subsLabel: a.subs.length + (a.subs.length === 1 ? ' subagent' : ' subagents'),
+        hasForYou: v.forYou > 0, forYouLabel: v.forYou + (v.forYou === 1 ? ' file for you' : ' files for you'),
+        select: () => this.select(n),
+        actions: actions.map((x) => Object.assign({ label: x.label, run: x.run }, this.btn(x.primary)))
+      };
+    };
+    const columns = colDefs.map((c) => {
+      const cards = workers.filter((n) => A[n].state === c[0]).map(card);
+      const over = c[2] > 0 && cards.length > c[2];
+      return { label: c[1], count: cards.length, cards: cards, color: this.SC[c[0]].color, border: c[0] === 'needs' && cards.length ? 'var(--warnline)' : 'var(--line2)', hasWip: c[2] > 0, wip: cards.length + '/' + c[2], wipColor: over ? 'var(--warn)' : 'var(--muted)' };
+    });
+
+    const inbox = inboxNames.map((n) => {
+      const v = this.av(n);
+      const kind = v.decision ? v.decision.kind : 'Review';
+      const kb = { Permission: ['var(--warnbg)', 'var(--warnfg)'], Question: ['var(--runbg)', 'var(--runfg)'], Review: ['var(--revbg)', 'var(--revfg)'] }[kind];
+      const risk = v.decision && v.decision.risk ? v.decision.risk : [];
+      return { name: n, color: v.color, title: v.title, host: v.host, kind: kind, kindBg: kb[0], kindFg: kb[1], waiting: v.waiting || 'now', text: v.decision ? v.decision.text : '', context: v.decision ? (v.decision.context || '') : '', risk: risk, hasRisk: risk.length > 0, open: () => this.setState({ sel: n, tab: kind === 'Review' ? 'diff' : 'live' }), actions: (v.decision ? v.decision.options : []).map((o) => Object.assign({ label: o.label, run: o.run }, this.btn(!!o.primary))) };
+    });
+    const fyi = [];
+    order.forEach((n) => { const nt = A[n].notes || []; if (nt.length) fyi.push({ name: n, color: this.ac(A[n].color), text: nt[0], dismiss: () => this.dismissNote(n, false), forward: () => this.dismissNote(n, true) }); });
+
+    const tileNames = order.filter((n) => A[n].state !== 'accepted').slice(0, 9);
+    const tiles = tileNames.map((n) => this.av(n));
+    const enl = s.view === 'grid' && s.enlarged && A[s.enlarged] ? s.enlarged : null;
+    const others = tileNames.filter((n) => n !== enl).map((n) => ({ name: n, color: this.ac(A[n].color), dot: this.SC[A[n].state].color, anim: A[n].state === 'needs' ? 'pulse 1.6s infinite' : 'none', stateLabel: this.SC[A[n].state].label, ring: A[n].unseen ? 'var(--accent)' : 'var(--line)', pick: () => this.select(n) }));
+
+    const now = this.now();
+    const W = s.win;
+    const t0 = now - W;
+    const pct = (t) => Math.max(0, Math.min(100, (t - t0) / W * 100));
+    let totalWait = 0;
+    const lanes = order.map((n) => {
+      const a = A[n];
+      const segs = [];
+      let wait = 0;
+      a.hist.forEach((h, i) => {
+        const end = i + 1 < a.hist.length ? a.hist[i + 1].t : now;
+        const start = Math.max(h.t, t0);
+        if (end <= t0 || end <= start) return;
+        if (h.st === 'needs') wait += end - start;
+        segs.push({ left: pct(start).toFixed(2), width: Math.max(0.4, pct(end) - pct(start)).toFixed(2), color: this.SC[h.st].color, op: h.st === 'queued' ? 0.45 : 0.9, tip: this.SC[h.st].label + ' · ' + this.dur(end - start) });
+      });
+      totalWait += wait;
+      const marks = s.msgs.filter((m) => (m.from === n || m.to === n) && m.at * 1.5 >= t0).map((m) => ({ left: pct(m.at * 1.5).toFixed(2), tip: m.from + ' → ' + m.to + ': ' + m.text }));
+      return { name: n, title: a.title, color: this.ac(a.color), segs: segs, marks: marks, waitLabel: wait > 0 ? 'waited ' + this.dur(wait) + ' on you' : '', pick: () => this.setState({ sel: n, view: 'board' }) };
+    });
+    const axis = [0, 1, 2, 3, 4].map((k) => ({ left: k * 25, shift: k === 0 ? 0 : (k === 4 ? -100 : -50), label: k === 4 ? 'now' : '−' + Math.round(W * (1 - k / 4) / 60) + ' min' }));
+    const windows = [[900, '15 min'], [7200, '2 h']].map((w) => ({ label: w[1], pick: () => this.setState({ win: w[0] }), bg: tabBg(s.win === w[0]), fg: tabFg(s.win === w[0]) }));
+    const legend = ['running', 'needs', 'review', 'accepted', 'queued'].map((k) => ({ label: this.SC[k].label, color: this.SC[k].color }));
+
+    const P = this.POS;
+    const line = (p, q) => 'M' + p[0] + ' ' + p[1] + ' L' + q[0] + ' ' + q[1];
+    const edgeDefs = [];
+    workers.forEach((n) => { if (P[n]) edgeDefs.push(['director', n, A[n].state === 'queued' || A[n].state === 'accepted']); });
+    const subActive = A.bravo && (A.bravo.state === 'running' || A.bravo.state === 'changes');
+    if (subActive) { edgeDefs.push(['bravo', 'explore#1', false]); edgeDefs.push(['bravo', 'test-writer#2', false]); }
+    const deltaSub = A.delta && A.delta.state === 'running' && A.delta.lines.some((l) => l.who === 'explore#3');
+    if (deltaSub) edgeDefs.push(['delta', 'explore#3', false]);
+    const edgeKey = (x, y) => [x, y].sort().join('|');
+    const edges = edgeDefs.map((e) => {
+      const k = edgeKey(e[0], e[1]);
+      const on = s.flowSel === k;
+      return { d: line(P[e[0]], P[e[1]]), stroke: on ? 'var(--accent)' : (e[2] ? 'var(--line2)' : 'var(--track)'), w: on ? 4 : 2.5, dash: e[2] ? '5 6' : 'none', pick: () => this.setState({ flowSel: on ? null : k }) };
+    });
+    const packets = [];
+    s.msgs.forEach((m) => { if (s.tick - m.at < 8 && P[m.from] && P[m.to]) packets.push({ d: line(P[m.from], P[m.to]), color: this.colorOf(m.from), dur: '1.6s', r: 6 }); });
+    if (subActive) {
+      packets.push({ d: line(P.bravo, P['explore#1']), color: this.ac('#f6c453'), dur: '2.2s', r: 3.5 });
+      packets.push({ d: line(P['explore#1'], P.bravo), color: this.ac('#8bd3dd'), dur: '2.9s', r: 3.5 });
+      packets.push({ d: line(P.bravo, P['test-writer#2']), color: this.ac('#f6c453'), dur: '2.6s', r: 3.5 });
+      packets.push({ d: line(P['test-writer#2'], P.bravo), color: this.ac('#e9b872'), dur: '3.3s', r: 3.5 });
+    }
+    if (deltaSub) {
+      packets.push({ d: line(P.delta, P['explore#3']), color: this.ac('#74b9ff'), dur: '2.4s', r: 3.5 });
+      packets.push({ d: line(P['explore#3'], P.delta), color: this.ac('#9fb4ff'), dur: '3.1s', r: 3.5 });
+    }
+    const nodes = order.filter((n) => P[n]).map((n) => {
+      const a = A[n];
+      const r = n === 'director' ? 32 : 25;
+      return { name: n, x: P[n][0], y: P[n][1], r: r, ringR: r + 8, ty: P[n][1] + r + 17, sy: P[n][1] + r + 31, fs: 13, color: this.ac(a.color), sw: 3, op: (a.state === 'queued' || a.state === 'accepted') ? 0.55 : 1, needs: a.state === 'needs', stateLabel: this.SC[a.state].label, pick: () => this.setState({ sel: n }) };
+    });
+    const subNodes = [];
+    if (subActive) { subNodes.push(['explore#1', '#8bd3dd', 'bravo']); subNodes.push(['test-writer#2', '#e9b872', 'bravo']); }
+    if (deltaSub) subNodes.push(['explore#3', '#9fb4ff', 'delta']);
+    subNodes.forEach((sn) => {
+      const p = P[sn[0]];
+      nodes.push({ name: sn[0], x: p[0], y: p[1], r: 14, ringR: 20, ty: p[1] + 30, sy: p[1] + 43, fs: 11, color: this.ac(sn[1]), sw: 2, op: 1, needs: false, stateLabel: 'subagent', pick: () => this.setState({ sel: sn[2] }) });
+    });
+    const fsel = s.flowSel ? s.flowSel.split('|') : null;
+    const flowLog = s.msgs.filter((m) => !fsel || (fsel.indexOf(m.from) >= 0 && fsel.indexOf(m.to) >= 0)).slice().reverse().map((m) => ({ from: m.from, to: m.to, text: m.text, ago: this.ago(m.at), fromColor: this.colorOf(m.from), toColor: this.colorOf(m.to) }));
+
+    const C = this.COMMITS;
+    const ROW = 34, LW = 22;
+    const gW = 6 * LW + 20;
+    const rowOf = {};
+    C.forEach((c, i) => { rowOf[c.id] = i; });
+    const cx = (c) => 14 + c.lane * LW;
+    const cy = (i) => i * ROW + ROW / 2;
+    const vis = (c) => c.op <= s.opIdx;
+    const laneColor = (c) => c.agent && A[c.agent] ? this.ac(A[c.agent].color) : 'var(--muted)';
+    const gEdges = [];
+    C.forEach((c, i) => {
+      c.parents.forEach((p) => {
+        const j = rowOf[p];
+        if (j === undefined) return;
+        const x1 = cx(c), y1 = cy(i), x2 = cx(C[j]), y2 = cy(j);
+        const d = x1 === x2 ? 'M' + x1 + ' ' + y1 + ' L' + x2 + ' ' + y2 : 'M' + x1 + ' ' + y1 + ' L' + x1 + ' ' + (y2 - ROW) + ' Q' + x1 + ' ' + (y2 - ROW / 3) + ' ' + x2 + ' ' + y2;
+        gEdges.push({ d: d, color: laneColor(c), op: vis(c) ? 0.85 : 0.2 });
+      });
+    });
+    const gNodes = C.map((c, i) => ({ x: cx(c), y: cy(i), r: c.wc ? 7 : 5.5, dash: c.empty ? '2 2' : 'none', fill: c.immutable ? 'var(--muted)' : (c.wc ? laneColor(c) : 'var(--term)'), stroke: c.immutable ? 'var(--muted)' : laneColor(c), op: vis(c) ? 1 : 0.25 }));
+    const gRows = C.map((c) => {
+      const chips = [];
+      if (c.ws) chips.push({ label: c.ws + '@', color: laneColor(c) });
+      (c.bm || []).forEach((b) => chips.push({ label: b, color: 'var(--accent)' }));
+      if (c.tag) chips.push({ label: c.tag, color: 'var(--rev)' });
+      return { pre: c.id.slice(0, 2), rest: c.id.slice(2), desc: c.desc, descColor: c.empty ? 'var(--dim)' : 'var(--fg)', chips: chips, hasAgent: !!c.agent, agent: c.agent || '', agentColor: laneColor(c), op: vis(c) ? 1 : 0.35 };
+    });
+    const ops = this.OPS;
+    const opSel = Object.assign({}, ops[s.opIdx], { color: this.colorOf(ops[s.opIdx].who) });
+    const opRows = ops.map((o, i) => ({ short: o.id.slice(0, 8), who: o.who, what: o.what, t: o.t, color: this.colorOf(o.who), bg: i === s.opIdx ? 'var(--sel)' : 'transparent', pick: () => this.setState({ opIdx: i }) })).reverse();
+    const laneAngle = (l) => l * 60;
+    const threads = [0, 1, 2, 3, 4, 5].map((l) => {
+      const c = C.find((x) => x.lane === l);
+      return { a: laneAngle(l), r: l === 0 ? 0 : 160, color: c ? laneColor(c) : 'var(--muted)' };
+    });
+    const orbitNodes = C.map((c) => ({ a: laneAngle(c.lane), r: c.lane === 0 ? 0 : 160, y: 150 - c.gen * 62, stroke: c.immutable ? 'var(--muted)' : laneColor(c), fill: c.wc ? laneColor(c) : 'var(--card)', label: c.id.slice(0, 4) + (c.ws ? ' ' + c.ws + '@' : '') + (c.bm ? ' ' + c.bm[0] : ''), op: vis(c) ? 1 : 0.25 }));
+    const histModes = [['classic', 'Classic'], ['3d', '3D']].map((m) => ({ label: m[1], on: s.histMode === m[0], pick: () => this.setState({ histMode: m[0] }), bg: tabBg(s.histMode === m[0]), fg: tabFg(s.histMode === m[0]) }));
+
+    const hasDrawer = s.view !== 'grid' && !!s.sel && !!A[s.sel];
+    const d = hasDrawer ? this.av(s.sel) : this.av('director');
+    const tabs = [['live', 'Live'], ['files', 'Files'], ['diff', 'Diff'], ['report', 'Report'], ['msgs', 'Messages']].map((t) => ({ label: t[1], on: s.tab === t[0], pick: () => this.setState({ tab: t[0] }), bg: tabBg(s.tab === t[0]), fg: tabFg(s.tab === t[0]) }));
+
+    const commands = [
+      { label: 'Spawn task…', key: 'N', run: () => this.setState({ paletteOpen: false, spawnOpen: true }) },
+      { label: 'Go to inbox', key: '2', run: () => this.setState({ paletteOpen: false, view: 'inbox' }) },
+      { label: 'Message director…', key: '@director', run: () => this.setState({ paletteOpen: false, view: 'grid', enlarged: 'director' }) },
+      { label: 'jj history and op log', key: '6', run: () => this.setState({ paletteOpen: false, view: 'history' }) },
+      { label: 'Toggle light / dark', key: 'T', run: () => this.setState({ paletteOpen: false, theme: isLight ? 'dark' : 'light' }) },
+      { label: 'Toggle lid-closed mode', key: 'L', run: () => this.setState({ paletteOpen: false, awake: !s.awake }) }
+    ];
+
+    return {
+      pointDocs: pointDocs, hasPointDocs: pointDocs.length > 0,
+      dirLast: dirLast, dirColor: this.ac(dirA.color), dirState: this.SC[dirA.state].label, dirDraft: s.dirDraft,
+      onDirDraft: (e) => this.setState({ dirDraft: e.target.value }), onDirKey: (e) => { if (e.key === 'Enter') this.sendDirector(s.dirDraft); }, sendDir: () => this.sendDirector(s.dirDraft),
+      openDirector: () => this.enlarge('director'),
+      themeClass: isLight ? 'th-light' : 'th-dark', themeLabel: isLight ? 'Light' : 'Dark', toggleTheme: () => this.setState({ theme: isLight ? 'dark' : 'light' }),
+      views: views, counters: counters, ticker: ticker, tree: tree, workspaces: workspaces, wsPicks: wsPicks,
+      anyUnseen: unseenCount > 0, markAllSeen: () => this.markAllSeen(),
+      awake: s.awake, awakeLabel: s.awake ? 'Lid-closed mode on' : 'Lid-closed mode', awakeBg: s.awake ? 'var(--warnbg)' : 'var(--panel)', awakeFg: s.awake ? 'var(--warnfg)' : 'var(--fg3)',
+      toggleAwake: () => this.setState({ awake: !s.awake }),
+      spawnOpen: s.spawnOpen, toggleSpawn: () => this.setState({ spawnOpen: !s.spawnOpen }), spawnText: s.spawnText, onSpawnText: (e) => this.setState({ spawnText: e.target.value }), spawn: () => this.spawn(),
+      paletteOpen: s.paletteOpen, togglePalette: () => this.setState({ paletteOpen: !s.paletteOpen }), commands: commands,
+      isBoard: s.view === 'board', isInbox: s.view === 'inbox', isFlow: s.view === 'flow', isTimeline: s.view === 'timeline', isHistory: s.view === 'history',
+      gridNormal: s.view === 'grid' && !enl, gridBig: s.view === 'grid' && !!enl,
+      columns: columns, inbox: inbox, inboxEmpty: inbox.length === 0 && totalPoints === 0, fyi: fyi, hasFyi: fyi.length > 0,
+      tiles: tiles, tileH: 400, bigTile: enl ? this.av(enl) : this.av('director'), bigH: 690, others: others, unenlarge: () => this.setState({ enlarged: null }),
+      lanes: lanes, axis: axis, windows: windows, legend: legend, bottleneck: totalWait > 0 ? 'You were the bottleneck for ' + this.dur(totalWait) + ' in this window.' : 'Nobody waited on you in this window.',
+      edges: edges, packets: packets, nodes: nodes, flowLog: flowLog, flowLogEmpty: flowLog.length === 0,
+      hasFlowSel: !!s.flowSel, flowFilterLabel: s.flowSel ? s.flowSel.replace('|', ' ⇄ ') : 'all links', clearFlow: () => this.setState({ flowSel: null }),
+      histModes: histModes, histClassic: s.histMode === 'classic', hist3d: s.histMode === '3d',
+      gW: gW, gH: C.length * ROW, gEdges: gEdges, gNodes: gNodes, gRows: gRows,
+      opMax: ops.length - 1, opIdx: s.opIdx, onOp: (e) => this.setState({ opIdx: Number(e.target.value) }), opSel: opSel, opPast: s.opIdx < ops.length - 1, opRows: opRows,
+      threads: threads, orbitNodes: orbitNodes, spinState: s.spin ? 'running' : 'paused', spinLabel: s.spin ? 'Pause rotation' : 'Resume rotation', toggleSpin: () => this.setState({ spin: !s.spin }),
+      hasDrawer: hasDrawer, d: d, tabs: tabs, drawerH: 580, closeDrawer: () => this.setState({ sel: null }), openHistory: () => this.setState({ view: 'history' }),
+      tabLive: s.tab === 'live', tabFiles: s.tab === 'files', tabDiff: s.tab === 'diff', tabReport: s.tab === 'report', tabMsgs: s.tab === 'msgs'
+    };
+  }
+}
+</script>
+</body>
+</html>
