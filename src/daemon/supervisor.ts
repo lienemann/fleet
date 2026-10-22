@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
   type AgentEvent,
@@ -150,7 +150,7 @@ export class Supervisor implements ToolHost {
         this.prompt(message.agent, message.text);
         return;
       case "interrupt":
-        void this.sessions.get(message.agent)?.interrupt();
+        this.background(this.sessions.get(message.agent)?.interrupt());
         return;
       case "answer":
         this.answer(message.requestId, message.answer);
@@ -172,19 +172,19 @@ export class Supervisor implements ToolHost {
         this.session(message.agent)?.start();
         return;
       case "stop":
-        void this.sessions.get(message.agent)?.stop();
+        this.background(this.sessions.get(message.agent)?.stop());
         return;
       case "detach":
-        void this.sessions.get(message.agent)?.stop("detached");
+        this.background(this.sessions.get(message.agent)?.stop("detached"));
         return;
       case "move":
-        void this.move(message.agent, message.to);
+        this.background(this.move(message.agent, message.to));
         return;
       case "set_mode":
-        void this.session(message.agent)?.setPermissionMode(message.mode);
+        this.background(this.session(message.agent)?.setPermissionMode(message.mode));
         return;
       case "set_model":
-        void this.session(message.agent)?.setModel(message.model);
+        this.background(this.session(message.agent)?.setModel(message.model));
         return;
       case "set_color":
         if (this.agent(message.agent))
@@ -210,9 +210,8 @@ export class Supervisor implements ToolHost {
         this.requestChanges(message.agent, message.message);
         return;
       case "set_lid_mode":
-        void this.power?.setLidMode(
-          message.on,
-          message.on ? "turned on by you" : "turned off by you",
+        this.background(
+          this.power?.setLidMode(message.on, message.on ? "turned on by you" : "turned off by you"),
         );
         return;
     }
@@ -317,7 +316,10 @@ export class Supervisor implements ToolHost {
   report(agent: string, report: Report): string {
     this.append(agent, { kind: "report", report });
     const view = this.agent(agent);
-    if (view && ACTIVE.has(view.task)) this.append(agent, { kind: "task_state", state: "review" });
+    if (view && ACTIVE.has(view.task)) {
+      this.append(agent, { kind: "task_state", state: "review" });
+      this.schedule(); // review frees a running slot
+    }
     if (agent !== DIRECTOR && this.agent(DIRECTOR)) {
       this.message(agent, DIRECTOR, `Result of "${view?.title}":\n\n${report.summary}`);
     }
@@ -461,22 +463,40 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (agent?.role !== "worker" || agent.task === to || agent.task === "queued") return;
     if (to === "accepted") await this.sessions.get(name)?.stop();
-    this.append(name, { kind: "task_state", state: to });
-    if (ACTIVE.has(to)) this.session(name)?.start();
+    // An accepted task gave up its workspace; reopened, it waits for it like any other.
+    const reopened = agent.task === "accepted" && ACTIVE.has(to);
+    if (
+      reopened &&
+      (!this.workspaceFree(agent.workspace, name) || this.activeCount() >= this.config.wip.running)
+    ) {
+      this.append(name, { kind: "task_state", state: "queued" });
+    } else {
+      this.append(name, { kind: "task_state", state: to });
+      if (ACTIVE.has(to)) this.session(name)?.start();
+    }
     this.schedule();
+  }
+
+  private activeCount(): number {
+    return this.agents.filter((a) => a.role === "worker" && ACTIVE.has(a.task)).length;
+  }
+
+  /** Runs a promise nobody awaits; a failure is logged instead of taking the daemon down. */
+  private background(work: Promise<unknown> | undefined): void {
+    work?.catch((error: unknown) => console.error("fleet:", error));
   }
 
   /** Starts queued tasks whose workspace is free, within the WIP limit. */
   private schedule(): void {
     for (const agent of this.agents) {
       if (agent.task !== "queued") continue;
-      const active = this.agents.filter((a) => a.role === "worker" && ACTIVE.has(a.task)).length;
-      if (active >= this.config.wip.running) return;
+      if (this.activeCount() >= this.config.wip.running) return;
       if (!this.workspaceFree(agent.workspace, agent.name)) continue;
       this.append(agent.name, { kind: "task_state", state: "running" });
       const session = this.session(agent.name);
       session?.start();
-      session?.prompt(agent.prompt ?? agent.title);
+      // A reopened task has its conversation already; it waits for the user's next word.
+      if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
     }
   }
 
@@ -554,6 +574,7 @@ export class Supervisor implements ToolHost {
           )
         : workerPrompt(name, agent.workspace),
       autoDecide,
+      hooks: director ? directorHooks(agent.cwd) : undefined,
     });
     this.sessions.set(name, session);
     return session;
@@ -607,4 +628,38 @@ function keepNotesOutOfVcs(cwd: string): void {
   } catch {
     // A workspace we cannot write to fails the agent's own writes too; it reports that better.
   }
+}
+
+/**
+ * The same policy as a PreToolUse hook: the CLI runs hooks in every permission mode and
+ * whatever the settings files allow, so the director cannot edit code in acceptEdits or
+ * auto mode either.
+ */
+function directorHooks(cwd: string): NonNullable<Options["hooks"]> {
+  return {
+    PreToolUse: [
+      {
+        matcher: [...EDIT_TOOLS].join("|"),
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== "PreToolUse") return {};
+            const tool = input.tool_name;
+            const verdict = directorPolicy(
+              cwd,
+              tool,
+              (input.tool_input ?? {}) as Record<string, unknown>,
+            );
+            if (verdict?.behavior !== "deny") return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PreToolUse",
+                permissionDecision: "deny",
+                permissionDecisionReason: verdict.message,
+              },
+            };
+          },
+        ],
+      },
+    ],
+  };
 }

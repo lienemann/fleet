@@ -21,9 +21,18 @@ export class Orbit {
     this.python = python;
   }
 
-  /** The port orbit listens on, starting it if needed. */
+  /**
+   * The port orbit listens on, starting it if needed. The first call claims the start before
+   * awaiting anything, so a burst of page requests shares one process.
+   */
   port(): Promise<number> {
-    if (!this.starting || this.process?.exitCode !== null) this.starting = this.start();
+    if (!this.starting) {
+      this.starting = this.start();
+      // A failed start, or a process that died later, is started again on the next request.
+      this.starting.catch(() => {
+        this.starting = undefined;
+      });
+    }
     return this.starting;
   }
 
@@ -39,13 +48,22 @@ export class Orbit {
       stdio: ["ignore", "ignore", "pipe"],
     });
     this.process = child;
+    // exitCode stays null for a process killed by a signal, so listen for the exit instead.
+    let exited = false;
+    child.once("exit", () => {
+      exited = true;
+      if (this.process === child) {
+        this.process = undefined;
+        this.starting = undefined;
+      }
+    });
     let output = "";
     child.stderr?.on("data", (chunk: Buffer) => {
       output = (output + chunk.toString()).slice(-2000);
     });
     const deadline = Date.now() + STARTUP_MS;
     while (Date.now() < deadline) {
-      if (child.exitCode !== null) throw new Error(`jj orbit exited: ${output.trim()}`);
+      if (exited) throw new Error(`jj orbit exited: ${output.trim()}`);
       if (await answers(port)) return port;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }

@@ -28,6 +28,17 @@ describe("EventLog", () => {
     expect(log.lastSeq).toBe(2);
   });
 
+  it("delivers events appended by a listener after the current one, in order", () => {
+    const log = new EventLog(":memory:");
+    log.subscribe((event) => {
+      if (event.seq === 1) log.append({ kind: "agent_opened", agent: "a" });
+    });
+    const seen: number[] = [];
+    log.subscribe((event) => seen.push(event.seq));
+    log.append(created);
+    expect(seen).toEqual([1, 2]);
+  });
+
   it("rebuilds the projection from disk after a restart", async () => {
     const { mkdtempSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");

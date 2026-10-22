@@ -11,6 +11,9 @@ import { Power } from "./power.ts";
 import { createFleetServer } from "./server.ts";
 import { Supervisor } from "./supervisor.ts";
 
+// A stray rejection must not end every agent's session with the process.
+process.on("unhandledRejection", (reason) => console.error("fleet: unhandled rejection:", reason));
+
 const home = fleetHome();
 mkdirSync(home, { recursive: true });
 

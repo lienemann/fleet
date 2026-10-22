@@ -213,3 +213,62 @@ describe("files", () => {
     expect(parseOpenPoints("- [ ] One")[0]?.id).toBe(points[0]?.id);
   });
 });
+
+describe("scheduling and policy", () => {
+  it("starts a queued task when a report frees a running slot", () => {
+    const log = new EventLog(":memory:");
+    const workspaces = ["ws1", "ws2"].map((name) => ({ name, path: tmpdir(), allowedTools: [] }));
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: { workspaces, wip: { running: 1, review: 2 }, host: "mac" },
+    });
+    supervisor.createTask("one", "x", "ws1");
+    supervisor.createTask("two", "y", "ws2");
+    expect(log.state.agents.bravo?.task).toBe("queued");
+    supervisor.report("alpha", { summary: "done", changes: [], openQuestions: [] });
+    expect(log.state.agents.bravo?.task).toBe("running");
+  });
+
+  it("queues a reopened task whose workspace went to another task", async () => {
+    const { log, supervisor } = setup();
+    supervisor.spawn({ title: "first", context: "x", workspace: "ws1" });
+    supervisor.handle({ type: "move", agent: "alpha", to: "accepted" });
+    await until(() => log.state.agents.alpha?.task === "accepted");
+    supervisor.spawn({ title: "second", context: "y", workspace: "ws1" });
+    expect(log.state.agents.bravo?.task).toBe("running");
+
+    supervisor.handle({ type: "move", agent: "alpha", to: "running" });
+    await until(() => log.state.agents.alpha?.task === "queued");
+  });
+
+  it("keeps the director from editing code in every permission mode", async () => {
+    const root = mkdtempSync(join(tmpdir(), "fleet-hook-"));
+    const log = new EventLog(":memory:");
+    const fake = fakeQuery(echoing(result()));
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fake.queryFn,
+      config: { workspaces: [], wip: { running: 4, review: 2 }, host: "mac", director: root },
+    });
+    supervisor.init();
+    supervisor.handle({ type: "prompt", agent: DIRECTOR, text: "plan" });
+    const hook = fake.calls[0]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
+    const run = (file: string) =>
+      hook?.(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Edit",
+          tool_input: { file_path: join(root, file) },
+        } as never,
+        undefined,
+        {
+          signal: new AbortController().signal,
+        },
+      );
+    await expect(run("src/main.py")).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+    await expect(run(".fleet/director/plan.md")).resolves.toEqual({});
+  });
+});

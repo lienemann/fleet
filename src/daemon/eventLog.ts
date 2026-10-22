@@ -21,6 +21,9 @@ export class EventLog {
   private readonly insert: Database.Statement<[number, string, string | null, string, string]>;
   private readonly select: Database.Statement<[number, number], Row>;
   private readonly listeners = new Set<Listener>();
+  /** Events appended but not yet handed to every listener, in seq order. */
+  private readonly outbox: FleetEvent[] = [];
+  private delivering = false;
   private projection: FleetState = emptyState();
 
   constructor(path: string) {
@@ -62,8 +65,26 @@ export class EventLog {
     const info = this.insert.run(ts, agent, parent, body.kind, JSON.stringify(body));
     const stored = { ...body, agent, parent, ts, seq: Number(info.lastInsertRowid) } as FleetEvent;
     this.projection = reduce(this.projection, stored);
-    for (const listener of this.listeners) listener(stored);
+    this.deliver(stored);
     return stored;
+  }
+
+  /**
+   * Hands events to the listeners strictly in seq order. A listener may append (the power
+   * manager does); that event waits until every listener has seen the current one, or a
+   * subscriber that tracks the last seq it sent would skip the earlier event.
+   */
+  private deliver(event: FleetEvent): void {
+    this.outbox.push(event);
+    if (this.delivering) return;
+    this.delivering = true;
+    try {
+      for (let next = this.outbox.shift(); next; next = this.outbox.shift()) {
+        for (const listener of this.listeners) listener(next);
+      }
+    } finally {
+      this.delivering = false;
+    }
   }
 
   /** Events with a sequence number greater than `seq`, oldest first. */
