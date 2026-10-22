@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Answer } from "../../shared/protocol.ts";
 import type { Decision } from "../../shared/reducer.ts";
+import { useFleet } from "../fleet.tsx";
 import { RISK_LABELS } from "../labels.ts";
 
 interface Props {
@@ -11,7 +12,7 @@ interface Props {
   onAnswer: (answer: Answer) => void;
 }
 
-/** One permission prompt or question, with the agent's explanation and derived risk tags. */
+/** A permission prompt, a question or a review request, with the agent's explanation and risk tags. */
 export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props) {
   return (
     <article className={`decision ${focused ? "focused" : ""}`} data-request={decision.requestId}>
@@ -25,39 +26,41 @@ export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props)
         ))}
       </header>
       {decision.explanation && <p className="explanation">{decision.explanation}</p>}
-      {decision.decision === "question" && decision.questions ? (
-        <Questions decision={decision} onAnswer={onAnswer} />
-      ) : (
-        <>
-          <pre className="input">{describeInput(decision.input)}</pre>
-          <footer>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => onAnswer({ behavior: "allow" })}
-            >
-              Approve <kbd>a</kbd>
-            </button>
-            <button
-              type="button"
-              onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}
-            >
-              Always allow
-            </button>
-            <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-              Reject <kbd>r</kbd>
-            </button>
-          </footer>
-        </>
-      )}
+      {decision.decision === "question" && <Questions decision={decision} onAnswer={onAnswer} />}
+      {decision.decision === "review" && <Review decision={decision} onAnswer={onAnswer} />}
+      {decision.decision === "permission" && <Permission decision={decision} onAnswer={onAnswer} />}
     </article>
   );
 }
 
-function Questions({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
+type BodyProps = Pick<Props, "decision" | "onAnswer">;
+
+function Permission({ decision, onAnswer }: BodyProps) {
+  return (
+    <>
+      <pre className="input">{describeInput(decision.input)}</pre>
+      <footer>
+        <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
+          Approve <kbd>a</kbd>
+        </button>
+        <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
+          Always allow
+        </button>
+        <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
+          Reject <kbd>r</kbd>
+        </button>
+      </footer>
+    </>
+  );
+}
+
+function Questions({ decision, onAnswer }: BodyProps) {
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
+  const [other, setOther] = useState<Record<string, string>>({});
   const questions = decision.questions ?? [];
-  const complete = questions.every((q) => (chosen[q.question]?.length ?? 0) > 0);
+  const answerTo = (question: string): string =>
+    other[question]?.trim() || (chosen[question] ?? []).join(", ");
+  const complete = questions.every((q) => answerTo(q.question) !== "");
 
   const toggle = (question: string, label: string, multi: boolean): void =>
     setChosen((prev) => {
@@ -79,7 +82,8 @@ function Questions({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">)
             <label key={option.label} className="option">
               <input
                 type={q.multiSelect ? "checkbox" : "radio"}
-                name={q.question}
+                // The same decision can be on screen twice (inbox and drawer).
+                name={`${decision.requestId}:${q.question}`}
                 checked={chosen[q.question]?.includes(option.label) ?? false}
                 onChange={() => toggle(q.question, option.label, q.multiSelect ?? false)}
               />
@@ -87,6 +91,12 @@ function Questions({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">)
               {option.description && <small>{option.description}</small>}
             </label>
           ))}
+          <input
+            className="other"
+            placeholder="Other answer…"
+            value={other[q.question] ?? ""}
+            onChange={(e) => setOther({ ...other, [q.question]: e.target.value })}
+          />
         </fieldset>
       ))}
       <footer>
@@ -97,9 +107,7 @@ function Questions({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">)
           onClick={() =>
             onAnswer({
               behavior: "answers",
-              answers: Object.fromEntries(
-                Object.entries(chosen).map(([q, labels]) => [q, labels.join(", ")]),
-              ),
+              answers: Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])),
             })
           }
         >
@@ -107,6 +115,50 @@ function Questions({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">)
         </button>
         <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
           Dismiss
+        </button>
+      </footer>
+    </>
+  );
+}
+
+function Review({ decision, onAnswer }: BodyProps) {
+  const { readFile } = useFleet();
+  const [content, setContent] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [comment, setComment] = useState("");
+  const path = decision.path ?? "";
+
+  useEffect(() => {
+    readFile(decision.agent, path).then(setContent, (e: Error) => setError(e.message));
+  }, [readFile, decision.agent, path]);
+
+  const message = comment.trim() || undefined;
+  return (
+    <>
+      <p className="review-path">
+        {decision.reviewKind} · <code>{path}</code>
+      </p>
+      <pre className="input file">{error ?? content ?? "Loading…"}</pre>
+      <textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        rows={3}
+        placeholder="Comments for the agent (needed when asking for changes)"
+      />
+      <footer>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => onAnswer({ behavior: "review", approved: true, message })}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          disabled={!message}
+          onClick={() => onAnswer({ behavior: "review", approved: false, message })}
+        >
+          Request changes
         </button>
       </footer>
     </>

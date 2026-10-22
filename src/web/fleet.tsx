@@ -32,6 +32,8 @@ export interface Fleet {
   color: (color: string) => string;
   /** The last error the daemon reported, e.g. a rejected message. */
   error: string | undefined;
+  /** Reads a file from an agent's workspace through the daemon. */
+  readFile: (agent: string, path: string) => Promise<string>;
 }
 
 const FleetContext = createContext<Fleet | undefined>(undefined);
@@ -53,6 +55,9 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string>();
   const { theme, toggle: toggleTheme } = useTheme();
   const socket = useRef<WebSocket | undefined>(undefined);
+  const fileRequests = useRef(
+    new Map<string, { resolve: (s: string) => void; reject: (e: Error) => void }>(),
+  );
   const lastSeq = useRef(0);
   lastSeq.current = state.lastSeq;
 
@@ -87,6 +92,13 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           case "error":
             setError(data.message);
             break;
+          case "file": {
+            const request = fileRequests.current.get(data.id);
+            fileRequests.current.delete(data.id);
+            if (data.content !== undefined) request?.resolve(data.content);
+            else request?.reject(new Error(data.error ?? "unreadable"));
+            break;
+          }
         }
       };
       ws.onclose = () => {
@@ -109,10 +121,23 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message));
   }, []);
   const color = useCallback((c: string) => themedColor(c, theme), [theme]);
+  const readFile = useCallback(
+    (agent: string, path: string) =>
+      new Promise<string>((resolve, reject) => {
+        if (socket.current?.readyState !== WebSocket.OPEN) {
+          reject(new Error("Not connected to the daemon"));
+          return;
+        }
+        const id = crypto.randomUUID();
+        fileRequests.current.set(id, { resolve, reject });
+        send({ type: "read_file", id, agent, path });
+      }),
+    [send],
+  );
 
   return (
     <FleetContext.Provider
-      value={{ state, info, connected, send, theme, toggleTheme, color, error }}
+      value={{ state, info, connected, send, theme, toggleTheme, color, error, readFile }}
     >
       {children}
     </FleetContext.Provider>

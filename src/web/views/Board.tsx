@@ -91,7 +91,9 @@ function Card({
     ? "reconnecting…"
     : agent.pending > 0
       ? "waiting for your decision"
-      : (agent.todos.find((t) => t.status === "in_progress")?.activeForm ?? agent.activity);
+      : (agent.status ??
+        agent.todos.find((t) => t.status === "in_progress")?.activeForm ??
+        agent.activity);
 
   return (
     <article

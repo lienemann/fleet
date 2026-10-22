@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { agentList } from "../shared/reducer.ts";
 import { useFleet } from "./fleet.tsx";
+import { DirectorDock } from "./shell/DirectorDock.tsx";
 import { Drawer } from "./shell/Drawer.tsx";
 import { Header } from "./shell/Header.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
+import { Ticker } from "./shell/Ticker.tsx";
 import { useHotkeys } from "./useHotkeys.ts";
 import { Board } from "./views/Board.tsx";
+import { Flow } from "./views/Flow.tsx";
 import { Grid } from "./views/Grid.tsx";
 import { Inbox } from "./views/Inbox.tsx";
 import type { View } from "./views.ts";
@@ -44,6 +47,7 @@ export function App() {
     "1": () => setView("board"),
     "2": () => setView("inbox"),
     "3": () => setView("grid"),
+    "5": () => setView("flow"),
     n: () => setCreating(true),
     ...(view !== "inbox" && { j: step(1), k: step(-1) }),
     escape: () => selected && send({ type: "interrupt", agent: selected }),
@@ -52,6 +56,7 @@ export function App() {
   return (
     <div className="shell">
       <Header view={view} onView={setView} onNewTask={() => setCreating(true)} />
+      <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
       {error && <div className="banner">{error}</div>}
       <div className="body">
@@ -59,6 +64,7 @@ export function App() {
         <main className="main">
           {view === "board" && <Board selected={selected} onSelect={select} />}
           {view === "inbox" && <Inbox onOpen={open} />}
+          {view === "flow" && <Flow onOpen={select} />}
           {view === "grid" && (
             <Grid
               selected={selected}
@@ -72,6 +78,7 @@ export function App() {
           <Drawer agent={agent} onClose={() => setSelected(undefined)} />
         )}
       </div>
+      <DirectorDock onOpen={select} />
       {creating && <NewTask onClose={() => setCreating(false)} />}
     </div>
   );

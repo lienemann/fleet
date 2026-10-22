@@ -68,9 +68,11 @@ function AgentRow({
   const column = columnOf(agent);
   const status = agent.reconnecting
     ? "reconnecting"
-    : agent.role === "director" || agent.activity === "stopped" || agent.activity === "detached"
-      ? ACTIVITY_LABELS[agent.activity]
-      : columnLabel(column);
+    : agent.task === "queued"
+      ? "queued"
+      : agent.role === "director" || agent.activity === "stopped" || agent.activity === "detached"
+        ? ACTIVITY_LABELS[agent.activity]
+        : columnLabel(column);
   return (
     <button
       type="button"
