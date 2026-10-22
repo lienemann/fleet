@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -99,5 +99,20 @@ describe("review flow", () => {
     await expect(
       supervisor.call({ type: "read_file", id: "1", agent: "alpha", path: "../../etc/hosts" }),
     ).rejects.toThrow(/outside/);
+  });
+});
+
+describe("workspace files", () => {
+  it("lists tracked files for @ mentions and the agent's notes for the Files tab", async () => {
+    const { log, supervisor } = setup();
+    const cwd = log.state.agents.alpha?.cwd ?? "";
+    mkdirSync(join(cwd, ".fleet", "alpha"), { recursive: true });
+    writeFileSync(join(cwd, ".fleet", "alpha", "report.md"), "# Report");
+
+    await expect(
+      supervisor.call({ type: "list_files", id: "1", agent: "alpha" }),
+    ).resolves.toContain("lib.py");
+    const notes = await supervisor.call({ type: "notes", id: "2", agent: "alpha" });
+    expect(notes.map((n) => n.path)).toEqual([".fleet/alpha/report.md"]);
   });
 });

@@ -18,7 +18,7 @@ interface Props {
 
 /** A live session, mirroring the TUI: transcript, to-dos, pending decisions, CLI bar and prompt. */
 export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
-  const { state, send, color } = useFleet();
+  const { state, send, call, color } = useFleet();
   const [filter, setFilter] = useState<LogFilter>("all");
   const decisions = pendingDecisions(state).filter((d) => d.agent === agent.name);
   const column = columnOf(agent);
@@ -96,7 +96,10 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
         <Prompt
           name={agent.name}
           commands={agent.slashCommands}
-          onSend={(text) => send({ type: "prompt", agent: agent.name, text })}
+          loadFiles={() => call({ type: "list_files", agent: agent.name })}
+          onSend={(text, images) =>
+            send({ type: "prompt", agent: agent.name, text, ...(images.length > 0 && { images }) })
+          }
         />
       )}
     </section>

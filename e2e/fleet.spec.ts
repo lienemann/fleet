@@ -160,7 +160,7 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
   await page.keyboard.press("t");
-  await expect(page.getByRole("button", { name: /^Diff/ })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "Files" })).toHaveClass(/active/);
 });
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {
@@ -203,6 +203,39 @@ test("tasks on a remote daemon show up and are answered like local ones", async 
   ).toBeVisible({
     timeout: 10_000,
   });
+});
+
+test("prompts take @ file mentions and images; the Files tab shows what agents wrote", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".host")).toHaveText("test");
+  // The director works in ws1, whose trunk has lib.py.
+  await page.keyboard.press("g");
+  await page.keyboard.press("d");
+  const prompt = page.locator(".drawer textarea[data-prompt]");
+  await prompt.fill("Look at @li");
+  await expect(page.locator(".slash-menu")).toContainText("lib.py");
+  await prompt.press("Tab");
+  await expect(prompt).toHaveValue("Look at @lib.py ");
+
+  // A 1×1 PNG.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+    "base64",
+  );
+  await page
+    .locator(".drawer input[type=file]")
+    .setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: png });
+  await expect(page.locator(".attachment img")).toBeVisible();
+  await prompt.press("Enter");
+  await expect(page.locator(".drawer .log")).toContainText("Look at @lib.py [1 image]");
+
+  // Spawned workers get their context pack under .fleet/<name>/.
+  await page.getByRole("button", { name: "Board 1" }).click();
+  await page.locator(".card", { hasText: "Port the pulse pass" }).locator(".card-main").click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await expect(page.locator(".files")).toContainText(".fleet/");
 });
 
 test("can be installed as an app", async ({ page, request }) => {

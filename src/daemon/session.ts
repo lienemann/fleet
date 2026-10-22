@@ -13,6 +13,7 @@ import type {
   AgentEvent,
   EventBody,
   PermissionMode,
+  PromptImage,
   Question,
 } from "../shared/events.ts";
 import type { Answer } from "../shared/protocol.ts";
@@ -122,11 +123,15 @@ export class AgentSession {
     this.done = this.run(generation);
   }
 
-  prompt(text: string): void {
-    this.options.emit({ kind: "user_prompt", text });
+  prompt(text: string, images: readonly PromptImage[] = []): void {
+    this.options.emit({
+      kind: "user_prompt",
+      text,
+      ...(images.length > 0 && { images: images.length }),
+    });
     this.explanation = "";
     this.setActivity("working");
-    this.queue.push(text);
+    this.queue.push(text, images);
   }
 
   async interrupt(): Promise<void> {

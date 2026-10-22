@@ -292,8 +292,10 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         permissionMode: event.permissionMode ?? agent.permissionMode,
         color: event.color ?? agent.color,
       });
-    case "user_prompt":
-      return patch({ log: appendLine(agent.log, event, "user", event.text) });
+    case "user_prompt": {
+      const images = event.images ? ` [${event.images} image${event.images > 1 ? "s" : ""}]` : "";
+      return patch({ log: appendLine(agent.log, event, "user", event.text + images) });
+    }
     case "log":
       return patch({
         log: appendLine(agent.log, event, event.role, event.text, event.toolName),

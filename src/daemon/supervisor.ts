@@ -6,6 +6,7 @@ import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
   type AgentEvent,
   DIRECTOR,
+  type PromptImage,
   type Report,
   type ReviewKind,
   type TaskState,
@@ -18,6 +19,8 @@ import { changeRequest } from "./changeRequest.ts";
 import type { Config, Workspace } from "./config.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
+  agentNotes,
+  listWorkspaceFiles,
   OutsideWorkspaceError,
   parseOpenPoints,
   readWorkspaceFile,
@@ -147,7 +150,7 @@ export class Supervisor implements ToolHost {
       case "subscribe":
         return; // the server's business
       case "prompt":
-        this.prompt(message.agent, message.text);
+        this.prompt(message.agent, message.text, message.images);
         return;
       case "interrupt":
         this.background(this.sessions.get(message.agent)?.interrupt());
@@ -218,12 +221,21 @@ export class Supervisor implements ToolHost {
   }
 
   /** Answers a request from the browser; the server sends the result back. */
-  async call(call: Call): Promise<CallResults[Call["type"]]> {
+  call<C extends Call>(call: C): Promise<CallResults[C["type"]]> {
+    // The switch below narrows by type, which TypeScript cannot relate back to C.
+    return this.respond(call) as Promise<CallResults[C["type"]]>;
+  }
+
+  private async respond(call: Call): Promise<CallResults[Call["type"]]> {
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
       case "read_file":
         return readWorkspaceFile(agent.cwd, call.path);
+      case "list_files":
+        return listWorkspaceFiles(agent.cwd);
+      case "notes":
+        return agentNotes(agent.cwd, agent.name);
       case "review_load":
         return this.trackProgress(await this.reviews.load(agent.name, agent.cwd));
       case "review_approve":
@@ -446,12 +458,12 @@ export class Supervisor implements ToolHost {
     this.deliver(doc.agent, USER, body);
   }
 
-  private prompt(name: string, text: string): void {
+  private prompt(name: string, text: string, images?: PromptImage[]): void {
     const agent = this.agent(name);
     if (!agent || agent.task === "queued") return;
     const session = this.session(name);
     session?.start();
-    session?.prompt(text);
+    session?.prompt(text, images);
   }
 
   /** A message lands in the recipient's transcript as a prompt, starting it if needed. */

@@ -92,7 +92,8 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
     }
     serveStatic(staticDir, req, res);
   });
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+  // Room for a prompt with a few pasted screenshots.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 40 << 20 });
 
   server.on("upgrade", (req, socket, head) => {
     const remote = remotes.find((r) => req.url === `/remote/${r.name}/ws`);

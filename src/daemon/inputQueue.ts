@@ -1,4 +1,5 @@
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { PromptImage } from "../shared/events.ts";
 
 /**
  * Prompts waiting to be fed to a streaming-input query. Survives query restarts:
@@ -10,10 +11,20 @@ export class InputQueue {
   private wake: (() => void) | undefined;
   private generation = 0;
 
-  push(text: string): void {
+  push(text: string, images: readonly PromptImage[] = []): void {
+    const content =
+      images.length === 0
+        ? text
+        : [
+            ...images.map((image) => ({
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
+            })),
+            { type: "text" as const, text },
+          ];
     this.buffer.push({
       type: "user",
-      message: { role: "user", content: text },
+      message: { role: "user", content },
       parent_tool_use_id: null,
     });
     this.wake?.();

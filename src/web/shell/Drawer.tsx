@@ -3,8 +3,9 @@ import { useFleet } from "../fleet.tsx";
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
+import { FilesView } from "./FilesView.tsx";
 
-export const DRAWER_TABS = ["live", "diff", "report", "messages"] as const;
+export const DRAWER_TABS = ["live", "files", "diff", "report", "messages"] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 /** The selected task beside the board and inbox. */
@@ -22,6 +23,7 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
     .reverse();
   const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
+    { id: "files", label: "Files" },
     {
       id: "diff",
       label: agent.reviewProgress
@@ -50,6 +52,7 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
         </button>
       </nav>
       {tab === "live" && <Tile agent={agent} selected />}
+      {tab === "files" && <FilesView agent={agent} />}
       {tab === "diff" && <DiffView agent={agent} />}
       {tab === "report" && <ReportView agent={agent} />}
       {tab === "messages" && (

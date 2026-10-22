@@ -19,7 +19,24 @@ export const AnswerSchema = z.discriminatedUnion("behavior", [
 
 export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("subscribe"), since: z.number().int().nonnegative() }),
-  z.object({ type: z.literal("prompt"), agent, text: z.string().min(1) }),
+  z.object({
+    type: z.literal("prompt"),
+    agent,
+    text: z.string().min(1),
+    images: z
+      .array(
+        z.object({
+          mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+          // The API takes images up to 5 MB, about 7 MB as base64.
+          data: z
+            .string()
+            .max(7_000_000)
+            .regex(/^[A-Za-z0-9+/]+=*$/),
+        }),
+      )
+      .max(5)
+      .optional(),
+  }),
   z.object({ type: z.literal("interrupt"), agent }),
   z.object({ type: z.literal("answer"), requestId: z.string().min(1), answer: AnswerSchema }),
   z.object({
@@ -74,6 +91,10 @@ export const CallSchema = z.discriminatedUnion("type", [
   /** A file of the agent's workspace. */
   z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
   z.object({ type: z.literal("review_load"), id, agent }),
+  /** Paths of the agent's workspace, for @ mentions. */
+  z.object({ type: z.literal("list_files"), id, agent }),
+  /** Files the agent keeps for the user under .fleet/<agent>/. */
+  z.object({ type: z.literal("notes"), id, agent }),
   z.object({
     type: z.literal("review_approve"),
     id,
@@ -98,6 +119,8 @@ export type ClientMessage = Command | Call;
 /** What each call answers with. */
 export interface CallResults {
   read_file: string;
+  list_files: string[];
+  notes: Array<{ path: string; modified: number; size: number }>;
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;

@@ -29,6 +29,13 @@ export interface Todo {
   activeForm?: string;
 }
 
+/** An image sent along with a prompt, e.g. a pasted screenshot. */
+export interface PromptImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64, without a data: prefix. */
+  data: string;
+}
+
 export interface BackgroundTask {
   id: string;
   type: string;
@@ -101,7 +108,8 @@ export type EventBody =
       slashCommands?: string[];
     }
   | { kind: "settings"; model?: string; permissionMode?: PermissionMode; color?: string }
-  | { kind: "user_prompt"; text: string }
+  /** `images` counts the images sent along; the pictures themselves go only to the agent. */
+  | { kind: "user_prompt"; text: string; images?: number }
   | { kind: "log"; role: LogRole; text: string; toolName?: string; toolUseId?: string }
   | { kind: "todos"; todos: Todo[] }
   /** Live background tasks (shells, watchers, background agents); replaces the previous list. */
