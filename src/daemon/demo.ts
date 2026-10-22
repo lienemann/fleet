@@ -227,7 +227,7 @@ function workerScript(turn: number, prompt: string): Step[] {
         tests: "50 of 50 repetitions green",
         open_questions: ["Apply the same fix to the two similar sweep tests?"],
         walkthrough:
-          "1. tests/sweep/test_timing.py: the new tolerance.\n2. conftest.py: the jitter fixture.",
+          "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.",
       },
     },
   ];

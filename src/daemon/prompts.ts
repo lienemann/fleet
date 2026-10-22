@@ -15,7 +15,10 @@ so reach them through the fleet tools rather than prose they might miss:
 - Collected open points in a Markdown file as \`- [ ]\` items? Call submit_open_points with its path.
 - At milestones, call report_status with one line about what you are doing.
 - When the task is done, call report_result with a summary, the jj change ids, how you tested, open
-  questions, and a walkthrough of the change in the order a reviewer should read it.
+  questions, and a walkthrough of the change in the order a reviewer should read it: Markdown with a
+  heading per part, linking the code it explains as relative links with line anchors, e.g.
+  [the new tolerance](tests/sweep/test_timing.py#L40-L52). The review follows those links, and
+  flags changes the walkthrough does not cover.
 - To talk to the director or another agent, use send_message.
 
 Work only inside your jj workspace "${workspace}" (the current directory); never touch other workspaces or

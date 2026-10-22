@@ -237,7 +237,9 @@ export class Supervisor implements ToolHost {
       case "notes":
         return agentNotes(agent.cwd, agent.name);
       case "review_load":
-        return this.trackProgress(await this.reviews.load(agent.name, agent.cwd));
+        return this.trackProgress(
+          await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough),
+        );
       case "review_approve":
         return this.trackProgress(await this.reviews.approve(agent.name, call.ids, call.approved));
       case "review_edit": {

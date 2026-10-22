@@ -73,6 +73,9 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(diff).toContainText("lib.py");
   await expect(diff.locator(".hunk").first()).toContainText("CI runners jitter more than 1 ms");
   await expect(diff.locator(".progress")).toContainText("0/");
+  // The report's walkthrough links the tolerance change but not the run count.
+  await expect(diff.locator(".hunk").first()).toContainText("Walkthrough: Tolerance");
+  await expect(diff.locator(".hunk").last()).toContainText("not in the walkthrough");
   await page.locator(".diff-bar").click();
   await page.keyboard.press("a");
   await expect(diff.locator(".progress")).toContainText("1/");

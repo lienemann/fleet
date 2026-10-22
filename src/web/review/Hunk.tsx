@@ -68,6 +68,8 @@ export function Hunk(props: Props) {
         {hunk.auto && <span className="tag">{AUTO_LABELS[hunk.auto]}</span>}
         {hunk.move && <span className="tag">moved</span>}
         {hunk.previous && <span className="tag warn">changed since you approved it</span>}
+        {hunk.walkthrough && <span className="tag">Walkthrough: {hunk.walkthrough}</span>}
+        {hunk.uncovered && <span className="tag warn">not in the walkthrough</span>}
         <span className="spacer" />
         {collapsed ? (
           <button type="button" className="small" onClick={() => setOpen(true)}>

@@ -22,6 +22,10 @@ export interface HunkView {
   move?: string;
   /** The version approved earlier, when the agent changed the hunk since. */
   previous?: { removed: string[]; added: string[] };
+  /** The walkthrough section that discusses the hunk, e.g. "Details › Fast path". */
+  walkthrough?: string;
+  /** There is a walkthrough, and it does not mention this hunk. */
+  uncovered?: boolean;
 }
 
 export interface FileView {
@@ -48,6 +52,8 @@ export interface ReviewModel {
   files: FileView[];
   moves: MoveView[];
   progress: { approved: number; total: number };
+  /** Hunk ids in the order the agent's walkthrough discusses them, when there is one. */
+  order?: string[];
 }
 
 /** A draft comment on a hunk line, sent to the agent with "Request changes". */

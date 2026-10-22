@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ReviewError, ReviewService } from "../src/daemon/review.ts";
+import { ReviewError, ReviewService, recognizeLink } from "../src/daemon/review.ts";
 
 const env = {
   ...process.env,
@@ -133,5 +133,62 @@ describe("ReviewService", () => {
 
   it("asks for a load before anything else", async () => {
     await expect(service().approve("nobody", [], true)).rejects.toThrow(ReviewError);
+  });
+});
+
+describe("walkthroughs", () => {
+  it("recognizes the links agents write, not URLs", () => {
+    expect(recognizeLink("src/a.py#L12-L18", "h")).toEqual({
+      sha: "h",
+      path: "src/a.py",
+      lines: { start: 12, end: 18 },
+    });
+    expect(recognizeLink("./src/a.py#L3", "h")).toMatchObject({
+      path: "src/a.py",
+      lines: { start: 3, end: 3 },
+    });
+    expect(recognizeLink("src/a.py:4-6", "h")).toMatchObject({ lines: { start: 4, end: 6 } });
+    expect(recognizeLink("https://gitlab.example/x/-/blob/abc/a.py#L1", "h")).toBeUndefined();
+    expect(recognizeLink("#details", "h")).toBeUndefined();
+  });
+
+  it("orders hunks as the walkthrough discusses them and flags the rest", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) =>
+        l
+          .replace("return 1", "return 10")
+          .replace("return 2", "return 20")
+          .replace("return 3", "return 30"),
+      ),
+    );
+    const walkthrough = [
+      "## The point",
+      "",
+      "Changing [c](lib.py#L10) is what this is about.",
+      "",
+      "## Details",
+      "",
+      "Then [a](lib.py#L2) follows from it.",
+    ].join("\n");
+    const model = await service().load("alpha", repo, walkthrough);
+    const [a, b, c] = model.files[0]?.hunks ?? [];
+    expect(model.order).toEqual([c?.id, a?.id, b?.id]);
+    expect(c?.walkthrough).toContain("The point");
+    expect(b?.uncovered).toBe(true);
+  });
+
+  it("marks nothing for a walkthrough without links into the project", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    const model = await service().load(
+      "alpha",
+      repo,
+      "Just prose, and [a link](https://example.com).",
+    );
+    expect(model.order).toBeUndefined();
+    expect(model.files[0]?.hunks[0]?.uncovered).toBeUndefined();
   });
 });

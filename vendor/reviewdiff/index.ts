@@ -13,6 +13,7 @@ export * from "./src/core/review";
 export * from "./src/core/reviewMoves";
 export * from "./src/core/types";
 export * from "./src/core/walkthrough";
+export * from "./src/core/walkthroughLinks";
 export * from "./src/core/walkthroughMentions";
 export * from "./src/core/whitespace";
 export * from "./src/vcs/index";

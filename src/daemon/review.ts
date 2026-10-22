@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   type ApprovalRecord,
   approvedVersions,
+  type CodeReference,
   detectReviewMoves,
   FileApprovalStore,
   type FileReview,
@@ -11,16 +12,23 @@ import {
   hunkApproval,
   isAutoApproved,
   JjAdapter,
+  linkLabel,
   loadReview,
   locateLine,
   type Move,
   moveApproval,
   openRepository,
+  parseWalkthrough,
   type Repository,
   type Review,
   reopenedApproval,
   reopenedRecordId,
+  resolveLinks,
+  sectionLabel,
   startCommitEdit,
+  type WalkthroughMentions,
+  walkthroughMentions,
+  walkthroughOrder,
 } from "@zhinst/reviewdiff-core";
 import type { FileView, HunkView, MoveView, ReviewEdit, ReviewModel } from "../shared/review.ts";
 
@@ -35,6 +43,29 @@ interface Loaded {
   store: FileApprovalStore;
   review: Review;
   moves: Move[];
+  walkthrough?: string;
+  guide?: Guide;
+}
+
+/** What the agent's walkthrough says about the hunks. */
+interface Guide {
+  mentions: WalkthroughMentions;
+  order: string[];
+}
+
+/**
+ * Links into the reviewed head as agents write them: `src/a.py#L12-L18`, `src/a.py#L12` or
+ * `src/a.py:12-18`. URLs with a scheme (GitLab permalinks and the like) are not ours.
+ */
+export function recognizeLink(url: string, head: string): CodeReference | undefined {
+  if (/^[a-z][\w+.-]*:/i.test(url) || url.startsWith("#")) return undefined;
+  const match = /^(?:\.\/)?([^#:]+?)(?:#L(\d+)(?:-L?(\d+))?|:(\d+)(?:-(\d+))?)$/.exec(
+    decodeURI(url),
+  );
+  if (!match?.[1]) return undefined;
+  const start = Number(match[2] ?? match[4]);
+  const end = Number(match[3] ?? match[5] ?? start);
+  return { sha: head, path: match[1], lines: { start, end } };
 }
 
 export class ReviewError extends Error {}
@@ -47,14 +78,15 @@ export class ReviewService {
   private readonly loaded = new Map<string, Loaded>();
 
   /** Loads (or reloads) the review of an agent's workspace: its working copy against trunk. */
-  async load(agent: string, cwd: string): Promise<ReviewModel> {
+  async load(agent: string, cwd: string, walkthrough?: string): Promise<ReviewModel> {
     const repo = await openRepository(cwd, { prefer: "jj" });
     if (!repo) throw new ReviewError(`${cwd} is not in a jj or git repository.`);
     const store = await FileApprovalStore.open(join(await repo.stateDir(), "approvals.json"));
     const target = repo.kind === "jj" ? TRUNK : "main";
     const review = await loadReview(repo, { mode: "branch", target });
     const moves = detectReviewMoves(review.files).moves;
-    const loaded = { repo, store, review, moves };
+    const guide = walkthrough ? await this.guide(repo, review, moves, walkthrough) : undefined;
+    const loaded = { repo, store, review, moves, walkthrough, guide };
     this.loaded.set(agent, loaded);
     return this.model(agent, loaded);
   }
@@ -138,11 +170,30 @@ export class ReviewService {
 
     // The edit makes new hunks; the user wrote them, so they count as reviewed.
     const before = new Set(review.files.flatMap((f) => f.hunks.map((h) => h.id)));
-    await this.load(agent, repo.root);
+    await this.load(agent, repo.root, loaded.walkthrough);
     const fresh = this.require(agent).review.files.find((f) => f.change.path === hunk.path);
     const created = (fresh?.hunks ?? []).filter((h) => !before.has(h.id)).map((h) => h.id);
     const model = await this.approve(agent, created, true);
     return { model, edit: { path: hunk.path, commit, before: hunk.added, after: lines } };
+  }
+
+  /** Resolves the walkthrough's links into the review, as ReviewDiff does for merge requests. */
+  private async guide(
+    repo: Repository,
+    review: Review,
+    moves: Move[],
+    text: string,
+  ): Promise<Guide | undefined> {
+    const { links } = parseWalkthrough(text);
+    const resolved = await resolveLinks(links, (url) => recognizeLink(url, review.range.head), {
+      range: review.range,
+      files: review.files,
+      read: (sha, path) => repo.readFile(sha, path),
+    });
+    // Like ReviewDiff: a walkthrough without links into the project marks nothing.
+    if (resolved.length === 0) return undefined;
+    const mentions = walkthroughMentions(resolved, review.files, moves);
+    return { mentions, order: walkthroughOrder(review.files, mentions).map((ref) => ref.hunk.id) };
   }
 
   private require(agent: string): Loaded {
@@ -151,7 +202,7 @@ export class ReviewService {
     return loaded;
   }
 
-  private model(agent: string, { store, review, moves }: Loaded): ReviewModel {
+  private model(agent: string, { store, review, moves, guide }: Loaded): ReviewModel {
     const approvedMoves = new Set(moves.filter((m) => store.get(m.id)).map((m) => m.id));
     const moveOf = new Map(moves.flatMap((m) => m.hunkIds.map((id) => [id, m.id] as const)));
     const isApproved = (file: FileReview, hunk: Hunk): boolean =>
@@ -185,6 +236,7 @@ export class ReviewService {
             auto: file.autoApproved.get(hunk.id),
             move: moveOf.get(hunk.id),
             previous: earlier && { removed: earlier.removed, added: earlier.added },
+            ...this.coverage(guide, hunk.id),
           };
         }),
       };
@@ -203,7 +255,18 @@ export class ReviewService {
       files,
       moves: moveViews,
       progress: { approved: hunks.filter((h) => h.approved).length, total: hunks.length },
+      order: guide?.order,
     };
+  }
+
+  private coverage(
+    guide: Guide | undefined,
+    hunkId: string,
+  ): Pick<HunkView, "walkthrough" | "uncovered"> {
+    if (!guide) return {};
+    const [closest] = guide.mentions.hunks.get(hunkId) ?? [];
+    if (!closest) return { uncovered: true };
+    return { walkthrough: linkLabel(closest.link.link) || sectionLabel(closest.link.link.section) };
   }
 }
 

@@ -24,6 +24,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
   const [layout, setLayout] = useState<Layout>("inline");
   const [focusId, setFocusId] = useState<string>();
   const [composing, setComposing] = useState<"comment" | "edit">();
+  const [fileOrder, setFileOrder] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
   const run = useCallback(
@@ -48,10 +49,16 @@ export function DiffView({ agent }: { agent: AgentView }) {
     if (resting) void load();
   }, [resting, load]);
 
-  const hunks = useMemo<Focus[]>(
-    () => model?.files.flatMap((file) => file.hunks.map((hunk) => ({ file, hunk }))) ?? [],
-    [model],
-  );
+  // With a walkthrough, j/k go through the hunks in the order it discusses them, as in ReviewDiff.
+  const walkthroughOrder = model?.order && !fileOrder ? model.order : undefined;
+  const hunks = useMemo<Focus[]>(() => {
+    const all = model?.files.flatMap((file) => file.hunks.map((hunk) => ({ file, hunk }))) ?? [];
+    if (!walkthroughOrder) return all;
+    const rank = new Map(walkthroughOrder.map((id, i) => [id, i]));
+    return all.toSorted(
+      (a, b) => (rank.get(a.hunk.id) ?? all.length) - (rank.get(b.hunk.id) ?? all.length),
+    );
+  }, [model, walkthroughOrder]);
   const index = Math.max(
     0,
     hunks.findIndex((h) => h.hunk.id === focusId),
@@ -134,6 +141,13 @@ export function DiffView({ agent }: { agent: AgentView }) {
       keys: ["shift+r"],
       run: () => void load(),
     },
+    {
+      ...group,
+      id: "diff.order",
+      label: "Switch walkthrough and file order",
+      keys: ["w"],
+      run: () => setFileOrder((f) => !f),
+    },
   ]);
 
   return (
@@ -146,6 +160,11 @@ export function DiffView({ agent }: { agent: AgentView }) {
           </span>
         )}
         <span className="spacer" />
+        {model?.order && (
+          <button type="button" className="small" onClick={() => setFileOrder(!fileOrder)}>
+            {fileOrder ? "File order" : "Walkthrough order"} <kbd>w</kbd>
+          </button>
+        )}
         <button
           type="button"
           className="small"
