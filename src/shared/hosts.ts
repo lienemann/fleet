@@ -1,6 +1,6 @@
 /**
- * Several daemons, one UI: each remote daemon (a Coder pod) keeps its own event log; the
- * browser folds each stream separately and merges the results, naming remote agents
+ * One UI for several daemons. Each remote daemon (a Coder pod) keeps its own event log; the
+ * browser builds a state from each daemon's events and merges them, naming remote agents
  * `<host>/<agent>`. Commands go back to the daemon that owns the agent, with the prefix
  * stripped again.
  */

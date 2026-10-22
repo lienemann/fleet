@@ -1,6 +1,6 @@
 /**
- * The contract between fleet and its agents, appended to Claude Code's system prompt.
- * Structure comes from the tools; the agents' prose stays natural.
+ * Instructions fleet appends to Claude Code's system prompt. Anything the UI has to act on goes
+ * through the fleet tools; the rest of what agents write stays free text.
  */
 
 export function workerPrompt(name: string, workspace: string): string {
@@ -36,11 +36,11 @@ export function directorPrompt(
 You are the director: the user's single point of contact for a fleet of Claude Code workers. You plan,
 delegate and follow up, but you never implement. Do not edit code; your own notes go under .fleet/director/.
 
-- Split work into tasks a worker can finish alone and start each with spawn_task. Its context pack is all the
-  worker knows: goal, constraints, relevant files, how to test, and what done means.
+- Split work into tasks a worker can finish alone and start each with spawn_task. The context you pass is all
+  the worker knows: goal, constraints, relevant files, how to test, and what done means.
 - Workspaces: ${workspaces.join(", ")}. A task in a busy workspace waits in the queue.
 - At most ${wip.running} tasks run at once and ${wip.review} wait in review. While review is full, spawn nothing new.
-- Read the ledger tool to see every task; note what matters to you on a task with it.
+- Call ledger to see every task; call it with an agent and a note to record what matters to you about a task.
 - Workers report results and send you messages; answer their questions when you are sure, and pass on to the
   user, with send_message to "you", what only the user can decide.
 - Permission prompts belong to the user; never answer them on the user's behalf.

@@ -35,7 +35,7 @@ export interface LogLine {
   toolName?: string;
   /** Set when the line comes from a subagent. */
   parent: string | null;
-  /** The projection keeps a prefix of long output; the event log has all of it. */
+  /** The state keeps only the start of long output; the event log has all of it. */
   truncated?: boolean;
 }
 
@@ -45,7 +45,7 @@ export interface Subagent {
   done: boolean;
 }
 
-/** Something an agent waits on the user for. Resolved decisions leave the projection. */
+/** Something an agent waits on the user for. Resolved decisions are removed from the state. */
 export interface Decision {
   requestId: string;
   agent: string;
@@ -101,7 +101,7 @@ export interface AgentView {
   backgroundTasks: BackgroundTask[];
   context?: { tokens: number; window: number };
   costUsd: number;
-  /** Cost per UTC day, `YYYY-MM-DD` → USD. */
+  /** Cost in USD per UTC day, keyed by `YYYY-MM-DD`. */
   costByDay: Record<string, number>;
   reconnecting: boolean;
   /** Outcome changed since the user last opened the agent. */
@@ -145,11 +145,11 @@ export interface PowerState {
   note?: string;
 }
 
-/** Lines kept per agent in the projection; older ones stay in the event log. */
+/** Log lines kept per agent in the state; older ones stay in the event log. */
 export const LOG_LIMIT = 2000;
-/** Characters kept of a single line in the projection. */
+/** Characters kept of a single log line in the state. */
 export const TEXT_LIMIT = 4000;
-/** Bus messages kept in the projection. */
+/** Messages between agents kept in the state. */
 export const MESSAGE_LIMIT = 500;
 /** Timeline segments kept per agent. */
 export const HISTORY_LIMIT = 400;
@@ -193,7 +193,10 @@ export const emptyState = (): FleetState => ({
   power: { caffeinated: false, lidMode: false },
 });
 
-/** Pure projection step; the daemon and the browser both fold the log through it. */
+/**
+ * Applies one event to the state. The daemon and the browser both build their state by
+ * running every logged event through it.
+ */
 export function reduce(state: FleetState, event: FleetEvent): FleetState {
   if (event.seq <= state.lastSeq) return state; // already applied; replays can overlap
   const next = apply({ ...state, lastSeq: event.seq }, event);
@@ -220,7 +223,7 @@ export const agentList = (state: FleetState): AgentView[] =>
   );
 
 function apply(state: FleetState, event: FleetEvent): FleetState {
-  // The user writes on the bus without being an agent.
+  // Handled before the agent lookup: the user sends messages too, and is not an agent.
   if (event.kind === "message") {
     const message = {
       seq: event.seq,

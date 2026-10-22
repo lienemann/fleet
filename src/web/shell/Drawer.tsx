@@ -8,7 +8,6 @@ import { FilesView } from "./FilesView.tsx";
 export const DRAWER_TABS = ["live", "files", "diff", "report", "messages"] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
-/** The selected task beside the board and inbox. */
 interface Props {
   agent: AgentView;
   tab: DrawerTab;
@@ -16,6 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
+/** The selected task beside the board and inbox. */
 export function Drawer({ agent, tab, onTab, onClose }: Props) {
   const { state } = useFleet();
   const messages = state.messages

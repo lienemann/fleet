@@ -43,7 +43,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
     [run, call, agent.name],
   );
 
-  // Reload whenever the agent comes to rest: that is when its change can have moved on.
+  // Reload whenever the agent stops working, since its change may have moved on.
   const resting = agent.activity !== "working";
   useEffect(() => {
     if (resting) void load();

@@ -77,7 +77,7 @@ export interface OpenPoint {
 
 import type { ReviewComment, ReviewEdit } from "./review.ts";
 
-/** Sender name of messages the user writes on the bus. */
+/** Sender and recipient name the user has in agent messages. */
 export const USER = "you";
 
 /** The director's agent name. */
@@ -140,7 +140,7 @@ export type EventBody =
   | { kind: "agent_opened" }
   | { kind: "report"; report: Report }
   | { kind: "status"; text: string }
-  /** A bus message; the event's agent is the sender. */
+  /** A message from one agent (or the user) to another; the event's agent is the sender. */
   | { kind: "message"; to: string; body: string }
   | { kind: "open_points"; docId: string; path: string; points: OpenPoint[] }
   | { kind: "point_answered"; docId: string; pointId: string; answer: string }

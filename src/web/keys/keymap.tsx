@@ -54,7 +54,7 @@ export function keyName(event: KeyboardEvent): string {
   return [...mods, key].join("+");
 }
 
-/** "mod+k" → "⌘K", "g b" → "g b", "shift+a" → "⇧A". */
+/** How a key sequence is shown: "mod+k" as "⌘K", "shift+a" as "⇧A", "g b" unchanged. */
 export function keyLabel(sequence: string): string {
   return sequence
     .split(" ")

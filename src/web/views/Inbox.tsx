@@ -6,7 +6,7 @@ import { useCommands } from "../keys/keymap.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 
-/** What waits on me? Decisions and permissions, open points, and messages addressed to me. */
+/** Everything waiting on the user: decisions and permissions, open points, and messages to them. */
 export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
   const { state, send, color } = useFleet();
   const items = pendingDecisions(state);

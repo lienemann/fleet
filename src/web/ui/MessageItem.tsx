@@ -1,7 +1,7 @@
 import type { Message } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 
-/** One bus message: sender → recipient and the Markdown body as written. */
+/** One message between agents: sender, recipient and the Markdown body as written. */
 export function MessageItem({
   message,
   onOpen,

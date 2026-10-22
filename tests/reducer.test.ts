@@ -83,7 +83,7 @@ describe("unseen marks", () => {
   });
 });
 
-describe("projection", () => {
+describe("reduce", () => {
   it("ignores events it has already applied", () => {
     const log = events(worker("a"), { kind: "user_prompt", agent: "a", text: "x" });
     const once = reduceAll(log);

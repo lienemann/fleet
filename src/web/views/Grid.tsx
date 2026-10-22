@@ -9,7 +9,7 @@ interface Props {
   onEnlarge: (name: string | undefined) => void;
 }
 
-/** What is happening now? Live tiles; enlarging one turns the rest into a status strip. */
+/** A live tile per agent; enlarging one shrinks the rest to a strip of names. */
 export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
   const { state, color } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.activity !== "stopped");

@@ -78,9 +78,9 @@ export function useFleet(): Fleet {
 }
 
 /**
- * Connects to the local daemon and, through it, to every remote one, folding each event
- * stream into its own state. The browser keeps nothing else: on reconnect each socket asks
- * for the events after the last sequence number it saw.
+ * Connects to the local daemon and, through it, to every remote one, and applies each
+ * daemon's events to a separate state. The browser keeps nothing else: on reconnect each
+ * socket asks for the events after the last sequence number it saw.
  */
 export function FleetProvider({ children }: { children: ReactNode }) {
   const [hosts, dispatch] = useReducer(hostsReducer, {});

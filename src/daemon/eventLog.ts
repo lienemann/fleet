@@ -13,8 +13,8 @@ interface Row {
 }
 
 /**
- * Append-only event log, the daemon's single source of truth. The projection is
- * rebuilt from it on start and folded forward on every append.
+ * Append-only event log, the daemon's single source of truth. The state is rebuilt
+ * from it on start and updated with every append.
  */
 export class EventLog {
   private readonly db: Database.Database;

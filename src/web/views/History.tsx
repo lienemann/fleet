@@ -1,6 +1,6 @@
 /**
- * What happened to the repo? jj orbit, served by the daemon: the commit graph of all
- * workspaces (classic, lanes or spiral), and the op log as checkpoints to scrub and restore.
+ * jj orbit, proxied by the daemon: the commit graph of all workspaces (classic, lanes or
+ * spiral layout), and the operation log with operations to step through and restore.
  */
 export function History() {
   return (

@@ -1,6 +1,6 @@
 import { keyLabel, useKeymap } from "./keymap.tsx";
 
-/** After the first key of a chord, shows how it can go on: a built-in cheat sheet. */
+/** After the first key of a chord, lists the keys that can follow and what they do. */
 export function ChordHint() {
   const { commands, pending } = useKeymap();
   if (!pending) return null;

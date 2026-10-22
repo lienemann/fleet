@@ -43,7 +43,7 @@ export function App() {
     setView("grid");
   };
 
-  // An agent on screen is seen, including when it turns news while the user looks at it.
+  // An agent on screen counts as seen, even if its outcome changes while the user looks at it.
   const unseen = agent?.unseen;
   useEffect(() => {
     if (selected && unseen) send({ type: "open", agent: selected });
@@ -294,7 +294,7 @@ export function App() {
       {error && <div className="banner">{error}</div>}
       {offline.length > 0 && (
         <div className="banner">
-          {offline.join(", ")} out of reach; retrying. Its agents keep working on the pod.
+          Cannot reach {offline.join(", ")}; retrying. Agents there keep working.
         </div>
       )}
       <PowerBanner />
@@ -364,7 +364,7 @@ function walkCommands(
   ];
 }
 
-/** Lid-closed mode is easy to forget, so it says so while it is on, and why it went off. */
+/** Lid-closed mode is easy to forget: a banner shows while it is on, and why it went off. */
 function PowerBanner() {
   const { state } = useFleet();
   const { lidMode, since, note } = state.power;

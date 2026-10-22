@@ -50,7 +50,7 @@ describe("director", () => {
     expect(log.state.agents[DIRECTOR]).toMatchObject({ role: "director", cwd: director });
   });
 
-  it("spawns tasks into a free workspace with a context pack", () => {
+  it("spawns tasks into a free workspace and writes their context.md", () => {
     const { log, supervisor, workspaces } = setup();
     expect(supervisor.spawn({ title: "One", context: "Do one." })).toBe(
       "Spawned alpha in ws1; it is running.",
@@ -176,7 +176,7 @@ describe("worker tools", () => {
     );
   });
 
-  it("send_message logs on the bus and lands in the recipient's transcript", async () => {
+  it("send_message logs the message and lands in the recipient's transcript", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn({ title: "One", context: "x" });
     expect(supervisor.message("alpha", DIRECTOR, "Which branch?\nmain or v2")).toBe(

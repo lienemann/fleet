@@ -29,7 +29,7 @@ function visible(history: Segment[], from: number, now: number) {
     .map((s) => ({ ...s, from: Math.max(s.from, from) }));
 }
 
-/** Where was I the bottleneck? One lane per agent; waiting on you is orange. */
+/** One lane per agent showing its state over time, with how long it waited on the user. */
 export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
   const { state, color } = useFleet();
   const now = useNow(10_000);

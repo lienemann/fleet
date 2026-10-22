@@ -15,7 +15,7 @@ describe("EventLog", () => {
     expect(log.since(0)).toHaveLength(3);
   });
 
-  it("notifies subscribers and keeps the projection current", () => {
+  it("notifies subscribers and keeps the state current", () => {
     const log = new EventLog(":memory:");
     const listener = vi.fn();
     const off = log.subscribe(listener);
@@ -39,7 +39,7 @@ describe("EventLog", () => {
     expect(seen).toEqual([1, 2]);
   });
 
-  it("rebuilds the projection from disk after a restart", async () => {
+  it("rebuilds the state from disk after a restart", async () => {
     const { mkdtempSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");

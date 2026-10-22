@@ -6,7 +6,7 @@ import { useNow } from "../useNow.ts";
 
 type Note = { path: string; modified: number; size: number };
 
-/** Files the agent wrote for the user under .fleet/<agent>/: context pack, reports, open points. */
+/** Files the agent wrote for the user under .fleet/<agent>/: context.md, reports, open points. */
 export function FilesView({ agent }: { agent: AgentView }) {
   const { call } = useFleet();
   const now = useNow();

@@ -13,7 +13,7 @@ interface Props {
 const isMove = (column: Column): column is UserMove =>
   (USER_MOVES as readonly string[]).includes(column);
 
-/** Whose turn is it? One column per task state; buttons are the moves you would drag. */
+/** One column per task state. Cards can be dragged between columns or moved with their buttons. */
 export function Board({ selected, onSelect }: Props) {
   const { state, info, send } = useFleet();
   const [dropTarget, setDropTarget] = useState<Column>();

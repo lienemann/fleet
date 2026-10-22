@@ -135,7 +135,7 @@ test("everything works from the keyboard", async ({ page }) => {
   );
   await page.keyboard.press("Escape");
 
-  // g then a mnemonic goes to a view; the hint lists the ways on.
+  // g then a letter goes to a view; after the g, a hint lists the letters.
   await page.keyboard.press("g");
   await expect(page.locator(".chord-hint")).toContainText("Inbox");
   await page.keyboard.press("i");
@@ -234,7 +234,7 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
   await prompt.press("Enter");
   await expect(page.locator(".drawer .log")).toContainText("Look at @lib.py [1 image]");
 
-  // Spawned workers get their context pack under .fleet/<name>/.
+  // The director writes each spawned worker's context to .fleet/<name>/context.md.
   await page.getByRole("button", { name: "Board 1" }).click();
   await page.locator(".card", { hasText: "Port the pulse pass" }).locator(".card-main").click();
   await page.getByRole("button", { name: "Files", exact: true }).click();

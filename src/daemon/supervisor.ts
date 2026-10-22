@@ -243,7 +243,7 @@ export class Supervisor implements ToolHost {
       case "review_approve":
         return this.trackProgress(await this.reviews.approve(agent.name, call.ids, call.approved));
       case "review_edit": {
-        // Never write under a working agent: only a resting session may be edited under.
+        // Writing files while the agent works would race with its own edits.
         if (agent.activity === "working" || agent.pending > 0) {
           throw new Error(`${agent.name} is working; interrupt it or wait before editing.`);
         }
@@ -508,8 +508,8 @@ export class Supervisor implements ToolHost {
       if (this.activeCount() >= this.config.wip.running) return;
       if (!this.workspaceFree(agent.workspace, agent.name)) continue;
       const session = this.session(agent.name);
-      // A reopened task has its conversation already; it waits for the user's next word.
-      // The task prompt goes first, so the task turns running with its session at work.
+      // A reopened task already has its conversation and waits for the user's next prompt.
+      // A new task's prompt is queued before the start, so the session starts working.
       if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
       this.append(agent.name, { kind: "task_state", state: "running" });
       session?.start();
@@ -642,7 +642,7 @@ function keepNotesOutOfVcs(cwd: string): void {
     mkdirSync(dirname(ignore), { recursive: true });
     writeFileSync(ignore, "*\n");
   } catch {
-    // A workspace we cannot write to fails the agent's own writes too; it reports that better.
+    // In a read-only workspace the agent's own writes fail too, with a clearer error.
   }
 }
 

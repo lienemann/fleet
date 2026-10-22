@@ -87,7 +87,7 @@ export function Hunk(props: Props) {
               title={
                 canEdit
                   ? "Edit these lines in the commit that wrote them"
-                  : "Only while the agent rests"
+                  : "Only while the agent is not working"
               }
               onClick={() => props.onCompose("edit")}
             >

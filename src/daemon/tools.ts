@@ -127,10 +127,10 @@ function directorTools(host: ToolHost) {
   return [
     tool(
       "spawn_task",
-      "Start a worker on a task in its own jj workspace. The context pack is all it knows: goal, constraints, where to look, how to test, what done means.",
+      "Start a worker on a task in its own jj workspace. The context is all the worker knows: goal, constraints, where to look, how to test, what done means.",
       {
         title: z.string().max(80),
-        context: z.string().describe("The context pack, Markdown"),
+        context: z.string().describe("Everything the worker needs to know, in Markdown"),
         workspace: z.string().optional().describe("Workspace name; a free one if omitted"),
       },
       (args) => run(() => host.spawn(args)),

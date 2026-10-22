@@ -32,7 +32,7 @@ export interface SessionOptions {
   model?: string;
   permissionMode?: PermissionMode;
   allowedTools?: string[];
-  /** Added to Claude Code's system prompt; the role's contract with the daemon. */
+  /** Added to Claude Code's system prompt: the role's instructions from `prompts.ts`. */
   appendSystemPrompt?: string;
   mcpServers?: Record<string, McpServerConfig>;
   /** Hooks the CLI runs whatever the permission mode, e.g. to keep the director from editing code. */
@@ -154,7 +154,10 @@ export class AgentSession {
     if (this.running) await this.end(false);
   }
 
-  /** Stops the current run; captures what it ends first, so a start meanwhile is left alone. */
+  /**
+   * Stops the current run. It takes the query before awaiting, so a start in the meantime
+   * is left alone.
+   */
   private async end(interrupt: boolean): Promise<void> {
     const { query, done } = this;
     this.running = false;
@@ -273,7 +276,8 @@ export class AgentSession {
   private handle(message: SDKMessage): void {
     if (this.reconnecting && message.type !== "system") this.setReconnecting(false);
 
-    // The authoritative turn signal: a prompt queued during a turn keeps the session running.
+    // More reliable than results when the CLI sends it: a prompt queued during a turn keeps
+    // the session running.
     if (message.type === "system" && message.subtype === "session_state_changed") {
       this.turnSignals = true;
       if (message.state === "running") this.setActivity("working");
@@ -312,7 +316,7 @@ export class AgentSession {
       if (usage)
         this.options.emit({ kind: "context", tokens: usage.totalTokens, window: usage.maxTokens });
     } catch {
-      // Context usage is a nicety; an older CLI may not answer it.
+      // Context usage is optional; an older CLI may not answer it.
     }
   }
 

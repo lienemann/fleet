@@ -143,7 +143,7 @@ export interface DaemonInfo {
 
 export type ServerMessage =
   | { type: "info"; info: DaemonInfo }
-  /** Sent instead of a long replay: the projection as of `state.lastSeq`. */
+  /** Sent instead of a long run of events: the whole state as of `state.lastSeq`. */
   | { type: "snapshot"; state: FleetState }
   | { type: "events"; events: FleetEvent[] }
   | { type: "reply"; id: string; value?: unknown; error?: string }

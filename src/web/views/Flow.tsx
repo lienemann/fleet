@@ -8,7 +8,7 @@ import { useNow } from "../useNow.ts";
 const SIZE = 520;
 const CENTER = SIZE / 2;
 const RADIUS = 200;
-/** Messages younger than this travel as packets along their link. */
+/** Messages younger than this are animated as a dot moving from sender to recipient. */
 const LIVE_MS = 10_000;
 
 interface Link {
@@ -20,7 +20,7 @@ interface Link {
 
 const pairKey = (a: string, b: string): string => [a, b].sort().join("\u0000");
 
-/** Who talks to whom? Agents as nodes, messages as packets in the sender's color. */
+/** Agents as nodes, linked by the messages they exchanged; clicking a link filters the list. */
 export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
   const { state, color } = useFleet();
   const now = useNow(1000);

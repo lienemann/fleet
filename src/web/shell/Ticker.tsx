@@ -1,6 +1,6 @@
 import { useFleet } from "../fleet.tsx";
 
-/** The last two bus messages; a packet runs from sender to receiver when one arrives. */
+/** The last two messages between agents; a dot runs from sender to recipient when one arrives. */
 export function Ticker() {
   const { state, color } = useFleet();
   const recent = state.messages.slice(-2);
