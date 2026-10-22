@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFn } from "./session.ts";
 import { SERVER, toolsOf } from "./tools.ts";
@@ -25,7 +25,7 @@ export function demoQuery(delayMs = 400): QueryFn {
     async function* perform(step: Step): AsyncGenerator<SDKMessage> {
       if (step.type === "say") return yield say(step.text, step.parent);
       if (step.type === "write") {
-        mkdirSync(join(options.cwd ?? ".", ".fleet"), { recursive: true });
+        mkdirSync(dirname(join(options.cwd ?? ".", step.path)), { recursive: true });
         writeFileSync(join(options.cwd ?? ".", step.path), step.content);
         return;
       }
@@ -198,6 +198,12 @@ function workerScript(turn: number, prompt: string): Step[] {
         options: ["Scale the tolerance with measured jitter", "Rewrite the test with a fake clock"],
         risk: [],
       },
+    },
+    {
+      type: "write",
+      path: "lib.py",
+      content:
+        "def tolerance():\n    # CI runners jitter more than 1 ms\n    return max(1e-3, 4 * jitter())\n\n\ndef runs():\n    return 50\n",
     },
     {
       type: "write",

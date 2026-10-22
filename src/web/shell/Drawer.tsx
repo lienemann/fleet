@@ -1,9 +1,10 @@
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 
-export const DRAWER_TABS = ["live", "report", "messages"] as const;
+export const DRAWER_TABS = ["live", "diff", "report", "messages"] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 /** The selected task beside the board and inbox. */
@@ -21,12 +22,18 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
     .reverse();
   const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
+    {
+      id: "diff",
+      label: agent.reviewProgress
+        ? `Diff · ${agent.reviewProgress.approved}/${agent.reviewProgress.total}`
+        : "Diff",
+    },
     { id: "report", label: agent.report ? "Report" : "Report (none yet)" },
     { id: "messages", label: `Messages · ${messages.length}` },
   ];
 
   return (
-    <aside className="drawer">
+    <aside className={`drawer ${tab === "diff" ? "wide" : ""}`}>
       <nav className="tabs">
         {tabs.map((t) => (
           <button
@@ -43,6 +50,7 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
         </button>
       </nav>
       {tab === "live" && <Tile agent={agent} selected />}
+      {tab === "diff" && <DiffView agent={agent} />}
       {tab === "report" && <ReportView agent={agent} />}
       {tab === "messages" && (
         <div className="drawer-scroll">

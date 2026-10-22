@@ -982,3 +982,199 @@ h2 {
 .palette .menu-item kbd {
   margin-left: auto;
 }
+
+/* Diff view */
+.drawer.wide {
+  width: min(1100px, 70vw);
+}
+.diff {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 4px 16px;
+}
+.diff-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--line2);
+}
+.diff-bar .spacer,
+.hunk header .spacer {
+  flex: 1;
+}
+.diff-file h3 {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+.hunk {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--term);
+  overflow: hidden;
+}
+.hunk.focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.hunk.approved:not(.focused) {
+  opacity: 0.75;
+}
+.hunk header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line2);
+  font-size: 11px;
+}
+.tag {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--muted);
+}
+.tag.warn {
+  background: var(--warnbg);
+  color: var(--warnfg);
+}
+.rows {
+  font:
+    12px / 1.5 "JetBrains Mono",
+    ui-monospace,
+    monospace;
+  overflow-x: auto;
+}
+.row {
+  display: grid;
+  grid-template-columns: 3.5em 3.5em 1.4em 1fr;
+  min-height: 1.5em;
+}
+.rows.split .row {
+  grid-template-columns: 0 3.5em 1.4em 1fr;
+}
+.rows.split .row > span.ln:first-child {
+  display: none;
+}
+.split-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.split-row > .row:first-child {
+  border-right: 1px solid var(--line2);
+}
+.code-line {
+  white-space: pre;
+}
+.row.added {
+  background: var(--addbg);
+}
+.row.removed {
+  background: var(--delbg);
+}
+.row.added .sign {
+  color: var(--addfg);
+}
+.row.removed .sign {
+  color: var(--delfg);
+}
+.ln {
+  color: var(--dim);
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font: inherit;
+}
+button.ln:hover {
+  color: var(--accent);
+}
+.previous {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.previous pre {
+  margin: 4px 0;
+  color: var(--dim);
+}
+.comment {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 6px 8px;
+  padding: 6px 8px;
+  background: var(--notebg);
+  border: 1px solid var(--noteline);
+  border-radius: 6px;
+  color: var(--notefg);
+}
+.comment p {
+  flex: 1;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line2);
+}
+.compose footer {
+  display: flex;
+  gap: 6px;
+}
+.code-edit {
+  font:
+    12px / 1.5 "JetBrains Mono",
+    ui-monospace,
+    monospace;
+  white-space: pre;
+}
+
+/* Syntax colors from the theme, so both themes stay readable */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-literal {
+  color: var(--rev);
+}
+.hljs-string,
+.hljs-regexp {
+  color: var(--ok);
+}
+.hljs-number,
+.hljs-symbol {
+  color: var(--warn);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--dim);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-section,
+.hljs-function {
+  color: var(--run);
+}
+.hljs-type,
+.hljs-class,
+.hljs-attr,
+.hljs-attribute {
+  color: var(--chg);
+}
+.hljs-meta,
+.hljs-variable {
+  color: var(--msg);
+}

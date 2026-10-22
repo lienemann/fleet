@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
@@ -512,6 +512,7 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (!agent) return undefined;
     const director = agent.role === "director";
+    keepNotesOutOfVcs(agent.cwd);
     const allowed = director
       ? ["Read", "Glob", "Grep"]
       : (this.workspace(agent.workspace)?.allowedTools ?? []);
@@ -583,5 +584,17 @@ export function directorPolicy(
       behavior: "deny",
       message: "The director does not edit code. Delegate the change with spawn_task.",
     };
+  }
+}
+
+/** Agents keep notes for the user under .fleet/; they never belong in a diff or a commit. */
+function keepNotesOutOfVcs(cwd: string): void {
+  const ignore = join(cwd, ".fleet", ".gitignore");
+  try {
+    if (existsSync(ignore)) return;
+    mkdirSync(dirname(ignore), { recursive: true });
+    writeFileSync(ignore, "*\n");
+  } catch {
+    // A workspace we cannot write to fails the agent's own writes too; it reports that better.
   }
 }

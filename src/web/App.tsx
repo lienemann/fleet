@@ -211,7 +211,7 @@ export function App() {
         label: "Request changes",
         group: "Move the selected task",
         keys: ["m c"],
-        run: move("changes_requested"),
+        run: () => send({ type: "request_changes", agent: name }),
       },
       {
         id: "move.accept",

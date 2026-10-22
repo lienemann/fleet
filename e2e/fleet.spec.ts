@@ -24,6 +24,8 @@ async function newTask(page: Page, title: string, workspace = "ws1") {
 test("a task asks for permission and a decision, hands in open points, and is reviewed", async ({
   page,
 }) => {
+  // The longest story here, with several jj operations; slow when all browsers run at once.
+  test.setTimeout(60_000);
   await page.goto("/");
   await newTask(page, "Fix the flaky sweep test");
   await expect(card(page, "Needs you", "Fix the flaky sweep test")).toBeVisible({
@@ -64,6 +66,31 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(page.locator(".report")).toContainText("scaled by measured runner jitter");
   await expect(page.locator(".report")).toContainText("zmplwqrs");
   await shot(page, "report");
+
+  // Review the change hunk by hunk, comment, and send it back.
+  await page.getByRole("button", { name: /^Diff/ }).click();
+  const diff = page.locator(".diff");
+  await expect(diff).toContainText("lib.py");
+  await expect(diff.locator(".hunk").first()).toContainText("CI runners jitter more than 1 ms");
+  await expect(diff.locator(".progress")).toContainText("0/");
+  await page.locator(".diff-bar").click();
+  await page.keyboard.press("a");
+  await expect(diff.locator(".progress")).toContainText("1/");
+  await shot(page, "diff");
+  await diff
+    .locator(".hunk")
+    .last()
+    .getByRole("button", { name: /^Comment/ })
+    .click();
+  await diff.getByPlaceholder(/Goes to the agent/).fill("Why 50 runs?");
+  await diff.getByRole("button", { name: "Save comment" }).click();
+  await expect(diff.locator(".comment")).toContainText("Why 50 runs?");
+  await expect(reviewed).toContainText("hunks approved");
+  await diff.getByRole("button", { name: /Request changes · 1 comments/ }).click();
+  await expect(card(page, "Review", "Fix the flaky sweep test")).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: /^Messages/ }).click();
+  await expect(page.locator(".drawer")).toContainText("Why 50 runs?");
+  await page.getByRole("button", { name: "Live" }).click();
 
   await reviewed.getByRole("button", { name: "Accept" }).click();
   await expect(card(page, "Accepted", "Fix the flaky sweep test")).toBeVisible();
@@ -133,7 +160,7 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
   await page.keyboard.press("t");
-  await expect(page.getByRole("button", { name: /^Report/ })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: /^Diff/ })).toHaveClass(/active/);
 });
 
 test("can be installed as an app", async ({ page, request }) => {

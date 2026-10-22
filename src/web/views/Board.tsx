@@ -112,6 +112,8 @@ function Card({
         <span className="card-sub">
           {agent.workspace} · {agent.host}
           {agent.todos.length > 0 && ` · ${done}/${agent.todos.length} to-dos`}
+          {agent.reviewProgress &&
+            ` · ${agent.reviewProgress.approved}/${agent.reviewProgress.total} hunks approved`}
         </span>
         <span className="card-status">{subtitle}</span>
       </button>
@@ -121,7 +123,11 @@ function Card({
             <button type="button" className="small primary" onClick={() => move("accepted")}>
               Accept
             </button>
-            <button type="button" className="small" onClick={() => move("changes_requested")}>
+            <button
+              type="button"
+              className="small"
+              onClick={() => send({ type: "request_changes", agent: agent.name })}
+            >
               Request changes
             </button>
           </>
