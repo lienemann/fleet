@@ -37,7 +37,7 @@ export function App() {
   useHotkeys({
     "2": () => setView("inbox"),
     "3": () => setView("grid"),
-    Escape: () => current && send({ type: "interrupt", agent: current }),
+    escape: () => current && send({ type: "interrupt", agent: current }),
   });
 
   const counts = {

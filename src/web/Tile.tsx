@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { ClientMessage } from "../shared/protocol.ts";
-import { type AgentView, type Decision, type LogLine } from "../shared/reducer.ts";
+import type { AgentView, Decision, LogLine } from "../shared/reducer.ts";
 import { DecisionCard } from "./DecisionCard.tsx";
 import { stateLabel } from "./labels.ts";
 
@@ -28,6 +28,7 @@ export function Tile({ agent, decisions, send, selected, onSelect }: Props) {
   const lines = agent.log.filter((line) => visible(line, filter));
 
   // Follow the output unless the user scrolled up to read.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the line count is the trigger
   useEffect(() => {
     const el = logRef.current;
     if (el && stuck.current) el.scrollTop = el.scrollHeight;

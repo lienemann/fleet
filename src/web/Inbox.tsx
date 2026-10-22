@@ -25,7 +25,7 @@ export function Inbox({ state, send, onOpen }: Props) {
     r: () =>
       focused &&
       send({ type: "answer", requestId: focused.requestId, answer: { behavior: "deny" } }),
-    Enter: () => focused && onOpen(focused.agent),
+    enter: () => focused && onOpen(focused.agent),
   });
 
   if (items.length === 0) {

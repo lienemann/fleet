@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-/** Global key bindings; ignored while typing in an input. */
+/** Global key bindings keyed by lowercase `event.key`; ignored while typing, except Escape. */
 export function useHotkeys(bindings: Record<string, () => void>): void {
   const latest = useRef(bindings);
   latest.current = bindings;
@@ -10,7 +10,7 @@ export function useHotkeys(bindings: Record<string, () => void>): void {
       const typing = target.matches("input, textarea, [contenteditable]");
       if (typing && event.key !== "Escape") return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const handler = latest.current[event.key];
+      const handler = latest.current[event.key.toLowerCase()];
       if (handler) {
         event.preventDefault();
         handler();
