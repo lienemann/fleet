@@ -1,4 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { EventLog } from "../src/daemon/eventLog.ts";
@@ -81,6 +84,25 @@ describe("websocket server", () => {
     );
     client.send({ type: "prompt", agent: "a1", text: "ok" });
     await vi.waitFor(() => expect(supervisor.handle).toHaveBeenCalledOnce());
+  });
+
+  it("reads files of an agent's workspace, and nothing outside it", async () => {
+    const { log, port } = await start();
+    const cwd = mkdtempSync(join(tmpdir(), "fleet-ws-"));
+    writeFileSync(join(cwd, "plan.md"), "# Plan");
+    log.append(worker("a2", { cwd }));
+    const client = connect(port);
+    await client.opened;
+    client.send({ type: "read_file", id: "1", agent: "a2", path: "plan.md" });
+    client.send({ type: "read_file", id: "2", agent: "a2", path: "../../etc/hosts" });
+    await vi.waitFor(() =>
+      expect(client.received.filter((m) => m.type === "file")).toHaveLength(2),
+    );
+    const files = client.received.filter((m) => m.type === "file");
+    expect(files.find((m) => m.id === "1")).toMatchObject({ content: "# Plan" });
+    expect(files.find((m) => m.id === "2")).toMatchObject({
+      error: expect.stringContaining("outside"),
+    });
   });
 
   it("refuses browser pages from other origins", async () => {

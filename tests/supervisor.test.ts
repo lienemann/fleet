@@ -37,7 +37,7 @@ describe("Supervisor", () => {
       host: "mac",
       task: "running",
     });
-    expect(calls[0]?.options?.allowedTools).toEqual(["Read"]);
+    expect(calls[0]?.options?.allowedTools).toEqual(["Read", "mcp__fleet"]);
     await until(() => column("alpha") === "needs_you");
     expect(log.state.agents.alpha?.log[0]?.text).toBe("It fails 1 in 5.");
     expect(log.state.agents.alpha?.unseen).toBe(true);
@@ -90,7 +90,10 @@ describe("Supervisor", () => {
 
     const { calls } = setup(log);
     expect(pendingDecisions(log.state)).toEqual([]);
-    expect(log.state.decisions.r?.status).toBe("stale");
+    expect(log.since(0).find((e) => e.kind === "decision_resolved")).toMatchObject({
+      requestId: "r",
+      outcome: "stale",
+    });
     expect(calls[0]?.options?.resume).toBe("s-1");
     await until(
       () => log.state.agents.alpha?.log.some((l) => l.text.includes("daemon restarted")) ?? false,

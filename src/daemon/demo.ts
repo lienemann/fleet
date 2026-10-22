@@ -1,27 +1,66 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFn } from "./session.ts";
+import { SERVER, toolsOf } from "./tools.ts";
 
 /**
  * A scripted stand-in for the SDK's `query()`, for developing the UI and for end-to-end
- * tests without a Claude login. Every prompt gets a short, plausible turn with a to-do
- * list, a subagent and one Bash call that needs permission.
+ * tests without a Claude login. Agents call the real fleet tools: workers investigate,
+ * ask for a permission and a decision, hand in open points and report; the director
+ * spawns a worker per line of the user's request.
  */
 export function demoQuery(delayMs = 400): QueryFn {
   let sessions = 0;
   return ((params: Parameters<QueryFn>[0]) => {
-    const sessionId = params.options?.resume ?? `demo-${++sessions}`;
-    const canUseTool = params.options?.canUseTool;
+    const options = params.options ?? {};
+    const sessionId = options.resume ?? `demo-${++sessions}`;
+    const tools = toolsOf(options.mcpServers?.[SERVER]);
+    const director = tools.some((t) => t.name === "spawn_task");
     let interrupted = false;
     let closed = false;
     const pause = () => new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    /** Runs a step; tool steps yield the call and then its result, like the CLI. */
+    async function* perform(step: Step): AsyncGenerator<SDKMessage> {
+      if (step.type === "say") return yield say(step.text, step.parent);
+      if (step.type === "write") {
+        mkdirSync(join(options.cwd ?? ".", ".fleet"), { recursive: true });
+        writeFileSync(join(options.cwd ?? ".", step.path), step.content);
+        return;
+      }
+      yield use(
+        step.id,
+        step.type === "fleet" ? `mcp__${SERVER}__${step.name}` : step.name,
+        step.input,
+        step.parent,
+      );
+      if (step.type === "tool") return yield toolResult(step.id, step.output, step.parent);
+      if (step.type === "bash") {
+        const verdict = await options.canUseTool?.("Bash", step.input, {
+          signal: new AbortController().signal,
+          toolUseID: step.id,
+          requestId: `req-${step.id}`,
+        });
+        return yield toolResult(
+          step.id,
+          verdict?.behavior === "allow" ? step.output : "Denied by the user.",
+        );
+      }
+      const handler = tools.find((t) => t.name === step.name)?.handler;
+      const result = handler ? await handler(step.input, {}) : undefined;
+      const text =
+        result?.content.map((c) => ("text" in c ? c.text : "")).join("\n") ?? "no such tool";
+      yield toolResult(step.id, text);
+    }
 
     async function* run(): AsyncGenerator<SDKMessage> {
       yield msg({
         type: "system",
         subtype: "init",
         session_id: sessionId,
-        model: params.options?.model ?? "demo",
-        permissionMode: params.options?.permissionMode ?? "default",
+        model: options.model ?? "demo",
+        permissionMode: options.permissionMode ?? "default",
         slash_commands: ["compact", "context", "review", "init"],
       });
       let turn = 0;
@@ -30,27 +69,12 @@ export function demoQuery(delayMs = 400): QueryFn {
         interrupted = false;
         turn++;
         const text = typeof prompt.message.content === "string" ? prompt.message.content : "";
-        for (const step of script(turn, text)) {
+        const steps = director ? directorScript(turn, text) : workerScript(turn, text);
+        for (const step of steps) {
           if (closed) return;
           if (interrupted) break;
           await pause();
-          if (step.type === "ask") {
-            const verdict = await canUseTool?.(
-              "Bash",
-              { command: step.command },
-              {
-                signal: new AbortController().signal,
-                toolUseID: step.id,
-                requestId: `req-${step.id}`,
-              },
-            );
-            yield toolResult(
-              step.id,
-              verdict?.behavior === "allow" ? step.output : "Denied by the user.",
-            );
-          } else {
-            yield step.message;
-          }
+          yield* perform(step);
         }
         yield msg({
           type: "result",
@@ -77,11 +101,52 @@ export function demoQuery(delayMs = 400): QueryFn {
 }
 
 type Step =
-  | { type: "message"; message: SDKMessage }
-  | { type: "ask"; id: string; command: string; output: string };
+  | { type: "say"; text: string; parent?: string | null }
+  | {
+      type: "tool";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+      output: string;
+      parent?: string | null;
+    }
+  | {
+      type: "bash";
+      id: string;
+      name: "Bash";
+      input: { command: string };
+      output: string;
+      parent?: undefined;
+    }
+  | { type: "write"; path: string; content: string }
+  | {
+      type: "fleet";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+      parent?: undefined;
+    };
 
-function script(turn: number, prompt: string): Step[] {
+function workerScript(turn: number, prompt: string): Step[] {
   const id = (n: number) => `demo-${turn}-${n}`;
+  if (prompt.startsWith("Message from") || turn > 1) {
+    return [
+      { type: "say", text: "Thanks, taking that into account." },
+      { type: "fleet", id: id(1), name: "report_status", input: { status: "Revising" } },
+      { type: "say", text: "Revised as asked." },
+      {
+        type: "fleet",
+        id: id(2),
+        name: "report_result",
+        input: {
+          summary: "Revised after feedback.",
+          changes: ["zmplwqrs"],
+          tests: "13 passed",
+          open_questions: [],
+        },
+      },
+    ];
+  }
   const todos = [
     {
       content: "Reproduce the problem",
@@ -92,43 +157,128 @@ function script(turn: number, prompt: string): Step[] {
     { content: "Fix and test", status: "pending", activeForm: "Fixing and testing" },
   ];
   return [
-    say(`Looking into: ${prompt.split("\n")[0]}`),
-    use(id(1), "TodoWrite", { todos }),
-    { type: "message", message: toolResult(id(1), "Todos updated") },
-    use(id(2), "Task", {
-      description: "Explore related code",
-      prompt: "Find where this is handled",
-    }),
-    use(id(3), "Grep", { pattern: "handle" }, id(2)),
-    { type: "message", message: toolResult(id(3), "src/a.py:12\nsrc/b.py:40", id(2)) },
-    say("Two call sites; src/a.py is the one on the hot path.", id(2)),
-    { type: "message", message: toolResult(id(2), "src/a.py:12 is the relevant one.") },
-    say("Before changing anything I want to run the tests once to see the current state."),
-    use(id(4), "Bash", { command: "uv run pytest -x" }),
-    { type: "ask", id: id(4), command: "uv run pytest -x", output: "12 passed, 1 failed" },
-    say("One failure, as expected. I will fix it next; tell me if you want a different approach."),
+    { type: "say", text: `Looking into: ${prompt.split("\n")[0]}` },
+    { type: "tool", id: id(1), name: "TodoWrite", input: { todos }, output: "Todos updated" },
+    {
+      type: "tool",
+      id: id(2),
+      name: "Task",
+      input: { description: "Explore related code", prompt: "Find where this is handled" },
+      output: "src/a.py:12 is the relevant one.",
+    },
+    {
+      type: "tool",
+      id: id(3),
+      name: "Grep",
+      input: { pattern: "handle" },
+      output: "src/a.py:12\nsrc/b.py:40",
+      parent: id(2),
+    },
+    { type: "say", text: "Two call sites; src/a.py is the one on the hot path.", parent: id(2) },
+    { type: "fleet", id: id(4), name: "report_status", input: { status: "Running the tests" } },
+    {
+      type: "say",
+      text: "Before changing anything I want to run the tests once to see the current state.",
+    },
+    {
+      type: "bash",
+      id: id(5),
+      name: "Bash",
+      input: { command: "uv run pytest -x" },
+      output: "12 passed, 1 failed",
+    },
+    {
+      type: "fleet",
+      id: id(6),
+      name: "request_decision",
+      input: {
+        question: "How should I fix the flaky assertion?",
+        context:
+          "The assertion uses a fixed 1 ms tolerance and CI runners jitter more.\nBoth fixes take a few minutes.",
+        options: ["Scale the tolerance with measured jitter", "Rewrite the test with a fake clock"],
+        risk: [],
+      },
+    },
+    {
+      type: "write",
+      path: ".fleet/open-points.md",
+      content:
+        "# Open points\n\n- [ ] Apply the same fix to the two similar tests?\n- [ ] Keep the old tolerance as a lower bound?\n",
+    },
+    {
+      type: "fleet",
+      id: id(7),
+      name: "submit_open_points",
+      input: { path: ".fleet/open-points.md" },
+    },
+    {
+      type: "fleet",
+      id: id(8),
+      name: "report_result",
+      input: {
+        summary: "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.",
+        changes: ["zmplwqrs"],
+        tests: "50 of 50 repetitions green",
+        open_questions: ["Apply the same fix to the two similar sweep tests?"],
+        walkthrough:
+          "1. tests/sweep/test_timing.py: the new tolerance.\n2. conftest.py: the jitter fixture.",
+      },
+    },
+  ];
+}
+
+function directorScript(turn: number, prompt: string): Step[] {
+  const id = (n: number) => `demo-d${turn}-${n}`;
+  if (prompt.startsWith("Message from")) {
+    return [{ type: "say", text: "Noted; I will keep track of it in the ledger." }];
+  }
+  const tasks = prompt
+    .split("\n")
+    .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return [
+    { type: "say", text: `Planning ${tasks.length} task(s).` },
+    { type: "fleet", id: id(0), name: "ledger", input: {} },
+    ...tasks.map(
+      (title, i): Step => ({
+        type: "fleet",
+        id: id(i + 1),
+        name: "spawn_task",
+        input: {
+          title: title.slice(0, 80),
+          context: `Goal: ${title}\n\nDone means: tests pass and a report is in.`,
+        },
+      }),
+    ),
+    {
+      type: "fleet",
+      id: id(9),
+      name: "send_message",
+      input: {
+        to: "you",
+        body: `Started ${tasks.length} worker(s).\nI will report back when results are in.`,
+      },
+    },
+    { type: "say", text: "Workers are on it." },
   ];
 }
 
 const msg = (message: object): SDKMessage => message as SDKMessage;
 
-const say = (text: string, parent: string | null = null): Step => ({
-  type: "message",
-  message: msg({
+const say = (text: string, parent: string | null = null): SDKMessage =>
+  msg({
     type: "assistant",
     parent_tool_use_id: parent,
     message: { content: [{ type: "text", text }] },
-  }),
-});
+  });
 
-const use = (id: string, name: string, input: object, parent: string | null = null): Step => ({
-  type: "message",
-  message: msg({
+const use = (id: string, name: string, input: object, parent: string | null = null): SDKMessage =>
+  msg({
     type: "assistant",
     parent_tool_use_id: parent,
     message: { content: [{ type: "tool_use", id, name, input }] },
-  }),
-});
+  });
 
 const toolResult = (id: string, content: string, parent: string | null = null): SDKMessage =>
   msg({

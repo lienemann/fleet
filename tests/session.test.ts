@@ -164,7 +164,9 @@ describe("AgentSession", () => {
     session.start();
     await until(() => pendingDecisions(log.state).length === 1);
     await session.stop();
-    expect(log.state.decisions["tool-1"]?.status).toBe("stale");
+    expect(log.since(0).find((e) => e.kind === "decision_resolved")).toMatchObject({
+      outcome: "stale",
+    });
     expect(agent()?.pending).toBe(0);
   });
 

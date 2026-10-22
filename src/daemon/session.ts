@@ -8,7 +8,13 @@ import type {
   query,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Activity, AgentEvent, PermissionMode, Question } from "../shared/events.ts";
+import type {
+  Activity,
+  AgentEvent,
+  EventBody,
+  PermissionMode,
+  Question,
+} from "../shared/events.ts";
 import type { Answer } from "../shared/protocol.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { deriveRisk } from "./risk.ts";
@@ -28,14 +34,19 @@ export interface SessionOptions {
   /** Added to Claude Code's system prompt; the role's contract with the daemon. */
   appendSystemPrompt?: string;
   mcpServers?: Record<string, McpServerConfig>;
+  /** Settles a permission request without asking the user, or returns undefined to ask. */
+  autoDecide?: (toolName: string, input: Record<string, unknown>) => PermissionResult | undefined;
   sleep?: (ms: number) => Promise<void>;
 }
 
-interface PendingRequest {
-  resolve: (result: PermissionResult) => void;
-  input: Record<string, unknown>;
-  suggestions?: PermissionUpdate[];
-}
+/** A decision as the session asks for it; the log adds its id. */
+export type DecisionRequest = Omit<
+  Extract<EventBody, { kind: "decision_requested" }>,
+  "kind" | "requestId"
+>;
+
+/** Resolves with the user's answer, or undefined when the request went stale. */
+type Settle = (answer: Answer | undefined) => void;
 
 const MAX_BACKOFF_MS = 60_000;
 const backoff = (attempt: number): number => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1));
@@ -50,7 +61,7 @@ const defaultSleep = (ms: number): Promise<void> =>
 export class AgentSession {
   private readonly options: SessionOptions;
   private readonly queue = new InputQueue();
-  private readonly pending = new Map<string, PendingRequest>();
+  private readonly pending = new Map<string, Settle>();
   private readonly sleep: (ms: number) => Promise<void>;
   private query: Query | undefined;
   private sessionId: string | undefined;
@@ -119,14 +130,36 @@ export class AgentSession {
     await this.done;
   }
 
-  /** Delivers the user's answer to a pending permission or question. */
+  /**
+   * Asks the user and waits for the answer. Permission prompts and the custom tools both
+   * come through here, so a stop or crash settles all of them as stale.
+   */
+  ask(
+    requestId: string,
+    request: DecisionRequest,
+    signal?: AbortSignal,
+  ): Promise<Answer | undefined> {
+    return new Promise((resolve) => {
+      this.pending.set(requestId, resolve);
+      signal?.addEventListener("abort", () => this.resolveStale(requestId), { once: true });
+      this.options.emit({ kind: "decision_requested", requestId, ...request });
+    });
+  }
+
+  /** Delivers the user's answer to a pending request. */
   answer(requestId: string, answer: Answer): boolean {
-    const request = this.pending.get(requestId);
-    if (!request) return false;
+    const settle = this.pending.get(requestId);
+    if (!settle) return false;
     this.pending.delete(requestId);
-    const { result, outcome, message } = toResult(answer, request);
-    this.options.emit({ kind: "decision_resolved", requestId, outcome, message });
-    request.resolve(result);
+    const message =
+      answer.behavior === "deny" || answer.behavior === "review" ? answer.message : undefined;
+    this.options.emit({
+      kind: "decision_resolved",
+      requestId,
+      outcome: OUTCOMES[answer.behavior],
+      message,
+    });
+    settle(answer);
     return true;
   }
 
@@ -146,6 +179,7 @@ export class AgentSession {
     let attempt = 0;
     while (this.running) {
       try {
+        this.lastCost = 0;
         this.query = this.options.queryFn({
           prompt: this.queue.stream(),
           options: this.sdkOptions(),
@@ -200,10 +234,9 @@ export class AgentSession {
     }
 
     if (message.type === "result") {
-      // total_cost_usd accumulates over the query() call, which restarts after a crash.
-      const total = message.total_cost_usd;
-      const costUsd = total >= this.lastCost ? total - this.lastCost : total;
-      this.lastCost = total;
+      // total_cost_usd accumulates over the query() call.
+      const costUsd = message.total_cost_usd - this.lastCost;
+      this.lastCost = message.total_cost_usd;
       this.options.emit({
         kind: "turn_finished",
         ok: !message.is_error,
@@ -226,31 +259,31 @@ export class AgentSession {
     }
   }
 
-  private readonly canUseTool: CanUseTool = (toolName, input, options) => {
-    const requestId = options.toolUseID;
+  private readonly canUseTool: CanUseTool = async (toolName, input, options) => {
+    const automatic = this.options.autoDecide?.(toolName, input);
+    if (automatic) return automatic;
     const questions = toolName === "AskUserQuestion" ? parseQuestions(input) : undefined;
-    return new Promise<PermissionResult>((resolve) => {
-      this.pending.set(requestId, { resolve, input, suggestions: options.suggestions });
-      options.signal.addEventListener("abort", () => this.resolveStale(requestId), { once: true });
-      this.options.emit({
-        kind: "decision_requested",
-        requestId,
+    const answer = await this.ask(
+      options.toolUseID,
+      {
         decision: questions ? "question" : "permission",
         toolName,
         input,
         explanation: this.explanation,
         risk: deriveRisk(toolName, input, this.options.cwd),
         questions,
-      });
-    });
+      },
+      options.signal,
+    );
+    return toPermission(answer, input, options.suggestions);
   };
 
   private resolveStale(requestId: string): void {
-    const request = this.pending.get(requestId);
-    if (!request) return;
+    const settle = this.pending.get(requestId);
+    if (!settle) return;
     this.pending.delete(requestId);
     this.options.emit({ kind: "decision_resolved", requestId, outcome: "stale" });
-    request.resolve({ behavior: "deny", message: "The request went stale; ask again." });
+    settle(undefined);
   }
 
   private resolveAllStale(): void {
@@ -269,29 +302,32 @@ export class AgentSession {
 
 const joinText = (before: string, text: string): string => (before ? `${before}\n\n${text}` : text);
 
-function toResult(
-  answer: Answer,
-  request: PendingRequest,
-): { result: PermissionResult; outcome: "allowed" | "denied" | "answered"; message?: string } {
-  switch (answer.behavior) {
+const OUTCOMES = {
+  allow: "allowed",
+  deny: "denied",
+  answers: "answered",
+  review: "answered",
+} as const;
+
+function toPermission(
+  answer: Answer | undefined,
+  input: Record<string, unknown>,
+  suggestions: PermissionUpdate[] | undefined,
+): PermissionResult {
+  switch (answer?.behavior) {
+    case undefined:
+      return { behavior: "deny", message: "The request went stale; ask again." };
     case "allow":
       return {
-        outcome: "allowed",
-        result: {
-          behavior: "allow",
-          updatedInput: request.input,
-          updatedPermissions: answer.alwaysAllow ? request.suggestions : undefined,
-        },
+        behavior: "allow",
+        updatedInput: input,
+        updatedPermissions: answer.alwaysAllow ? suggestions : undefined,
       };
-    case "deny": {
-      const message = answer.message ?? "The user denied this action.";
-      return { outcome: "denied", message, result: { behavior: "deny", message } };
-    }
     case "answers":
-      return {
-        outcome: "answered",
-        result: { behavior: "allow", updatedInput: { ...request.input, answers: answer.answers } },
-      };
+      return { behavior: "allow", updatedInput: { ...input, answers: answer.answers } };
+    case "deny":
+    case "review":
+      return { behavior: "deny", message: answer.message ?? "The user denied this action." };
   }
 }
 

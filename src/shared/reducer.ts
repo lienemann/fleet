@@ -1,9 +1,13 @@
 import type {
   Activity,
+  DecisionKind,
   FleetEvent,
   LogRole,
+  OpenPoint,
   PermissionMode,
   Question,
+  Report,
+  ReviewKind,
   RiskTag,
   Role,
   TaskState,
@@ -30,18 +34,37 @@ export interface Subagent {
   done: boolean;
 }
 
+/** Something an agent waits on the user for. Resolved decisions leave the projection. */
 export interface Decision {
   requestId: string;
   agent: string;
-  decision: "permission" | "question";
+  decision: DecisionKind;
   toolName: string;
   input: Record<string, unknown>;
   explanation: string;
   risk: RiskTag[];
   questions?: Question[];
+  path?: string;
+  reviewKind?: ReviewKind;
   seq: number;
   ts: number;
-  status: "pending" | "allowed" | "denied" | "answered" | "stale";
+}
+
+export interface Message {
+  seq: number;
+  ts: number;
+  from: string;
+  to: string;
+  body: string;
+}
+
+/** A Markdown file of `- [ ]` points an agent wants answered; the answers go back together. */
+export interface OpenPointsDoc {
+  docId: string;
+  agent: string;
+  path: string;
+  points: Array<OpenPoint & { answer?: string }>;
+  seq: number;
 }
 
 export interface AgentView {
@@ -72,18 +95,29 @@ export interface AgentView {
   createdSeq: number;
   /** When the agent entered its current column. */
   columnSince: number;
+  /** One-line status from `report_status`. */
+  status?: string;
+  report?: Report;
+  /** The director's ledger note. */
+  note?: string;
 }
 
 export interface FleetState {
   lastSeq: number;
   agents: Record<string, AgentView>;
+  /** Pending decisions by request id. */
   decisions: Record<string, Decision>;
+  messages: Message[];
+  /** Open-point documents with unanswered points, by doc id. */
+  openPoints: Record<string, OpenPointsDoc>;
 }
 
 /** Lines kept per agent in the projection; older ones stay in the event log. */
 export const LOG_LIMIT = 2000;
 /** Characters kept of a single line in the projection. */
 export const TEXT_LIMIT = 4000;
+/** Bus messages kept in the projection. */
+export const MESSAGE_LIMIT = 500;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
@@ -99,7 +133,13 @@ export function columnOf(agent: AgentView): Column {
 export const needsUser = (agent: AgentView): boolean =>
   agent.role === "director" ? agent.pending > 0 : columnOf(agent) === "needs_you";
 
-export const emptyState = (): FleetState => ({ lastSeq: 0, agents: {}, decisions: {} });
+export const emptyState = (): FleetState => ({
+  lastSeq: 0,
+  agents: {},
+  decisions: {},
+  messages: [],
+  openPoints: {},
+});
 
 /** Pure projection step; the daemon and the browser both fold the log through it. */
 export function reduce(state: FleetState, event: FleetEvent): FleetState {
@@ -115,9 +155,10 @@ export const reduceAll = (events: Iterable<FleetEvent>, from = emptyState()): Fl
 };
 
 export const pendingDecisions = (state: FleetState): Decision[] =>
-  Object.values(state.decisions)
-    .filter((d) => d.status === "pending")
-    .sort((a, b) => a.seq - b.seq);
+  Object.values(state.decisions).sort((a, b) => a.seq - b.seq);
+
+export const openPointDocs = (state: FleetState): OpenPointsDoc[] =>
+  Object.values(state.openPoints).sort((a, b) => a.seq - b.seq);
 
 /** Agents in creation order, director first. */
 export const agentList = (state: FleetState): AgentView[] =>
@@ -127,6 +168,17 @@ export const agentList = (state: FleetState): AgentView[] =>
   );
 
 function apply(state: FleetState, event: FleetEvent): FleetState {
+  // The user writes on the bus without being an agent.
+  if (event.kind === "message") {
+    const message = {
+      seq: event.seq,
+      ts: event.ts,
+      from: event.agent,
+      to: event.to,
+      body: event.body,
+    };
+    return { ...state, messages: [...state.messages.slice(-(MESSAGE_LIMIT - 1)), message] };
+  }
   if (event.kind === "agent_created") {
     const agent: AgentView = {
       name: event.agent,
@@ -202,22 +254,17 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
             explanation: event.explanation,
             risk: event.risk,
             questions: event.questions,
+            path: event.path,
+            reviewKind: event.reviewKind,
             seq: event.seq,
             ts: event.ts,
-            status: "pending",
           },
         },
       };
     case "decision_resolved": {
-      const decision = state.decisions[event.requestId];
-      if (decision?.status !== "pending") return state;
-      return {
-        ...patch({ pending: Math.max(0, agent.pending - 1) }),
-        decisions: {
-          ...state.decisions,
-          [event.requestId]: { ...decision, status: event.outcome },
-        },
-      };
+      if (!state.decisions[event.requestId]) return state;
+      const { [event.requestId]: _resolved, ...decisions } = state.decisions;
+      return { ...patch({ pending: Math.max(0, agent.pending - 1) }), decisions };
     }
     case "turn_finished":
       return patch({ costUsd: agent.costUsd + event.costUsd });
@@ -227,6 +274,38 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ reconnecting: event.reconnecting });
     case "agent_opened":
       return patch({ unseen: false });
+    case "report":
+      return patch({ report: event.report });
+    case "status":
+      return patch({ status: event.text });
+    case "note":
+      return patch({ note: event.text });
+    case "open_points":
+      return {
+        ...state,
+        openPoints: {
+          ...state.openPoints,
+          [event.docId]: {
+            docId: event.docId,
+            agent: event.agent,
+            path: event.path,
+            points: event.points,
+            seq: event.seq,
+          },
+        },
+      };
+    case "point_answered": {
+      const doc = state.openPoints[event.docId];
+      if (!doc) return state;
+      const points = doc.points.map((p) =>
+        p.id === event.pointId ? { ...p, answer: event.answer } : p,
+      );
+      if (points.every((p) => p.answer !== undefined)) {
+        const { [event.docId]: _done, ...openPoints } = state.openPoints;
+        return { ...state, openPoints };
+      }
+      return { ...state, openPoints: { ...state.openPoints, [event.docId]: { ...doc, points } } };
+    }
   }
 }
 
@@ -240,7 +319,10 @@ function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): 
   if (!old || !now) return after;
   const column = columnOf(now);
   const moved = column !== columnOf(old);
-  const news = (needsUser(now) && !needsUser(old)) || (moved && column === "review");
+  const news =
+    (needsUser(now) && !needsUser(old)) ||
+    (moved && column === "review") ||
+    event.kind === "open_points";
   if (!moved && !news) return after;
   const updated = {
     ...now,

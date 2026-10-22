@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { FleetEvent } from "../shared/events.ts";
 import { ClientMessageSchema, type DaemonInfo, type ServerMessage } from "../shared/protocol.ts";
 import type { EventLog } from "./eventLog.ts";
+import { readWorkspaceFile } from "./files.ts";
 import type { Supervisor } from "./supervisor.ts";
 
 export interface ServerOptions {
@@ -98,6 +99,10 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
         unsubscribe = subscribe(ws, message.since);
         return;
       }
+      if (message.type === "read_file") {
+        send(ws, readFile(message.id, message.agent, message.path));
+        return;
+      }
       try {
         supervisor.handle(message);
       } catch (error) {
@@ -107,6 +112,16 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
         });
       }
     });
+  };
+
+  const readFile = (id: string, agent: string, path: string): ServerMessage => {
+    const cwd = log.state.agents[agent]?.cwd;
+    if (!cwd) return { type: "file", id, error: `No agent "${agent}"` };
+    try {
+      return { type: "file", id, content: readWorkspaceFile(cwd, path) };
+    } catch (error) {
+      return { type: "file", id, error: error instanceof Error ? error.message : String(error) };
+    }
   };
 
   /**

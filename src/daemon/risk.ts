@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { RiskTag } from "../shared/events.ts";
 
 const NETWORK =
@@ -44,5 +44,5 @@ function commandPaths(command: string): string[] {
 function escapesWorkspace(path: string, workspace: string): boolean {
   if (path.startsWith("~")) return true;
   const rel = relative(workspace, isAbsolute(path) ? path : resolve(workspace, path));
-  return rel.startsWith("..") || isAbsolute(rel);
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 }

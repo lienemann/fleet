@@ -41,6 +41,33 @@ export interface Question {
   multiSelect?: boolean;
 }
 
+/** The kinds of things an agent can ask the user to decide. */
+export type DecisionKind = "permission" | "question" | "review";
+
+export type ReviewKind = "plan" | "doc" | "mockup";
+
+/** What a worker hands in with `report_result`. */
+export interface Report {
+  summary: string;
+  /** jj change ids of the result. */
+  changes: string[];
+  tests?: string;
+  openQuestions: string[];
+  /** Markdown walkthrough of the change, in review order. */
+  walkthrough?: string;
+}
+
+export interface OpenPoint {
+  id: string;
+  text: string;
+}
+
+/** Sender name of messages the user writes on the bus. */
+export const USER = "you";
+
+/** The director's agent name. */
+export const DIRECTOR = "director";
+
 export type EventBody =
   | {
       kind: "agent_created";
@@ -69,13 +96,16 @@ export type EventBody =
   | {
       kind: "decision_requested";
       requestId: string;
-      decision: "permission" | "question";
+      decision: DecisionKind;
       toolName: string;
       input: Record<string, unknown>;
       /** The text the agent wrote just before the call. */
       explanation: string;
       risk: RiskTag[];
       questions?: Question[];
+      /** For reviews: the file to look at, relative to the agent's workspace. */
+      path?: string;
+      reviewKind?: ReviewKind;
     }
   | {
       kind: "decision_resolved";
@@ -86,7 +116,15 @@ export type EventBody =
   | { kind: "turn_finished"; ok: boolean; costUsd: number; error?: string }
   | { kind: "context"; tokens: number; window: number }
   | { kind: "connection"; reconnecting: boolean; detail?: string }
-  | { kind: "agent_opened" };
+  | { kind: "agent_opened" }
+  | { kind: "report"; report: Report }
+  | { kind: "status"; text: string }
+  /** A bus message; the event's agent is the sender. */
+  | { kind: "message"; to: string; body: string }
+  | { kind: "open_points"; docId: string; path: string; points: OpenPoint[] }
+  | { kind: "point_answered"; docId: string; pointId: string; answer: string }
+  /** The director's ledger note on a task. */
+  | { kind: "note"; text: string };
 
 export type EventKind = EventBody["kind"];
 

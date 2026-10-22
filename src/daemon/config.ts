@@ -28,6 +28,10 @@ const ConfigFile = z.object({
     })
     .default({ running: 4, review: 2 }),
   model: z.string().optional(),
+  /** The director shares the default workspace (the repo root) with the user. */
+  director: z
+    .object({ enabled: z.boolean().default(true), path: z.string().optional() })
+    .default({ enabled: true }),
   workspaces: z.array(WorkspaceConfig).default([]),
 });
 
@@ -44,6 +48,8 @@ export interface Config {
   allowedHosts: string[];
   wip: { running: number; review: number };
   model?: string;
+  /** Working directory of the director, if there is one. */
+  director?: string;
   workspaces: Workspace[];
 }
 
@@ -66,6 +72,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     allowedHosts: parsed.allowed_hosts,
     wip: parsed.wip,
     model: parsed.model,
+    director: parsed.director.enabled ? expandHome(parsed.director.path ?? fallbackCwd) : undefined,
     workspaces: workspaces.map((ws) => ({
       name: ws.name,
       path: expandHome(ws.path),

@@ -9,6 +9,11 @@ export const AnswerSchema = z.discriminatedUnion("behavior", [
   z.object({ behavior: z.literal("allow"), alwaysAllow: z.boolean().optional() }),
   z.object({ behavior: z.literal("deny"), message: z.string().optional() }),
   z.object({ behavior: z.literal("answers"), answers: z.record(z.string(), z.string()) }),
+  z.object({
+    behavior: z.literal("review"),
+    approved: z.boolean(),
+    message: z.string().optional(),
+  }),
 ]);
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
@@ -16,7 +21,15 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prompt"), agent, text: z.string().min(1) }),
   z.object({ type: z.literal("interrupt"), agent }),
   z.object({ type: z.literal("answer"), requestId: z.string().min(1), answer: AnswerSchema }),
+  z.object({
+    type: z.literal("answer_point"),
+    docId: z.string().min(1),
+    pointId: z.string().min(1),
+    answer: z.string().trim().min(1),
+  }),
   z.object({ type: z.literal("open"), agent }),
+  /** Reads a file of the agent's workspace; answered with a `file` message of the same id. */
+  z.object({ type: z.literal("read_file"), id: z.string().min(1), agent, path: z.string().min(1) }),
   z.object({ type: z.literal("mark_all_seen") }),
   z.object({
     type: z.literal("create_task"),
@@ -54,4 +67,5 @@ export type ServerMessage =
   /** Sent instead of a long replay: the projection as of `state.lastSeq`. */
   | { type: "snapshot"; state: FleetState }
   | { type: "events"; events: FleetEvent[] }
+  | { type: "file"; id: string; content?: string; error?: string }
   | { type: "error"; message: string };
