@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
   "vcs": { "enabled": false },
-  "files": { "includes": ["**", "!node_modules", "!dist", "!docs/mockup", "!package-lock.json"] },
+  "files": { "includes": ["**", "!node_modules", "!dist", "!docs/mockup", "!package-lock.json", "!**/*.md"] },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "linter": { "rules": { "preset": "none" } },
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
