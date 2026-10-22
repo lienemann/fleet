@@ -36,9 +36,13 @@ export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props)
 type BodyProps = Pick<Props, "decision" | "onAnswer">;
 
 function Permission({ decision, onAnswer }: BodyProps) {
+  // Leaving plan mode is approving the plan written just above.
+  const plan = decision.toolName === "ExitPlanMode";
   return (
     <>
-      <pre className="input">{describeInput(decision.input)}</pre>
+      <pre className="input">
+        {plan ? "Approve the plan above and start working" : describeInput(decision.input)}
+      </pre>
       <footer>
         <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
           Approve <kbd>a</kbd>

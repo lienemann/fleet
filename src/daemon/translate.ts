@@ -28,6 +28,13 @@ export function translate(message: SDKMessage): AgentEvent[] {
           },
         ];
       }
+      if (message.subtype === "background_tasks_changed") {
+        // Ambient tasks (live-update watchers and the like) are not activity worth showing.
+        const tasks = message.tasks
+          .filter((t) => !t.ambient)
+          .map((t) => ({ id: t.task_id, type: t.task_type, description: t.description }));
+        return [{ kind: "background_tasks", tasks }];
+      }
       if (message.subtype === "api_retry") {
         const detail = `retry ${message.attempt}/${message.max_retries}`;
         return [{ kind: "connection", reconnecting: true, detail }];

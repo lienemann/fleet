@@ -1,5 +1,6 @@
 import type {
   Activity,
+  BackgroundTask,
   DecisionKind,
   FleetEvent,
   LogRole,
@@ -97,8 +98,11 @@ export interface AgentView {
   log: LogLine[];
   todos: Todo[];
   subagents: Subagent[];
+  backgroundTasks: BackgroundTask[];
   context?: { tokens: number; window: number };
   costUsd: number;
+  /** Cost per UTC day, `YYYY-MM-DD` → USD. */
+  costByDay: Record<string, number>;
   reconnecting: boolean;
   /** Outcome changed since the user last opened the agent. */
   unseen: boolean;
@@ -173,6 +177,13 @@ export function laneOf(agent: AgentView): Lane {
   return column === "running" && agent.activity === "stopped" ? "stopped" : column;
 }
 
+/** The UTC day of a timestamp, as costs are counted. */
+export const dayOf = (ts: number): string => new Date(ts).toISOString().slice(0, 10);
+
+/** What all agents cost on the day of `ts`. */
+export const costOn = (state: FleetState, ts: number): number =>
+  Object.values(state.agents).reduce((sum, a) => sum + (a.costByDay[dayOf(ts)] ?? 0), 0);
+
 export const emptyState = (): FleetState => ({
   lastSeq: 0,
   agents: {},
@@ -242,10 +253,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       log: [],
       todos: [],
       subagents: [],
+      backgroundTasks: [],
       comments: [],
       edits: [],
       history: [{ lane: event.role === "director" ? "idle" : "queued", from: event.ts }],
       costUsd: 0,
+      costByDay: {},
       reconnecting: false,
       unseen: false,
       createdSeq: event.seq,
@@ -288,6 +301,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "todos":
       return patch({ todos: event.todos });
+    case "background_tasks":
+      return patch({ backgroundTasks: event.tasks });
     case "decision_requested":
       return {
         ...patch({ pending: agent.pending + 1 }),
@@ -314,8 +329,13 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       const { [event.requestId]: _resolved, ...decisions } = state.decisions;
       return { ...patch({ pending: Math.max(0, agent.pending - 1) }), decisions };
     }
-    case "turn_finished":
-      return patch({ costUsd: agent.costUsd + event.costUsd });
+    case "turn_finished": {
+      const day = dayOf(event.ts);
+      return patch({
+        costUsd: agent.costUsd + event.costUsd,
+        costByDay: { ...agent.costByDay, [day]: (agent.costByDay[day] ?? 0) + event.costUsd },
+      });
+    }
     case "context":
       return patch({ context: { tokens: event.tokens, window: event.window } });
     case "connection":

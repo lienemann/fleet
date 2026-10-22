@@ -29,6 +29,12 @@ export interface Todo {
   activeForm?: string;
 }
 
+export interface BackgroundTask {
+  id: string;
+  type: string;
+  description: string;
+}
+
 export interface QuestionOption {
   label: string;
   description?: string;
@@ -98,6 +104,8 @@ export type EventBody =
   | { kind: "user_prompt"; text: string }
   | { kind: "log"; role: LogRole; text: string; toolName?: string; toolUseId?: string }
   | { kind: "todos"; todos: Todo[] }
+  /** Live background tasks (shells, watchers, background agents); replaces the previous list. */
+  | { kind: "background_tasks"; tasks: BackgroundTask[] }
   | {
       kind: "decision_requested";
       requestId: string;

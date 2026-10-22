@@ -3,6 +3,7 @@ import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
 import {
   type AgentView,
   columnOf,
+  costOn,
   LOG_LIMIT,
   pendingDecisions,
   reduceAll,
@@ -141,5 +142,36 @@ describe("timeline", () => {
       ),
     );
     expect(state.agents.d?.history.map((s) => s.lane)).toEqual(["idle", "running", "idle"]);
+  });
+});
+
+describe("usage", () => {
+  it("adds up cost per UTC day and in total", () => {
+    const day = 24 * 60 * 60 * 1000;
+    const state = reduceAll([
+      { ...worker("a"), parent: null, seq: 1, ts: 0 },
+      {
+        kind: "turn_finished",
+        agent: "a",
+        ok: true,
+        costUsd: 0.25,
+        parent: null,
+        seq: 2,
+        ts: 1000,
+      },
+      { kind: "turn_finished", agent: "a", ok: true, costUsd: 0.5, parent: null, seq: 3, ts: 2000 },
+      {
+        kind: "turn_finished",
+        agent: "a",
+        ok: true,
+        costUsd: 1,
+        parent: null,
+        seq: 4,
+        ts: day + 1,
+      },
+    ] as FleetEvent[]);
+    expect(state.agents.a?.costByDay).toEqual({ "1970-01-01": 0.75, "1970-01-02": 1 });
+    expect(state.agents.a?.costUsd).toBe(1.75);
+    expect(costOn(state, day + 5)).toBe(1);
   });
 });

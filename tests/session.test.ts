@@ -8,6 +8,7 @@ import {
   init,
   newSession,
   result,
+  sdk,
   toolResult,
   toolUse,
   until,
@@ -130,6 +131,24 @@ describe("AgentSession", () => {
       { toolUseId: "t2", description: "explore the parser", done: true },
     ]);
     expect(agent()?.log.find((l) => l.text === "from inside")?.parent).toBe("t2");
+    await session.stop();
+  });
+
+  it("lists live background tasks, leaving out ambient ones", async () => {
+    const tasks = [
+      { task_id: "t1", task_type: "local_bash", description: "npm run dev" },
+      { task_id: "t2", task_type: "monitor", description: "watch CI", ambient: true },
+    ];
+    const { queryFn } = fakeQuery(
+      echoing(sdk({ type: "system", subtype: "background_tasks_changed", tasks }), result()),
+    );
+    const { session, agent } = newSession(queryFn);
+    session.start();
+    session.prompt("go");
+    await until(() => agent()?.activity === "idle");
+    expect(agent()?.backgroundTasks).toEqual([
+      { id: "t1", type: "local_bash", description: "npm run dev" },
+    ]);
     await session.stop();
   });
 

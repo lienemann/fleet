@@ -1,4 +1,4 @@
-import { agentList, needsUser, pendingDecisions } from "../../shared/reducer.ts";
+import { agentList, costOn, needsUser, pendingDecisions } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { VIEWS, type View } from "../views.ts";
 
@@ -38,6 +38,9 @@ export function Header({ view, onView, onNewTask, onHelp }: Props) {
       </nav>
       <div className="counters">
         <span>{counts.working} working</span>
+        <span title="What all agents cost today (UTC)">
+          ${costOn(state, Date.now()).toFixed(2)} today
+        </span>
         <button
           type="button"
           className={`link ${counts.needYou ? "warn" : ""}`}

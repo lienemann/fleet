@@ -1,6 +1,6 @@
 import { type CSSProperties, useState } from "react";
 import { SWATCHES } from "../../shared/colors.ts";
-import { type AgentView, columnOf, pendingDecisions } from "../../shared/reducer.ts";
+import { type AgentView, columnOf, dayOf, pendingDecisions } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { columnLabel } from "../labels.ts";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
@@ -39,7 +39,10 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
           {agent.reconnecting ? "reconnecting" : columnLabel(column)}
         </span>
         <span className="meta">
-          {agent.workspace} · {agent.host} · ${agent.costUsd.toFixed(2)}
+          {agent.workspace} · {agent.host} ·{" "}
+          <span title={`$${agent.costUsd.toFixed(2)} in total`}>
+            ${(agent.costByDay[dayOf(Date.now())] ?? 0).toFixed(2)} today
+          </span>
         </span>
         <span className="filters">
           {LOG_FILTERS.map((f) => (
@@ -76,6 +79,11 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
       )}
       <Log lines={agent.log} filter={filter} />
       <Todos agent={agent} />
+      {agent.backgroundTasks.length > 0 && (
+        <div className="todos">
+          Background: {agent.backgroundTasks.map((t) => t.description).join(" · ")}
+        </div>
+      )}
       {decisions.map((decision) => (
         <DecisionCard
           key={decision.requestId}
