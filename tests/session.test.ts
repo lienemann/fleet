@@ -1,49 +1,59 @@
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { pendingDecisions } from "../src/shared/reducer.ts";
-import { assistantText, fakeQuery, init, newSession, result, until } from "./helpers.ts";
+import { type AgentView, columnOf, pendingDecisions } from "../src/shared/reducer.ts";
+import {
+  assistantText,
+  echoing,
+  fakeQuery,
+  init,
+  newSession,
+  result,
+  toolResult,
+  toolUse,
+  until,
+} from "./helpers.ts";
 
-const askPermission = async (
+const ask = (
   canUseTool: CanUseTool | undefined,
   toolName: string,
   input: Record<string, unknown>,
+  id = "tool-1",
 ) =>
   canUseTool?.(toolName, input, {
     signal: new AbortController().signal,
-    toolUseID: "tool-1",
-    requestId: "req-1",
+    toolUseID: id,
+    requestId: `req-${id}`,
   });
 
 describe("AgentSession", () => {
-  it("logs a turn and moves the agent to review", async () => {
-    const { queryFn } = fakeQuery(async function* (params) {
-      for await (const _ of params.prompt as AsyncIterable<unknown>) {
-        yield init();
-        yield assistantText("Done.");
-        yield result();
-      }
-    });
-    const { log, session } = newSession(queryFn);
+  it("logs a turn, its cost and context, then goes idle", async () => {
+    const { queryFn } = fakeQuery(echoing(init(), assistantText("Done."), result()));
+    const { session, agent } = newSession(queryFn);
     session.start();
     session.prompt("hello");
 
-    await until(() => log.state.agents.a1?.state === "review");
-    const agent = log.state.agents.a1;
-    expect(agent?.sessionId).toBe("sess-1");
-    expect(agent?.unseen).toBe(true);
-    expect(agent?.costUsd).toBe(0.5);
-    expect(agent?.log.map((line) => [line.role, line.text])).toEqual([
+    await until(() => agent()?.context !== undefined);
+    expect(agent()).toMatchObject({
+      sessionId: "sess-1",
+      model: "test-model",
+      activity: "idle",
+      costUsd: 0.5,
+      slashCommands: ["compact"],
+      context: { tokens: 1000, window: 200_000 },
+    });
+    expect(agent()?.log.map((line) => [line.role, line.text])).toEqual([
       ["user", "hello"],
       ["assistant", "Done."],
     ]);
     await session.stop();
+    expect(agent()?.activity).toBe("stopped");
   });
 
-  it("turns a permission prompt into an inbox item with explanation and risk", async () => {
+  it("turns a permission prompt into a decision with explanation and risk", async () => {
     let verdict: unknown;
     const { queryFn } = fakeQuery(async function* (params) {
       yield assistantText("I need the docs to continue.");
-      verdict = await askPermission(params.options?.canUseTool, "Bash", {
+      verdict = await ask(params.options?.canUseTool, "Bash", {
         command: "curl https://example.com",
       });
       yield result();
@@ -52,18 +62,31 @@ describe("AgentSession", () => {
     session.start();
 
     await until(() => pendingDecisions(log.state).length === 1);
-    const [decision] = pendingDecisions(log.state);
-    expect(decision).toMatchObject({
+    expect(pendingDecisions(log.state)[0]).toMatchObject({
       toolName: "Bash",
       explanation: "I need the docs to continue.",
       risk: ["network"],
     });
-    expect(log.state.agents.a1?.state).toBe("needs_you");
 
     expect(session.answer("tool-1", { behavior: "allow" })).toBe(true);
-    await until(() => log.state.agents.a1?.state === "review");
+    await until(() => verdict !== undefined);
     expect(verdict).toMatchObject({ behavior: "allow" });
-    expect(pendingDecisions(log.state)).toEqual([]);
+    expect(session.answer("tool-1", { behavior: "allow" })).toBe(false);
+    await session.stop();
+  });
+
+  it("explains a tool call only with text written since the last tool result", async () => {
+    const { queryFn } = fakeQuery(async function* (params) {
+      yield assistantText("Reading the config first.");
+      yield toolUse("t0", "Read", { file_path: "a" });
+      yield toolResult("t0", "contents");
+      void ask(params.options?.canUseTool, "Bash", { command: "ls" }, "t1");
+      yield result();
+    });
+    const { log, session } = newSession(queryFn);
+    session.start();
+    await until(() => pendingDecisions(log.state).length === 1);
+    expect(pendingDecisions(log.state)[0]?.explanation).toBe("");
     await session.stop();
   });
 
@@ -71,7 +94,7 @@ describe("AgentSession", () => {
     let verdict: { updatedInput?: Record<string, unknown> } | undefined;
     const questions = [{ question: "Which db?", options: [{ label: "sqlite" }] }];
     const { queryFn } = fakeQuery(async function* (params) {
-      verdict = (await askPermission(params.options?.canUseTool, "AskUserQuestion", {
+      verdict = (await ask(params.options?.canUseTool, "AskUserQuestion", {
         questions,
       })) as typeof verdict;
       yield result();
@@ -87,15 +110,26 @@ describe("AgentSession", () => {
     await session.stop();
   });
 
-  it("tags subagent output with the parent tool-use id", async () => {
-    const { queryFn } = fakeQuery(async function* () {
-      yield assistantText("from a subagent", "toolu_parent");
-      yield result();
-    });
-    const { log, session } = newSession(queryFn);
+  it("tracks subagents and to-dos from the stream", async () => {
+    const todos = [{ content: "Write tests", status: "in_progress" }];
+    const { queryFn } = fakeQuery(
+      echoing(
+        toolUse("t1", "TodoWrite", { todos }),
+        toolUse("t2", "Task", { description: "explore the parser", prompt: "..." }),
+        assistantText("from inside", "t2"),
+        toolResult("t2", "found it"),
+        result(),
+      ),
+    );
+    const { session, agent } = newSession(queryFn);
     session.start();
-    await until(() => log.state.agents.a1?.state === "review");
-    expect(log.state.agents.a1?.log[0]?.parent).toBe("toolu_parent");
+    session.prompt("go");
+    await until(() => agent()?.activity === "idle");
+    expect(agent()?.todos).toEqual(todos);
+    expect(agent()?.subagents).toEqual([
+      { toolUseId: "t2", description: "explore the parser", done: true },
+    ]);
+    expect(agent()?.log.find((l) => l.text === "from inside")?.parent).toBe("t2");
     await session.stop();
   });
 
@@ -106,33 +140,42 @@ describe("AgentSession", () => {
         yield init("sess-9");
         throw new Error("socket hang up");
       },
-      async function* () {
-        yield assistantText("back again");
-        yield result();
-      },
+      echoing(assistantText("back again"), result()),
     );
-    const { log, session } = newSession(queryFn, { sleep });
+    const { session, agent } = newSession(queryFn, { sleep });
     session.start();
+    await until(() => agent()?.reconnecting === true);
+    session.prompt("still there?");
 
-    await until(() => log.state.agents.a1?.state === "review");
+    await until(() => agent()?.log.some((l) => l.text === "back again") ?? false);
     expect(sleep).toHaveBeenCalledWith(1000);
     expect(calls[1]?.options?.resume).toBe("sess-9");
-    expect(log.state.agents.a1?.reconnecting).toBe(false);
-    expect(log.since(0).some((e) => e.kind === "connection" && e.reconnecting)).toBe(true);
+    expect(agent()?.reconnecting).toBe(false);
     await session.stop();
   });
 
   it("marks requests still pending when the session stops as stale", async () => {
     const { queryFn } = fakeQuery(async function* (params) {
-      void askPermission(params.options?.canUseTool, "Bash", { command: "ls" });
+      void ask(params.options?.canUseTool, "Bash", { command: "ls" });
       await new Promise((resolve) => setTimeout(resolve, 20));
       yield result();
     });
-    const { log, session } = newSession(queryFn);
+    const { log, session, agent } = newSession(queryFn);
     session.start();
     await until(() => pendingDecisions(log.state).length === 1);
     await session.stop();
     expect(log.state.decisions["tool-1"]?.status).toBe("stale");
-    expect(log.state.agents.a1?.state).toBe("stopped");
+    expect(agent()?.pending).toBe(0);
+  });
+
+  it("passes mode and model changes to the running query", async () => {
+    const { queryFn } = fakeQuery(echoing(result()));
+    const { session, agent } = newSession(queryFn);
+    session.start();
+    await session.setPermissionMode("plan");
+    await session.setModel("opus");
+    expect(agent()).toMatchObject({ permissionMode: "plan", model: "opus" });
+    expect(columnOf(agent() as AgentView)).toBe("queued");
+    await session.stop();
   });
 });

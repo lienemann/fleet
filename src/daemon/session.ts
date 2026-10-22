@@ -1,5 +1,6 @@
 import type {
   CanUseTool,
+  McpServerConfig,
   Options,
   PermissionResult,
   PermissionUpdate,
@@ -7,9 +8,8 @@ import type {
   query,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent, Question, TaskState } from "../shared/events.ts";
+import type { Activity, AgentEvent, PermissionMode, Question } from "../shared/events.ts";
 import type { Answer } from "../shared/protocol.ts";
-import type { EventLog } from "./eventLog.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { deriveRisk } from "./risk.ts";
 import { translate } from "./translate.ts";
@@ -17,14 +17,17 @@ import { translate } from "./translate.ts";
 export type QueryFn = typeof query;
 
 export interface SessionOptions {
-  name: string;
   cwd: string;
-  log: EventLog;
+  emit: (event: AgentEvent) => void;
   queryFn: QueryFn;
-  /** Session id from an earlier daemon run to continue. */
+  /** Session id from an earlier run to continue. */
   resume?: string;
   model?: string;
+  permissionMode?: PermissionMode;
   allowedTools?: string[];
+  /** Added to Claude Code's system prompt; the role's contract with the daemon. */
+  appendSystemPrompt?: string;
+  mcpServers?: Record<string, McpServerConfig>;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -36,36 +39,57 @@ interface PendingRequest {
 
 const MAX_BACKOFF_MS = 60_000;
 const backoff = (attempt: number): number => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1));
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
-/** One Claude Code session: streaming input, permission routing and crash recovery. */
+/**
+ * One Claude Code session: streaming input, permission routing and recovery from
+ * crashes. It reports what the process does; what that means for the task is the
+ * supervisor's business.
+ */
 export class AgentSession {
+  private readonly options: SessionOptions;
   private readonly queue = new InputQueue();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly sleep: (ms: number) => Promise<void>;
   private query: Query | undefined;
   private sessionId: string | undefined;
-  private stopped = false;
-  private lastText = "";
+  private model: string | undefined;
+  private permissionMode: PermissionMode;
+  private running = false;
+  private reconnecting = false;
   private lastCost = 0;
+  /** Text the agent wrote since its last tool result; explains the next tool call. */
+  private explanation = "";
   private done: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: SessionOptions) {
+  constructor(options: SessionOptions) {
+    this.options = options;
     this.sessionId = options.resume;
-    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.model = options.model;
+    this.permissionMode = options.permissionMode ?? "default";
+    this.sleep = options.sleep ?? defaultSleep;
   }
 
-  get name(): string {
-    return this.options.name;
+  get isRunning(): boolean {
+    return this.running;
+  }
+
+  get id(): string | undefined {
+    return this.sessionId;
   }
 
   start(): void {
-    this.stopped = false;
+    if (this.running) return;
+    this.running = true;
+    this.setActivity("idle");
     this.done = this.run();
   }
 
   prompt(text: string): void {
-    this.emit({ kind: "user_prompt", text });
-    this.setState("running");
+    this.options.emit({ kind: "user_prompt", text });
+    this.explanation = "";
+    this.setActivity("working");
     this.queue.push(text);
   }
 
@@ -73,15 +97,26 @@ export class AgentSession {
     await this.query?.interrupt();
   }
 
-  /** Ends the session but keeps the transcript, so `start()` can resume it. */
-  async stop(): Promise<void> {
-    this.stopped = true;
+  /** Ends the process but keeps the transcript, so `start()` resumes it. */
+  async stop(activity: Extract<Activity, "stopped" | "detached"> = "stopped"): Promise<void> {
+    if (!this.running) return;
+    this.running = false;
     this.resolveAllStale();
     this.queue.close();
     await this.query?.interrupt().catch(() => undefined);
     this.query?.close();
     await this.done;
-    this.setState("stopped");
+    this.query = undefined;
+    this.setActivity(activity);
+  }
+
+  /** Ends the process without recording it, for a daemon shutdown; the next run resumes. */
+  async close(): Promise<void> {
+    if (!this.running) return;
+    this.running = false;
+    this.queue.close();
+    this.query?.close();
+    await this.done;
   }
 
   /** Delivers the user's answer to a pending permission or question. */
@@ -90,19 +125,26 @@ export class AgentSession {
     if (!request) return false;
     this.pending.delete(requestId);
     const { result, outcome, message } = toResult(answer, request);
-    this.emit({ kind: "decision_resolved", requestId, outcome, message });
-    if (this.pending.size === 0) this.setState("running");
+    this.options.emit({ kind: "decision_resolved", requestId, outcome, message });
     request.resolve(result);
     return true;
   }
 
-  owns(requestId: string): boolean {
-    return this.pending.has(requestId);
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    this.permissionMode = mode;
+    await this.query?.setPermissionMode(mode);
+    this.options.emit({ kind: "settings", permissionMode: mode });
+  }
+
+  async setModel(model: string): Promise<void> {
+    this.model = model;
+    await this.query?.setModel(model);
+    this.options.emit({ kind: "settings", model });
   }
 
   private async run(): Promise<void> {
     let attempt = 0;
-    while (!this.stopped) {
+    while (this.running) {
       try {
         this.query = this.options.queryFn({
           prompt: this.queue.stream(),
@@ -112,59 +154,75 @@ export class AgentSession {
           attempt = 0;
           this.handle(message);
         }
-        return; // the CLI ended the session on its own
+        if (this.running) {
+          // The CLI ended the session on its own.
+          this.running = false;
+          this.setActivity("stopped");
+        }
+        return;
       } catch (error) {
-        if (this.stopped) return;
+        if (!this.running) return;
         attempt++;
         this.resolveAllStale();
-        this.emit({
-          kind: "connection",
-          reconnecting: true,
-          detail: error instanceof Error ? error.message : String(error),
-        });
+        this.setReconnecting(true, error instanceof Error ? error.message : String(error));
         await this.sleep(backoff(attempt));
       }
     }
   }
 
   private sdkOptions(): Options {
-    const { cwd, model, allowedTools } = this.options;
+    const { cwd, allowedTools, appendSystemPrompt, mcpServers } = this.options;
     return {
       cwd,
-      model,
+      model: this.model,
       allowedTools,
+      mcpServers,
       resume: this.sessionId,
       canUseTool: this.canUseTool,
-      permissionMode: "default",
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      permissionMode: this.permissionMode,
+      systemPrompt: { type: "preset", preset: "claude_code", append: appendSystemPrompt },
+      // Behave like the CLI in that directory: the user's settings, CLAUDE.md and allow rules.
       settingSources: ["user", "project", "local"],
     };
   }
 
   private handle(message: SDKMessage): void {
-    const reconnecting = this.options.log.state.agents[this.name]?.reconnecting;
-    if (reconnecting && message.type !== "system")
-      this.emit({ kind: "connection", reconnecting: false });
+    if (this.reconnecting && message.type !== "system") this.setReconnecting(false);
 
     for (const event of translate(message)) {
       if (event.kind === "session_started") this.sessionId = event.sessionId;
-      if (event.kind === "log" && event.role === "assistant" && !event.parent) {
-        this.lastText = event.text;
+      if (event.kind === "log" && !event.parent) {
+        if (event.role === "assistant") this.explanation = joinText(this.explanation, event.text);
+        if (event.role === "tool_result") this.explanation = "";
       }
-      this.emit(event);
+      if (event.kind === "connection") this.reconnecting = event.reconnecting;
+      this.options.emit(event);
     }
 
     if (message.type === "result") {
+      // total_cost_usd accumulates over the query() call, which restarts after a crash.
       const total = message.total_cost_usd;
-      this.emit({
+      const costUsd = total >= this.lastCost ? total - this.lastCost : total;
+      this.lastCost = total;
+      this.options.emit({
         kind: "turn_finished",
         ok: !message.is_error,
-        costUsd: total - this.lastCost,
-        turns: message.num_turns,
+        costUsd,
         error: message.is_error ? message.subtype : undefined,
       });
-      this.lastCost = total;
-      this.setState(message.is_error ? "needs_you" : "review");
+      if (this.pending.size === 0) this.setActivity("idle");
+      // Not awaited: the answer arrives through the stream this loop is reading.
+      void this.reportContext();
+    }
+  }
+
+  private async reportContext(): Promise<void> {
+    try {
+      const usage = await this.query?.getContextUsage();
+      if (usage)
+        this.options.emit({ kind: "context", tokens: usage.totalTokens, window: usage.maxTokens });
+    } catch {
+      // Context usage is a nicety; an older CLI may not answer it.
     }
   }
 
@@ -174,17 +232,16 @@ export class AgentSession {
     return new Promise<PermissionResult>((resolve) => {
       this.pending.set(requestId, { resolve, input, suggestions: options.suggestions });
       options.signal.addEventListener("abort", () => this.resolveStale(requestId), { once: true });
-      this.emit({
+      this.options.emit({
         kind: "decision_requested",
         requestId,
         decision: questions ? "question" : "permission",
         toolName,
         input,
-        explanation: this.lastText,
+        explanation: this.explanation,
         risk: deriveRisk(toolName, input, this.options.cwd),
         questions,
       });
-      this.setState("needs_you");
     });
   };
 
@@ -192,7 +249,7 @@ export class AgentSession {
     const request = this.pending.get(requestId);
     if (!request) return;
     this.pending.delete(requestId);
-    this.emit({ kind: "decision_resolved", requestId, outcome: "stale" });
+    this.options.emit({ kind: "decision_resolved", requestId, outcome: "stale" });
     request.resolve({ behavior: "deny", message: "The request went stale; ask again." });
   }
 
@@ -200,16 +257,17 @@ export class AgentSession {
     for (const requestId of [...this.pending.keys()]) this.resolveStale(requestId);
   }
 
-  private setState(state: TaskState): void {
-    if (this.options.log.state.agents[this.name]?.state !== state) {
-      this.emit({ kind: "state_changed", state });
-    }
+  private setActivity(activity: Activity): void {
+    this.options.emit({ kind: "activity", activity });
   }
 
-  private emit(event: AgentEvent): void {
-    this.options.log.append({ ...event, agent: this.name });
+  private setReconnecting(reconnecting: boolean, detail?: string): void {
+    this.reconnecting = reconnecting;
+    this.options.emit({ kind: "connection", reconnecting, detail });
   }
 }
+
+const joinText = (before: string, text: string): string => (before ? `${before}\n\n${text}` : text);
 
 function toResult(
   answer: Answer,

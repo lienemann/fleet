@@ -1,32 +1,26 @@
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { EventLog } from "../src/daemon/eventLog.ts";
-import { createFleetServer, isAllowedOrigin } from "../src/daemon/server.ts";
-import { Supervisor } from "../src/daemon/supervisor.ts";
-import type { FleetEvent } from "../src/shared/events.ts";
+import { createFleetServer, isAllowedRequest } from "../src/daemon/server.ts";
 import type { ServerMessage } from "../src/shared/protocol.ts";
-import { assistantText, fakeQuery, result } from "./helpers.ts";
+import { worker } from "./helpers.ts";
 
-const spec = { name: "a1", cwd: "/ws", color: "#fff", allowedTools: [] };
 let closeServer: (() => void) | undefined;
 afterEach(() => closeServer?.());
 
 async function start() {
   const log = new EventLog(":memory:");
-  const { queryFn } = fakeQuery(async function* (params) {
-    for await (const _ of params.prompt as AsyncIterable<unknown>) {
-      yield assistantText("pong");
-      yield result();
-    }
-  });
-  const supervisor = new Supervisor(log, queryFn, [spec]);
-  supervisor.init();
+  log.append(worker("a1"));
+  const supervisor = { handle: vi.fn() };
+  const info = { host: "mac", workspaces: [], wip: { running: 4, review: 2 } };
   const { server, close } = createFleetServer({
     log,
     supervisor,
+    info,
     staticDir: "/nonexistent",
     allowedOrigins: [],
+    allowedHosts: [],
   });
   closeServer = close;
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -38,53 +32,86 @@ function connect(port: number, headers: Record<string, string> = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
   const received: ServerMessage[] = [];
   ws.on("message", (data) => received.push(JSON.parse(data.toString())));
-  const events = () => received.flatMap((m) => (m.type === "events" ? m.events : []));
   const opened = new Promise<void>((resolve, reject) => {
     ws.once("open", resolve);
-    ws.once("error", reject);
     ws.once("unexpected-response", () => reject(new Error("rejected")));
+    ws.once("error", reject);
   });
-  return { ws, events, opened };
+  const send = (message: unknown) => ws.send(JSON.stringify(message));
+  return { ws, received, opened, send };
 }
 
-const waitFor = async (predicate: () => boolean) => {
-  for (let i = 0; i < 100 && !predicate(); i++) await new Promise((r) => setTimeout(r, 10));
-  expect(predicate()).toBe(true);
-};
-
 describe("websocket server", () => {
-  it("replays missed events, then streams live ones", async () => {
+  it("sends a fresh client a snapshot, then live events", async () => {
     const { log, port } = await start();
-    const first = log.since(0)[0] as FleetEvent;
     const client = connect(port);
     await client.opened;
-    client.ws.send(JSON.stringify({ type: "subscribe", since: first.seq }));
-    client.ws.send(JSON.stringify({ type: "prompt", agent: "a1", text: "ping" }));
-
-    await waitFor(() =>
-      client.events().some((e) => e.kind === "state_changed" && e.state === "review"),
+    client.send({ type: "subscribe", since: 0 });
+    await vi.waitFor(() =>
+      expect(client.received.map((m) => m.type)).toEqual(["info", "snapshot"]),
     );
-    const seqs = client.events().map((e) => e.seq);
-    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-    expect(new Set(seqs).size).toBe(seqs.length);
-    expect(seqs[0]).toBeGreaterThan(first.seq);
-    client.ws.close();
+
+    log.append({ kind: "user_prompt", agent: "a1", text: "hi" });
+    await vi.waitFor(() =>
+      expect(client.received.at(-1)).toMatchObject({ type: "events", events: [{ seq: 2 }] }),
+    );
   });
 
-  it("rejects browser pages from another origin", async () => {
+  it("replays only what a returning client missed", async () => {
+    const { log, port } = await start();
+    log.append({ kind: "user_prompt", agent: "a1", text: "one" });
+    log.append({ kind: "user_prompt", agent: "a1", text: "two" });
+    const client = connect(port);
+    await client.opened;
+    client.send({ type: "subscribe", since: 2 });
+    await vi.waitFor(() =>
+      expect(client.received.at(-1)).toMatchObject({ type: "events", events: [{ seq: 3 }] }),
+    );
+    expect(client.received.some((m) => m.type === "snapshot")).toBe(false);
+  });
+
+  it("rejects malformed messages without passing them on", async () => {
+    const { supervisor, port } = await start();
+    const client = connect(port);
+    await client.opened;
+    client.send({ type: "answer", requestId: "r" });
+    client.ws.send("not json");
+    await vi.waitFor(() =>
+      expect(client.received.filter((m) => m.type === "error")).toHaveLength(2),
+    );
+    client.send({ type: "prompt", agent: "a1", text: "ok" });
+    await vi.waitFor(() => expect(supervisor.handle).toHaveBeenCalledOnce());
+  });
+
+  it("refuses browser pages from other origins", async () => {
     const { port } = await start();
     await expect(connect(port, { Origin: "http://evil.example" }).opened).rejects.toThrow();
   });
 });
 
-describe("isAllowedOrigin", () => {
+describe("isAllowedRequest", () => {
   it.each([
-    [undefined, "127.0.0.1:7777", [], true],
-    ["http://127.0.0.1:7777", "127.0.0.1:7777", [], true],
-    ["http://evil.example", "127.0.0.1:7777", [], false],
-    ["http://localhost:5173", "127.0.0.1:7777", ["http://localhost:5173"], true],
-    ["not a url", "127.0.0.1:7777", [], false],
-  ])("%s on %s", (origin, host, extra, expected) => {
-    expect(isAllowedOrigin(origin, host, extra)).toBe(expected);
+    [{ host: "127.0.0.1:7777" }, true],
+    [{ host: "localhost:7777", origin: "http://localhost:7777" }, true],
+    [{ host: "127.0.0.1:7777", origin: "http://evil.example" }, false],
+    // DNS rebinding: the attacker's name resolves to loopback, so Origin matches Host.
+    [{ host: "evil.example:7777", origin: "http://evil.example:7777" }, false],
+    [{ host: "127.0.0.1:7777", origin: "http://localhost:5173" }, false],
+    [{}, false],
+  ])("%j -> %s", (headers, expected) => {
+    expect(isAllowedRequest(headers, [], [])).toBe(expected);
+  });
+
+  it("accepts configured tunnel names and origins", () => {
+    expect(
+      isAllowedRequest({ host: "mac.tail:7777", origin: "http://mac.tail:7777" }, ["mac.tail"], []),
+    ).toBe(true);
+    expect(
+      isAllowedRequest(
+        { host: "127.0.0.1:7777", origin: "http://localhost:5173" },
+        [],
+        ["http://localhost:5173"],
+      ),
+    ).toBe(true);
   });
 });

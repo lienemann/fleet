@@ -1,18 +1,46 @@
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { AgentSession, type QueryFn } from "../src/daemon/session.ts";
+import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
 
 export const sdk = (message: object): SDKMessage => message as unknown as SDKMessage;
 
 export const init = (sessionId = "sess-1"): SDKMessage =>
-  sdk({ type: "system", subtype: "init", session_id: sessionId, model: "test-model" });
+  sdk({
+    type: "system",
+    subtype: "init",
+    session_id: sessionId,
+    model: "test-model",
+    permissionMode: "default",
+    slash_commands: ["compact", "exit"],
+    terminal_slash_commands: ["exit"],
+  });
 
 export const assistantText = (text: string, parent: string | null = null): SDKMessage =>
   sdk({
     type: "assistant",
     parent_tool_use_id: parent,
     message: { content: [{ type: "text", text }] },
+  });
+
+export const toolUse = (
+  id: string,
+  name: string,
+  input: object,
+  parent: string | null = null,
+): SDKMessage =>
+  sdk({
+    type: "assistant",
+    parent_tool_use_id: parent,
+    message: { content: [{ type: "tool_use", id, name, input }] },
+  });
+
+export const toolResult = (id: string, content: string, parent: string | null = null): SDKMessage =>
+  sdk({
+    type: "user",
+    parent_tool_use_id: parent,
+    message: { content: [{ type: "tool_result", tool_use_id: id, content }] },
   });
 
 export const result = (overrides: object = {}): SDKMessage =>
@@ -26,41 +54,63 @@ export const result = (overrides: object = {}): SDKMessage =>
   });
 
 type Params = Parameters<QueryFn>[0];
+type Script = (params: Params) => AsyncGenerator<SDKMessage>;
+
+/** Answers each prompt with the given messages; the usual shape of a session. */
+export const echoing = (...messages: SDKMessage[]): Script =>
+  async function* (params) {
+    for await (const _ of params.prompt as AsyncIterable<unknown>) yield* messages;
+  };
 
 /** A scripted stand-in for the SDK's `query()`; each call runs the next script. */
-export function fakeQuery(...scripts: Array<(params: Params) => AsyncGenerator<SDKMessage>>) {
+export function fakeQuery(...scripts: Script[]) {
   const calls: Params[] = [];
   const queryFn = vi.fn((params: Params) => {
     calls.push(params);
-    const script = scripts[calls.length - 1] ?? scripts[scripts.length - 1];
+    const script = scripts[calls.length - 1] ?? scripts.at(-1);
     if (!script) throw new Error("no script");
-    const generator = script(params);
-    return Object.assign(generator, {
+    return Object.assign(script(params), {
       interrupt: vi.fn(async () => undefined),
       close: vi.fn(),
+      setPermissionMode: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => undefined),
+      getContextUsage: vi.fn(async () => ({ totalTokens: 1000, maxTokens: 200_000 })),
     }) as unknown as Query;
   }) as unknown as QueryFn;
   return { queryFn, calls };
 }
+
+export const worker = (
+  agent: string,
+  overrides: Partial<NewEvent & { kind: "agent_created" }> = {},
+): NewEvent => ({
+  kind: "agent_created",
+  agent,
+  role: "worker",
+  title: `task ${agent}`,
+  color: "#4fd1c5",
+  workspace: "ws1",
+  cwd: "/ws",
+  host: "mac",
+  ...overrides,
+});
 
 export function newSession(
   queryFn: QueryFn,
   extra: { sleep?: (ms: number) => Promise<void> } = {},
 ) {
   const log = new EventLog(":memory:");
-  log.append({
-    kind: "agent_created",
-    agent: "a1",
-    name: "a1",
+  log.append(worker("a1"));
+  const session = new AgentSession({
     cwd: "/ws",
-    color: "#fff",
-    role: "worker",
+    emit: (event) => log.append({ ...event, agent: "a1" }),
+    queryFn,
+    ...extra,
   });
-  const session = new AgentSession({ name: "a1", cwd: "/ws", log, queryFn, ...extra });
-  return { log, session };
+  return { log, session, agent: () => log.state.agents.a1 };
 }
 
+export const kinds = (events: FleetEvent[]): string[] => events.map((e) => e.kind);
+
 export const until = (predicate: () => boolean): Promise<void> =>
-  vi.waitFor(() => {
-    if (!predicate()) throw new Error("condition not met yet");
-  });
+  vi.waitFor(() => expect(predicate()).toBe(true));

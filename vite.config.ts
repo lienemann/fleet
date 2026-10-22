@@ -7,5 +7,17 @@ export default defineConfig({
   root: "src/web",
   plugins: [react()],
   build: { outDir: "../../dist/web", emptyOutDir: true },
-  server: { proxy: { "/ws": { target: `ws://${daemon}`, ws: true } } },
+  server: {
+    proxy: {
+      "/ws": {
+        target: `ws://${daemon}`,
+        ws: true,
+        // The daemon only accepts its own origin; the dev server stands in for it.
+        configure: (proxy) => {
+          proxy.on("proxyReqWs", (req) => req.setHeader("origin", `http://${daemon}`));
+        },
+        changeOrigin: true,
+      },
+    },
+  },
 });

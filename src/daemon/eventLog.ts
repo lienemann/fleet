@@ -13,17 +13,21 @@ interface Row {
 }
 
 /**
- * Append-only event log, the daemon's single source of truth. Projections are
+ * Append-only event log, the daemon's single source of truth. The projection is
  * rebuilt from it on start and folded forward on every append.
  */
 export class EventLog {
   private readonly db: Database.Database;
+  private readonly insert: Database.Statement<[number, string, string | null, string, string]>;
+  private readonly select: Database.Statement<[number, number], Row>;
   private readonly listeners = new Set<Listener>();
   private projection: FleetState = emptyState();
 
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
+    // WAL with NORMAL survives a daemon crash; only a power loss can drop the last events.
+    this.db.pragma("synchronous = NORMAL");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +39,12 @@ export class EventLog {
       );
       CREATE INDEX IF NOT EXISTS events_agent ON events (agent, seq);
     `);
+    this.insert = this.db.prepare(
+      "INSERT INTO events (ts, agent, parent, kind, payload) VALUES (?, ?, ?, ?, ?)",
+    );
+    this.select = this.db.prepare(
+      "SELECT seq, ts, agent, parent, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
+    );
     for (const event of this.since(0)) this.projection = reduce(this.projection, event);
   }
 
@@ -49,9 +59,7 @@ export class EventLog {
   append(event: NewEvent): FleetEvent {
     const { agent, parent = null, ...body } = event;
     const ts = Date.now();
-    const info = this.db
-      .prepare("INSERT INTO events (ts, agent, parent, kind, payload) VALUES (?, ?, ?, ?, ?)")
-      .run(ts, agent, parent, body.kind, JSON.stringify(body));
+    const info = this.insert.run(ts, agent, parent, body.kind, JSON.stringify(body));
     const stored = { ...body, agent, parent, ts, seq: Number(info.lastInsertRowid) } as FleetEvent;
     this.projection = reduce(this.projection, stored);
     for (const listener of this.listeners) listener(stored);
@@ -59,11 +67,8 @@ export class EventLog {
   }
 
   /** Events with a sequence number greater than `seq`, oldest first. */
-  since(seq: number): FleetEvent[] {
-    const rows = this.db
-      .prepare("SELECT seq, ts, agent, parent, payload FROM events WHERE seq > ? ORDER BY seq")
-      .all(seq) as Row[];
-    return rows.map((row) => ({
+  since(seq: number, limit = Number.MAX_SAFE_INTEGER): FleetEvent[] {
+    return this.select.all(seq, limit).map((row) => ({
       ...JSON.parse(row.payload),
       agent: row.agent,
       parent: row.parent,

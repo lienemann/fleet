@@ -1,23 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
+import { worker } from "./helpers.ts";
 
-const created = {
-  kind: "agent_created",
-  agent: "a",
-  name: "a",
-  cwd: "/",
-  color: "#000",
-  role: "worker",
-} as const;
+const created = worker("a");
 
 describe("EventLog", () => {
   it("replays only what a client has not seen", () => {
     const log = new EventLog(":memory:");
     log.append(created);
     const second = log.append({ kind: "user_prompt", agent: "a", text: "hi" });
-    log.append({ kind: "state_changed", agent: "a", state: "running" });
+    log.append({ kind: "task_state", agent: "a", state: "running" });
 
-    expect(log.since(second.seq).map((e) => e.kind)).toEqual(["state_changed"]);
+    expect(log.since(second.seq).map((e) => e.kind)).toEqual(["task_state"]);
     expect(log.since(0)).toHaveLength(3);
   });
 
@@ -27,10 +21,10 @@ describe("EventLog", () => {
     const off = log.subscribe(listener);
     log.append(created);
     off();
-    log.append({ kind: "state_changed", agent: "a", state: "running" });
+    log.append({ kind: "task_state", agent: "a", state: "running" });
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(log.state.agents.a?.state).toBe("running");
+    expect(log.state.agents.a?.task).toBe("running");
     expect(log.lastSeq).toBe(2);
   });
 

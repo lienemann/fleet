@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { Answer } from "../shared/protocol.ts";
-import type { Decision } from "../shared/reducer.ts";
-import { RISK_LABELS } from "./labels.ts";
+import type { Answer } from "../../shared/protocol.ts";
+import type { Decision } from "../../shared/reducer.ts";
+import { RISK_LABELS } from "../labels.ts";
 
 interface Props {
   decision: Decision;
+  /** Shown in the inbox; the tile already says whose decision it is. */
   agentColor?: string;
   focused?: boolean;
   onAnswer: (answer: Answer) => void;
@@ -15,7 +16,7 @@ export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props)
   return (
     <article className={`decision ${focused ? "focused" : ""}`} data-request={decision.requestId}>
       <header>
-        <strong style={{ color: agentColor }}>{decision.agent}</strong>
+        {agentColor && <strong style={{ color: agentColor }}>{decision.agent}</strong>}
         <span className="tool">{decision.toolName}</span>
         {decision.risk.map((tag) => (
           <span key={tag} className={`risk risk-${tag}`}>

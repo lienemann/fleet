@@ -1,73 +1,113 @@
 import { describe, expect, it } from "vitest";
 import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
-import { pendingDecisions, reduceAll } from "../src/shared/reducer.ts";
+import {
+  type AgentView,
+  columnOf,
+  LOG_LIMIT,
+  pendingDecisions,
+  reduceAll,
+  TEXT_LIMIT,
+} from "../src/shared/reducer.ts";
+import { worker } from "./helpers.ts";
 
 const events = (...bodies: NewEvent[]): FleetEvent[] =>
-  bodies.map((body, i) => ({ parent: null, ...body, seq: i + 1, ts: 0 }) as FleetEvent);
+  bodies.map((body, i) => ({ parent: null, ...body, seq: i + 1, ts: i * 1000 }) as FleetEvent);
 
-const created: NewEvent = {
-  kind: "agent_created",
+const run = (...bodies: NewEvent[]) =>
+  reduceAll(events(worker("a"), ...bodies)).agents.a as AgentView;
+
+const request: NewEvent = {
+  kind: "decision_requested",
   agent: "a",
-  name: "a",
-  cwd: "/",
-  color: "#000",
-  role: "worker",
+  requestId: "r",
+  decision: "permission",
+  toolName: "Bash",
+  input: {},
+  explanation: "",
+  risk: [],
 };
+const running: NewEvent = { kind: "task_state", agent: "a", state: "running" };
+const working: NewEvent = { kind: "activity", agent: "a", activity: "working" };
 
-describe("unseen marks", () => {
-  it("are set by outcomes, not by log lines, and cleared when the agent is opened", () => {
-    const base = [created, { kind: "log", agent: "a", role: "assistant", text: "hi" } as const];
-    expect(reduceAll(events(...base)).agents.a?.unseen).toBe(false);
-
-    const needs = reduceAll(
-      events(...base, { kind: "state_changed", agent: "a", state: "needs_you" }),
-    );
-    expect(needs.agents.a?.unseen).toBe(true);
-
-    const opened = reduceAll(
-      events(
-        ...base,
-        { kind: "state_changed", agent: "a", state: "review" },
-        { kind: "agent_opened", agent: "a" },
+describe("board column", () => {
+  it("is needs-you while a running task has a pending decision or an idle session", () => {
+    expect(columnOf(run(running, working))).toBe("running");
+    expect(columnOf(run(running, working, request))).toBe("needs_you");
+    expect(
+      columnOf(
+        run(running, working, request, {
+          kind: "decision_resolved",
+          agent: "a",
+          requestId: "r",
+          outcome: "allowed",
+        }),
       ),
+    ).toBe("running");
+    expect(columnOf(run(running, { kind: "activity", agent: "a", activity: "idle" }))).toBe(
+      "needs_you",
     );
-    expect(opened.agents.a?.unseen).toBe(false);
   });
 
-  it("stay set when the agent keeps moving without being opened", () => {
-    const state = reduceAll(
-      events(
-        created,
-        { kind: "state_changed", agent: "a", state: "review" },
-        { kind: "state_changed", agent: "a", state: "running" },
+  it("stays in review even when the session idles", () => {
+    expect(
+      columnOf(
+        run(
+          { kind: "task_state", agent: "a", state: "review" },
+          { kind: "activity", agent: "a", activity: "idle" },
+        ),
       ),
-    );
-    expect(state.agents.a?.unseen).toBe(true);
+    ).toBe("review");
+  });
+
+  it("records when the agent entered its column", () => {
+    expect(run(running, working, request).columnSince).toBe(3000);
   });
 });
 
-describe("decisions", () => {
-  it("leave the pending list once resolved", () => {
-    const request: NewEvent = {
-      kind: "decision_requested",
-      agent: "a",
-      requestId: "r",
-      decision: "permission",
-      toolName: "Bash",
-      input: {},
-      explanation: "",
-      risk: [],
-    };
-    const open = reduceAll(events(created, request));
-    expect(pendingDecisions(open)).toHaveLength(1);
-    const done = reduceAll(
-      events(created, request, {
-        kind: "decision_resolved",
-        agent: "a",
-        requestId: "r",
-        outcome: "allowed",
-      }),
+describe("unseen marks", () => {
+  it("are set by outcomes, not by log lines, and cleared when opened", () => {
+    expect(
+      run(running, working, { kind: "log", agent: "a", role: "assistant", text: "hi" }).unseen,
+    ).toBe(false);
+    expect(run(running, working, request).unseen).toBe(true);
+    expect(run({ kind: "task_state", agent: "a", state: "review" }).unseen).toBe(true);
+    expect(run(running, working, request, { kind: "agent_opened", agent: "a" }).unseen).toBe(false);
+  });
+
+  it("only count explicit requests for the director", () => {
+    const director = reduceAll(
+      events(worker("d", { role: "director" }), { kind: "activity", agent: "d", activity: "idle" }),
     );
-    expect(pendingDecisions(done)).toHaveLength(0);
+    expect(director.agents.d?.unseen).toBe(false);
+  });
+});
+
+describe("projection", () => {
+  it("ignores events it has already applied", () => {
+    const log = events(worker("a"), { kind: "user_prompt", agent: "a", text: "x" });
+    const once = reduceAll(log);
+    expect(reduceAll(log, once)).toBe(once);
+  });
+
+  it("caps log lines and their length", () => {
+    const lines = Array.from(
+      { length: LOG_LIMIT + 5 },
+      (_, i): NewEvent => ({ kind: "user_prompt", agent: "a", text: `${i}` }),
+    );
+    const agent = run(...lines, {
+      kind: "log",
+      agent: "a",
+      role: "tool_result",
+      text: "x".repeat(TEXT_LIMIT + 1),
+    });
+    expect(agent.log).toHaveLength(LOG_LIMIT);
+    expect(agent.log.at(-1)).toMatchObject({ truncated: true });
+    expect(agent.log.at(-1)?.text).toHaveLength(TEXT_LIMIT);
+  });
+
+  it("drops decisions from the pending list once resolved, counting per agent", () => {
+    const state = reduceAll(events(worker("a"), request));
+    expect(pendingDecisions(state)).toHaveLength(1);
+    expect(state.agents.a?.pending).toBe(1);
   });
 });

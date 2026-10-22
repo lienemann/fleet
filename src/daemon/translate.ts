@@ -1,7 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { EventBody } from "../shared/events.ts";
-
-export type Translated = EventBody & { parent?: string | null };
+import type { AgentEvent, Todo } from "../shared/events.ts";
 
 interface Block {
   type: string;
@@ -14,11 +12,21 @@ interface Block {
 }
 
 /** Maps one SDK stream message to the events it contributes to the log (often none). */
-export function translate(message: SDKMessage): Translated[] {
+export function translate(message: SDKMessage): AgentEvent[] {
   switch (message.type) {
     case "system":
       if (message.subtype === "init") {
-        return [{ kind: "session_started", sessionId: message.session_id, model: message.model }];
+        // Commands bound to the terminal (exit, statusline, ...) make no sense in a browser.
+        const terminal = new Set(message.terminal_slash_commands ?? []);
+        return [
+          {
+            kind: "session_started",
+            sessionId: message.session_id,
+            model: message.model,
+            permissionMode: message.permissionMode,
+            slashCommands: message.slash_commands.filter((command) => !terminal.has(command)),
+          },
+        ];
       }
       if (message.subtype === "api_retry") {
         const detail = `retry ${message.attempt}/${message.max_retries}`;
@@ -44,16 +52,20 @@ export function translate(message: SDKMessage): Translated[] {
   }
 }
 
-function assistantBlock(block: Block, parent: string | null): Translated[] {
+function assistantBlock(block: Block, parent: string | null): AgentEvent[] {
   if (block.type === "text" && block.text?.trim()) {
     return [{ kind: "log", role: "assistant", text: block.text, parent }];
   }
   if (block.type === "tool_use") {
+    const todos = block.name === "TodoWrite" && parent === null ? todoList(block.input) : undefined;
     return [
+      ...(todos ? [{ kind: "todos" as const, todos }] : []),
       {
         kind: "log",
         role: "tool_use",
-        text: summarizeInput(block.input),
+        text: todos
+          ? `${todos.filter((t) => t.status === "completed").length}/${todos.length} to-dos`
+          : summarizeInput(block.input),
         toolName: block.name,
         toolUseId: block.id,
         parent,
@@ -61,6 +73,11 @@ function assistantBlock(block: Block, parent: string | null): Translated[] {
     ];
   }
   return [];
+}
+
+function todoList(input: unknown): Todo[] | undefined {
+  const todos = (input as { todos?: unknown } | undefined)?.todos;
+  return Array.isArray(todos) ? (todos as Todo[]) : undefined;
 }
 
 const blocks = (content: unknown): Block[] => (Array.isArray(content) ? (content as Block[]) : []);

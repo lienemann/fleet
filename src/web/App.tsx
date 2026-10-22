@@ -1,89 +1,78 @@
-import { useEffect, useMemo, useState } from "react";
-import { pendingDecisions } from "../shared/reducer.ts";
-import { Grid } from "./Grid.tsx";
-import { Inbox } from "./Inbox.tsx";
-import { Rail } from "./Rail.tsx";
-import { useFleet } from "./useFleet.ts";
+import { useEffect, useState } from "react";
+import { agentList } from "../shared/reducer.ts";
+import { useFleet } from "./fleet.tsx";
+import { Drawer } from "./shell/Drawer.tsx";
+import { Header } from "./shell/Header.tsx";
+import { NewTask } from "./shell/NewTask.tsx";
+import { Rail } from "./shell/Rail.tsx";
 import { useHotkeys } from "./useHotkeys.ts";
-import { useTheme } from "./useTheme.ts";
-
-type View = "inbox" | "grid";
-
-// Keys follow the numbering in the design: 1 board, 2 inbox, 3 grid, ...
-const VIEWS: Array<{ id: View; key: string; label: string }> = [
-  { id: "inbox", key: "2", label: "Inbox" },
-  { id: "grid", key: "3", label: "Grid" },
-];
+import { Board } from "./views/Board.tsx";
+import { Grid } from "./views/Grid.tsx";
+import { Inbox } from "./views/Inbox.tsx";
+import type { View } from "./views.ts";
 
 export function App() {
-  const { state, connected, send } = useFleet();
-  const { theme, toggle } = useTheme();
-  const [view, setView] = useState<View>("inbox");
+  const { state, connected, error, send } = useFleet();
+  const [view, setView] = useState<View>("board");
   const [selected, setSelected] = useState<string>();
-  const agents = useMemo(() => Object.values(state.agents), [state.agents]);
-  const pending = pendingDecisions(state);
+  const [enlarged, setEnlarged] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const agent = selected ? state.agents[selected] : undefined;
 
-  const select = (name: string): void => {
+  const select = (name: string): void => setSelected(name);
+  const open = (name: string): void => {
     setSelected(name);
-    send({ type: "open", agent: name });
+    setEnlarged(name);
+    setView("grid");
   };
-  const current = selected ?? agents[0]?.name;
 
-  // Opening an agent that becomes news while it is on screen would never clear its mark.
+  // An agent on screen is seen, including when it turns news while the user looks at it.
+  const unseen = agent?.unseen;
   useEffect(() => {
-    if (current && state.agents[current]?.unseen) send({ type: "open", agent: current });
-  }, [current, state.agents, send]);
+    if (selected && unseen) send({ type: "open", agent: selected });
+  }, [selected, unseen, send]);
+
+  // j/k walk through agents everywhere except the inbox, which walks its own list.
+  const step = (delta: number) => () => {
+    const names = agentList(state).map((a) => a.name);
+    const index = selected ? names.indexOf(selected) : -1;
+    const next = names[Math.max(0, Math.min(names.length - 1, index + delta))];
+    if (next) select(next);
+  };
 
   useHotkeys({
+    "1": () => setView("board"),
     "2": () => setView("inbox"),
     "3": () => setView("grid"),
-    escape: () => current && send({ type: "interrupt", agent: current }),
+    n: () => setCreating(true),
+    ...(view !== "inbox" && { j: step(1), k: step(-1) }),
+    escape: () => selected && send({ type: "interrupt", agent: selected }),
   });
-
-  const counts = {
-    working: agents.filter((a) => a.state === "running").length,
-    needYou: pending.length,
-    review: agents.filter((a) => a.state === "review").length,
-    fresh: agents.filter((a) => a.unseen).length,
-  };
 
   return (
     <div className="shell">
-      <header className="header">
-        <span className="brand">fleet</span>
-        <nav className="views">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              className={v.id === view ? "active" : ""}
-              onClick={() => setView(v.id)}
-            >
-              {v.label} <kbd>{v.key}</kbd>
-            </button>
-          ))}
-        </nav>
-        <div className="counters">
-          <span>{counts.working} working</span>
-          <span className={counts.needYou ? "warn" : ""}>{counts.needYou} need me</span>
-          <span>{counts.review} in review</span>
-          <span>{counts.fresh} new</span>
-        </div>
-        <button type="button" onClick={toggle} title="Toggle theme">
-          {theme === "dark" ? "Dark" : "Light"}
-        </button>
-      </header>
+      <Header view={view} onView={setView} onNewTask={() => setCreating(true)} />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
+      {error && <div className="banner">{error}</div>}
       <div className="body">
-        <Rail agents={agents} selected={current} onSelect={select} />
+        <Rail selected={selected} onSelect={view === "grid" ? open : select} />
         <main className="main">
-          {view === "inbox" ? (
-            <Inbox state={state} send={send} onOpen={select} />
-          ) : (
-            <Grid state={state} send={send} selected={current} onSelect={select} />
+          {view === "board" && <Board selected={selected} onSelect={select} />}
+          {view === "inbox" && <Inbox onOpen={open} />}
+          {view === "grid" && (
+            <Grid
+              selected={selected}
+              onSelect={select}
+              enlarged={enlarged}
+              onEnlarge={setEnlarged}
+            />
           )}
         </main>
+        {agent && view !== "grid" && (
+          <Drawer agent={agent} onClose={() => setSelected(undefined)} />
+        )}
       </div>
+      {creating && <NewTask onClose={() => setCreating(false)} />}
     </div>
   );
 }

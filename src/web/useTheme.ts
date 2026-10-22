@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-type Theme = "dark" | "light";
+export type Theme = "dark" | "light";
 
 const initial = (): Theme => {
   try {
