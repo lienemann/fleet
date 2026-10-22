@@ -1,5 +1,6 @@
 import { agentList, costOn, needsUser, pendingDecisions } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import type { Notifications } from "../useNotifications.ts";
 import { VIEWS, type View } from "../views.ts";
 
 interface Props {
@@ -7,9 +8,10 @@ interface Props {
   onView: (view: View) => void;
   onNewTask: () => void;
   onHelp: () => void;
+  notifications: Notifications;
 }
 
-export function Header({ view, onView, onNewTask, onHelp }: Props) {
+export function Header({ view, onView, onNewTask, onHelp, notifications }: Props) {
   const { state, info, send, theme, toggleTheme } = useFleet();
   const agents = agentList(state);
   const counts = {
@@ -66,6 +68,16 @@ export function Header({ view, onView, onNewTask, onHelp }: Props) {
         <span className="dim" title="caffeinate keeps the Mac awake while agents work">
           awake
         </span>
+      )}
+      {notifications.supported && (
+        <button
+          type="button"
+          className={notifications.enabled ? "active" : ""}
+          title="Desktop notifications when an agent needs you while fleet is in the background (⇧N)"
+          onClick={notifications.toggle}
+        >
+          Notify
+        </button>
       )}
       <button
         type="button"

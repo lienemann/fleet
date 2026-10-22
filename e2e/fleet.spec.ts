@@ -241,6 +241,44 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
   await expect(page.locator(".files")).toContainText(".fleet/");
 });
 
+test("desktop notifications tell about agents that need you while fleet is in the background", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(
+    browserName !== "chromium",
+    "granting notification permission is a Chromium feature in Playwright",
+  );
+  await page.context().grantPermissions(["notifications"]);
+  // Record notifications instead of showing them, and pretend fleet is in the background.
+  await page.addInitScript(() => {
+    const shown: string[] = [];
+    Object.assign(window, { shown });
+    class Recorder {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      onclick: (() => void) | null = null;
+      constructor(title: string) {
+        shown.push(title);
+      }
+      close() {}
+    }
+    Object.defineProperty(window, "Notification", { value: Recorder });
+    Object.defineProperty(document, "visibilityState", { get: () => "hidden" });
+  });
+  await page.goto("/");
+  await expect(page.locator(".host")).toHaveText("test");
+  await page.getByRole("button", { name: "Notify" }).click();
+  await expect(page.getByRole("button", { name: "Notify" })).toHaveClass(/active/);
+
+  await newTask(page, "Notify me", "pod/ws2");
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { shown: string[] }).shown), {
+      timeout: 15_000,
+    })
+    .toContainEqual(expect.stringMatching(/needs you$/));
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

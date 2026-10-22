@@ -12,6 +12,7 @@ import { Header } from "./shell/Header.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
+import { useNotifications } from "./useNotifications.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
 import { Grid } from "./views/Grid.tsx";
@@ -35,6 +36,7 @@ export function App() {
   const agents = agentList(state);
 
   const select = (name: string): void => setSelected(name);
+  const notifications = useNotifications(state, (name) => setSelected(name));
   const open = (name: string): void => {
     setSelected(name);
     setEnlarged(name);
@@ -86,6 +88,19 @@ export function App() {
       run: () => send({ type: "mark_all_seen" }),
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    ...(notifications.supported
+      ? [
+          {
+            id: "notifications",
+            label: notifications.enabled
+              ? "Turn desktop notifications off"
+              : "Turn desktop notifications on",
+            group: "Fleet",
+            keys: ["shift+n"],
+            run: notifications.toggle,
+          },
+        ]
+      : []),
     {
       id: "lid",
       label: state.power.lidMode
@@ -272,6 +287,7 @@ export function App() {
         onView={setView}
         onNewTask={() => setOverlay("new-task")}
         onHelp={() => setOverlay("shortcuts")}
+        notifications={notifications}
       />
       <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
@@ -282,6 +298,11 @@ export function App() {
         </div>
       )}
       <PowerBanner />
+      {notifications.blocked && (
+        <div className="banner">
+          The browser blocks notifications from fleet; allow them in its site settings.
+        </div>
+      )}
       <div className="body">
         <Rail selected={selected} onSelect={view === "grid" ? open : select} />
         <main className="main">
