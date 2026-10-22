@@ -17,10 +17,12 @@
     "format": "biome check --write .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "dev:demo": "FLEET_DEMO=1 node --watch src/daemon/main.ts"
+    "dev:demo": "FLEET_DEMO=1 node --watch src/daemon/main.ts",
+    "postinstall": "npm run build -w @zhinst/reviewdiff-core"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.308",
+    "@zhinst/reviewdiff-core": "0.2.0",
     "better-sqlite3": "^13.0.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -37,8 +39,12 @@
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.1.2",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
-  }
+  },
+  "workspaces": [
+    "vendor/reviewdiff"
+  ]
 }

@@ -1,10 +1,35 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
-  "vcs": { "enabled": false },
-  "files": {
-    "includes": ["**", "!node_modules", "!dist", "!docs/mockup", "!package-lock.json", "!**/*.md"]
+  "vcs": {
+    "enabled": false
   },
-  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
-  "linter": { "rules": { "preset": "recommended" } },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } }
+  "files": {
+    "includes": [
+      "**",
+      "!node_modules",
+      "!dist",
+      "!docs/mockup",
+      "!package-lock.json",
+      "!**/*.md",
+      "!vendor/reviewdiff/src",
+      "!vendor/reviewdiff/dist"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
 }

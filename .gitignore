@@ -5,3 +5,4 @@ dist/
 *.db-*
 test-results/
 playwright-report/
+vendor/reviewdiff/dist/
