@@ -17,12 +17,18 @@ the visual reference.
   the message bus. Workers report through `report_result`, `report_status`, `request_decision`, `request_review`,
   `submit_open_points` and `send_message`.
 - **Review.** A diff view on reviewdiff-core against trunk: approve hunk by hunk (approvals are shared with
-  ReviewDiff, so a revision brings back only the hunks the agent touched), comment on lines, edit small things in
-  the commit that wrote them, then accept or request changes.
+  ReviewDiff, so a revision brings back only the hunks the agent touched), follow the agent's walkthrough and see
+  what it skips, comment on lines, edit small things in the commit that wrote them, then accept or request changes.
 - **History.** jj orbit, served under `/orbit/`: the graph of all workspaces and the op log as checkpoints.
 - **Hosts.** Daemons on Coder pods appear in the same UI through the local daemon; on the Mac, caffeinate keeps
   working agents going and lid-closed mode keeps them going with the lid shut.
+- **Prompting.** Slash-command menu, `@` file mentions, pasted or attached images, background tasks and cost
+  per day, and a hand-off to `claude --resume` in a terminal.
 - **Keyboard and app.** Everything works from the keyboard; the UI installs as an app.
+
+Not there yet: rewind (op restore plus session fork), showing which review comments a revision addressed,
+op-log entries attributed to agents and agent colors in jj orbit, the CLI's "You should know" side agent,
+`/btw`, and read-only lists of skills, hooks and MCP servers.
 
 ## Run
 
@@ -102,7 +108,7 @@ Press `?` for the full list, or ⌘K / Ctrl+K to run any command by name. The ke
 | `s`, `⇧M`, `Esc` | stop or start the session, next permission mode, interrupt |
 | `t` `⇧T`, `x` | next or previous drawer tab, close the drawer |
 | `u`, `⇧L` | mark all seen, lid-closed mode |
-| in the diff: `j` `k`, `a`, `c`, `e`, `v`, `⇧R` | next or previous hunk, approve and go on, comment, edit, side by side, reload |
+| in the diff: `j` `k`, `a`, `c`, `e`, `v`, `w`, `⇧R` | next or previous hunk, approve and go on, comment, edit, side by side, walkthrough or file order, reload |
 | in the timeline: `w` | 15 min or 2 h window |
 
 ## Vendored code
