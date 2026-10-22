@@ -445,9 +445,21 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (!agent) return undefined;
     const director = agent.role === "director";
-    const allowedTools = director
+    const allowed = director
       ? ["Read", "Glob", "Grep"]
       : (this.workspace(agent.workspace)?.allowedTools ?? []);
+    // Bare tool names in allowedTools would skip canUseTool with an SDK warning, so the
+    // daemon approves those itself; only rules with a pattern go to the CLI.
+    const approved = new Set(allowed.filter((rule) => !rule.includes("(")));
+    const autoDecide = (
+      tool: string,
+      input: Record<string, unknown>,
+    ): PermissionResult | undefined =>
+      approved.has(tool) || tool.startsWith(`mcp__${SERVER}__`)
+        ? { behavior: "allow", updatedInput: input }
+        : director
+          ? directorPolicy(agent.cwd, tool, input)
+          : undefined;
     const session = new AgentSession({
       cwd: agent.cwd,
       emit: (event) => this.append(name, event),
@@ -455,7 +467,7 @@ export class Supervisor implements ToolHost {
       resume: agent.sessionId,
       model: agent.model ?? this.config.model,
       permissionMode: agent.permissionMode,
-      allowedTools: [...allowedTools, `mcp__${SERVER}`],
+      allowedTools: allowed.filter((rule) => rule.includes("(")),
       mcpServers: { [SERVER]: fleetServer(name, agent.role, this) },
       appendSystemPrompt: director
         ? directorPrompt(
@@ -463,7 +475,7 @@ export class Supervisor implements ToolHost {
             this.config.wip,
           )
         : workerPrompt(name, agent.workspace),
-      autoDecide: director ? (tool, input) => directorPolicy(agent.cwd, tool, input) : undefined,
+      autoDecide,
     });
     this.sessions.set(name, session);
     return session;

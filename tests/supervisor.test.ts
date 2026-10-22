@@ -37,7 +37,16 @@ describe("Supervisor", () => {
       host: "mac",
       task: "running",
     });
-    expect(calls[0]?.options?.allowedTools).toEqual(["Read", "mcp__fleet"]);
+    expect(calls[0]?.options?.allowedTools).toEqual([]);
+    const canUseTool = calls[0]?.options?.canUseTool;
+    const ask = (tool: string) =>
+      canUseTool?.(
+        tool,
+        {},
+        { signal: new AbortController().signal, toolUseID: tool, requestId: tool },
+      );
+    await expect(ask("Read")).resolves.toMatchObject({ behavior: "allow" });
+    await expect(ask("mcp__fleet__report_status")).resolves.toMatchObject({ behavior: "allow" });
     await until(() => column("alpha") === "needs_you");
     expect(log.state.agents.alpha?.log[0]?.text).toBe("It fails 1 in 5.");
     expect(log.state.agents.alpha?.unseen).toBe(true);
