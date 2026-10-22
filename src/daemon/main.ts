@@ -2,10 +2,12 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { DAEMON } from "../shared/events.ts";
 import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery } from "./demo.ts";
 import { EventLog } from "./eventLog.ts";
 import { Orbit } from "./orbit.ts";
+import { Power } from "./power.ts";
 import { createFleetServer } from "./server.ts";
 import { Supervisor } from "./supervisor.ts";
 
@@ -16,7 +18,16 @@ const config = loadConfig(home);
 const log = new EventLog(join(home, "fleet.db"));
 // FLEET_DEMO=1 runs scripted agents instead of Claude, for UI work and end-to-end tests.
 const queryFn = process.env.FLEET_DEMO ? demoQuery() : query;
-const supervisor = new Supervisor({ log, queryFn, config });
+// Sleep control is a Mac matter, and scripted demo agents need none.
+const power =
+  process.platform === "darwin" && !process.env.FLEET_DEMO
+    ? new Power((event) => log.append({ ...event, agent: DAEMON }))
+    : undefined;
+if (power) {
+  log.subscribe(() => power.update(log.state));
+  setInterval(() => void power.check(), 60_000).unref();
+}
+const supervisor = new Supervisor({ log, queryFn, config, power });
 
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
 const { server, close } = createFleetServer({
@@ -46,6 +57,7 @@ const shutdown = async (): Promise<void> => {
   close();
   orbit?.stop();
   await supervisor.shutdown();
+  await power?.shutdown();
   log.close();
   process.exit(0);
 };

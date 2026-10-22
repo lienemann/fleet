@@ -70,6 +70,9 @@ export const USER = "you";
 /** The director's agent name. */
 export const DIRECTOR = "director";
 
+/** Agent name of events the daemon logs about itself. */
+export const DAEMON = "daemon";
+
 export type EventBody =
   | {
       kind: "agent_created";
@@ -133,7 +136,9 @@ export type EventBody =
   | { kind: "comment_removed"; commentId: string }
   | { kind: "review_edited"; edit: ReviewEdit }
   /** Draft comments and edits went to the agent with a change request. */
-  | { kind: "review_sent" };
+  | { kind: "review_sent" }
+  /** The Mac's sleep settings; logged by the daemon itself. */
+  | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string };
 
 export type EventKind = EventBody["kind"];
 

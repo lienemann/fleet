@@ -30,6 +30,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("open"), agent }),
   z.object({ type: z.literal("mark_all_seen") }),
+  z.object({ type: z.literal("set_lid_mode"), on: z.boolean() }),
   z.object({
     type: z.literal("create_task"),
     title: z.string().trim().min(1),

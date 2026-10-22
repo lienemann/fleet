@@ -23,6 +23,7 @@ import {
   readWorkspaceFile,
   resolveInside,
 } from "./files.ts";
+import type { Power } from "./power.ts";
 import { directorPrompt, workerPrompt } from "./prompts.ts";
 import { ReviewService } from "./review.ts";
 import { AgentSession, type QueryFn } from "./session.ts";
@@ -77,6 +78,7 @@ export interface SupervisorOptions {
   log: EventLog;
   queryFn: QueryFn;
   config: Pick<Config, "workspaces" | "wip" | "model" | "host" | "director">;
+  power?: Pick<Power, "setLidMode">;
 }
 
 /**
@@ -89,8 +91,10 @@ export class Supervisor implements ToolHost {
   private readonly config: SupervisorOptions["config"];
   private readonly sessions = new Map<string, AgentSession>();
   private readonly reviews = new ReviewService();
+  private readonly power: SupervisorOptions["power"];
 
-  constructor({ log, queryFn, config }: SupervisorOptions) {
+  constructor({ log, queryFn, config, power }: SupervisorOptions) {
+    this.power = power;
     this.log = log;
     this.queryFn = queryFn;
     this.config = config;
@@ -204,6 +208,12 @@ export class Supervisor implements ToolHost {
         return;
       case "request_changes":
         this.requestChanges(message.agent, message.message);
+        return;
+      case "set_lid_mode":
+        void this.power?.setLidMode(
+          message.on,
+          message.on ? "turned on by you" : "turned off by you",
+        );
         return;
     }
   }

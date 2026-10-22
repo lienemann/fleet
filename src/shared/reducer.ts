@@ -128,6 +128,17 @@ export interface FleetState {
   messages: Message[];
   /** Open-point documents with unanswered points, by doc id. */
   openPoints: Record<string, OpenPointsDoc>;
+  power: PowerState;
+}
+
+export interface PowerState {
+  /** `caffeinate` holds the Mac awake while agents work. */
+  caffeinated: boolean;
+  /** Lid-closed mode: the Mac keeps running with the lid shut. */
+  lidMode: boolean;
+  since?: number;
+  /** Why the mode last changed, or why it could not. */
+  note?: string;
 }
 
 /** Lines kept per agent in the projection; older ones stay in the event log. */
@@ -168,6 +179,7 @@ export const emptyState = (): FleetState => ({
   decisions: {},
   messages: [],
   openPoints: {},
+  power: { caffeinated: false, lidMode: false },
 });
 
 /** Pure projection step; the daemon and the browser both fold the log through it. */
@@ -207,6 +219,10 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       body: event.body,
     };
     return { ...state, messages: [...state.messages.slice(-(MESSAGE_LIMIT - 1)), message] };
+  }
+  if (event.kind === "power") {
+    const { caffeinated, lidMode, since, note } = event;
+    return { ...state, power: { caffeinated, lidMode, since, note } };
   }
   if (event.kind === "agent_created") {
     const agent: AgentView = {

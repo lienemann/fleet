@@ -59,6 +59,19 @@ export function Header({ view, onView, onNewTask, onHelp }: Props) {
       <button type="button" className="primary" onClick={onNewTask}>
         New task <kbd>n</kbd>
       </button>
+      {state.power.caffeinated && (
+        <span className="dim" title="caffeinate keeps the Mac awake while agents work">
+          awake
+        </span>
+      )}
+      <button
+        type="button"
+        className={state.power.lidMode ? "active" : ""}
+        title="Lid-closed mode: keep running with the lid shut (⇧L)"
+        onClick={() => send({ type: "set_lid_mode", on: !state.power.lidMode })}
+      >
+        Lid closed
+      </button>
       <button type="button" onClick={toggleTheme} title="Toggle theme">
         {theme === "dark" ? "Dark" : "Light"}
       </button>

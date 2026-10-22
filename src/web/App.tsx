@@ -87,6 +87,15 @@ export function App() {
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
     {
+      id: "lid",
+      label: state.power.lidMode
+        ? "Leave lid-closed mode"
+        : "Lid-closed mode: keep running with the lid shut",
+      group: "Fleet",
+      keys: ["shift+l"],
+      run: () => send({ type: "set_lid_mode", on: !state.power.lidMode }),
+    },
+    {
       id: "help",
       label: "Keyboard shortcuts",
       group: "Help",
@@ -267,6 +276,7 @@ export function App() {
       <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
       {error && <div className="banner">{error}</div>}
+      <PowerBanner />
       <div className="body">
         <Rail selected={selected} onSelect={view === "grid" ? open : select} />
         <main className="main">
@@ -326,4 +336,22 @@ function walkCommands(
       run: step(-1),
     },
   ];
+}
+
+/** Lid-closed mode is easy to forget, so it says so while it is on, and why it went off. */
+function PowerBanner() {
+  const { state } = useFleet();
+  const { lidMode, since, note } = state.power;
+  if (lidMode) {
+    const at = since
+      ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "";
+    return (
+      <div className="banner">
+        Lid-closed mode since {at}: it turns off when all agents are idle, after 2 h, or below 20 %
+        battery.
+      </div>
+    );
+  }
+  return note?.startsWith("pmset needs") ? <div className="banner">{note}</div> : null;
 }
