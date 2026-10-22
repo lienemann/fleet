@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -175,8 +176,9 @@ export function useCommands(commands: Command[]): void {
   const latest = useRef(commands);
   latest.current = commands;
 
+  // Before paint, so a key pressed as soon as a view shows reaches its commands.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-register only when the visible shape changes
-  useEffect(() => {
+  useLayoutEffect(() => {
     register(
       owner,
       latest.current.map((c) => ({
@@ -185,5 +187,5 @@ export function useCommands(commands: Command[]): void {
       })),
     );
   }, [owner, register, signature]);
-  useEffect(() => () => unregister(owner), [owner, unregister]);
+  useLayoutEffect(() => () => unregister(owner), [owner, unregister]);
 }
