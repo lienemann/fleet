@@ -1,12 +1,13 @@
 # @zhinst/reviewdiff-core (vendored)
 
-ReviewDiff's headless parts — `src/core` (hunks, approvals, moves, formatting, walkthroughs) and `src/vcs` (git
-and jj adapters, edit in commit) — packaged the way ReviewDiff could publish them. fleet depends on it as an npm
-workspace; jj orbit can build its browser bundle from the same package.
+The parts of ReviewDiff that do not need VS Code: `src/core` (hunks, approvals, moves, formatting checks,
+walkthroughs) and `src/vcs` (the git and jj adapters, editing a line in the commit that wrote it). They are packaged
+the way ReviewDiff could publish them. fleet depends on the package as an npm workspace, and jj orbit could build its
+browser bundle from it too.
 
-- `src/` is a pristine copy; `SOURCE.json` records the version, commit and a hash per file, and fleet's tests
-  fail if the copy was edited. Change ReviewDiff instead and sync:
+- `src/` is an unchanged copy. `SOURCE.json` records the ReviewDiff version, the commit and a hash per file, and
+  fleet's tests fail when the copy differs. To change something, change ReviewDiff and copy it again with
   `node scripts/sync-reviewdiff.ts <ReviewDiff checkout>`.
-- `index.ts` is the public surface; `npm run build -w @zhinst/reviewdiff-core` bundles it with esbuild and emits
-  declarations.
-- Once ReviewDiff publishes this package, fleet replaces the workspace with a version range and drops this folder.
+- `index.ts` lists what the package exports. `npm run build -w @zhinst/reviewdiff-core` bundles it with esbuild and
+  writes the type declarations.
+- Once ReviewDiff publishes the package, fleet depends on a version of it and this folder goes away.

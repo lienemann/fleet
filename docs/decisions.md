@@ -6,9 +6,9 @@ Answers to the open questions in [design.md](design.md), as built.
 reducer and the protocol types with the daemon, and Node 24 runs the sources directly.
 
 **One daemon per host, or one on the Mac driving pods over ssh?** One per host. Each daemon owns its sessions and
-its event log; the Mac's daemon relays the others at `/remote/<name>/ws`, and the browser folds every stream on
-its own and merges the results (`src/shared/hosts.ts`). A dropped tunnel costs no agent work: the pod keeps going,
-and the browser replays what it missed when the tunnel is back.
+its event log. The Mac's daemon relays the others at `/remote/<name>/ws`; the browser keeps a separate state per
+daemon, built from that daemon's events, and merges them for display (`src/shared/hosts.ts`). A dropped tunnel
+costs no agent work: the pod keeps going, and the browser catches up on the missed events when the tunnel is back.
 
 **Do workers on pods share a jj repo with the Mac?** No. A pod's workspaces are its own clones; work moves through
 GitLab as usual. Sharing one repo across machines would need a network file system under jj's op log.
