@@ -182,6 +182,29 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
     .toBe("jj orbit");
 });
 
+test("tasks on a remote daemon show up and are answered like local ones", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".host")).toHaveText("test");
+  await page.keyboard.press("n");
+  await page.getByLabel("Title").fill("Benchmark on the pod");
+  await page.getByLabel("Workspace").selectOption("pod/ws1");
+  await page.getByRole("button", { name: "Start" }).click();
+
+  const remote = page.locator(".card", { hasText: "Benchmark on the pod" });
+  await expect(remote).toContainText("pod/alpha", { timeout: 15_000 });
+  await expect(remote).toContainText("ws1 · pod");
+
+  await page.keyboard.press("2");
+  const decision = page.locator(".decision", { hasText: "pod/alpha" }).first();
+  await expect(decision).toContainText("uv run pytest -x");
+  await decision.getByRole("button", { name: /^Approve/ }).click();
+  await expect(
+    page.locator(".decision", { hasText: "How should I fix" }).filter({ hasText: "pod/alpha" }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

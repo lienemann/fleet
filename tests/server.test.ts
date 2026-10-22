@@ -6,14 +6,16 @@ import { createFleetServer, isAllowedRequest } from "../src/daemon/server.ts";
 import type { ServerMessage } from "../src/shared/protocol.ts";
 import { worker } from "./helpers.ts";
 
-let closeServer: (() => void) | undefined;
-afterEach(() => closeServer?.());
+const closers: Array<() => void> = [];
+afterEach(() => {
+  for (const close of closers.splice(0)) close();
+});
 
-async function start() {
+async function start(remotes: Array<{ name: string; url: string }> = []) {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));
   const supervisor = { handle: vi.fn(), call: vi.fn() };
-  const info = { host: "mac", workspaces: [], wip: { running: 4, review: 2 } };
+  const info = { host: "mac", workspaces: [], wip: { running: 4, review: 2 }, remotes: [] };
   const { server, close } = createFleetServer({
     log,
     supervisor,
@@ -21,8 +23,9 @@ async function start() {
     staticDir: "/nonexistent",
     allowedOrigins: [],
     allowedHosts: [],
+    remotes,
   });
-  closeServer = close;
+  closers.push(close);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return { log, supervisor, port };
@@ -99,6 +102,33 @@ describe("websocket server", () => {
     const replies = client.received.filter((m) => m.type === "reply");
     expect(replies.find((m) => m.id === "1")).toMatchObject({ value: "# Plan" });
     expect(replies.find((m) => m.id === "2")).toMatchObject({ error: "outside the workspace" });
+  });
+
+  it("relays a remote daemon's stream under /remote/<name>/ws", async () => {
+    const pod = await start();
+    pod.log.append({ kind: "user_prompt", agent: "a1", text: "on the pod" });
+    const mac = await start([{ name: "pod1", url: `http://127.0.0.1:${pod.port}` }]);
+
+    const ws = new WebSocket(`ws://127.0.0.1:${mac.port}/remote/pod1/ws`);
+    const received: ServerMessage[] = [];
+    ws.on("message", (data) => received.push(JSON.parse(data.toString())));
+    await new Promise((resolve) => ws.once("open", resolve));
+    ws.send(JSON.stringify({ type: "subscribe", since: 0 }));
+    await vi.waitFor(() => expect(received.map((m) => m.type)).toContain("snapshot"));
+    const snapshot = received.find((m) => m.type === "snapshot");
+    expect(snapshot?.type === "snapshot" && snapshot.state.agents.a1?.log[0]?.text).toBe(
+      "on the pod",
+    );
+
+    ws.send(JSON.stringify({ type: "prompt", agent: "a1", text: "from the Mac" }));
+    await vi.waitFor(() =>
+      expect(pod.supervisor.handle).toHaveBeenCalledWith({
+        type: "prompt",
+        agent: "a1",
+        text: "from the Mac",
+      }),
+    );
+    ws.close();
   });
 
   it("refuses browser pages from other origins", async () => {

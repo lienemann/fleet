@@ -29,6 +29,8 @@ export interface ServerOptions {
   allowedHosts: string[];
   /** The history view, proxied under /orbit/. */
   orbit?: Pick<Orbit, "port">;
+  /** Daemons on other hosts, relayed at /remote/<name>/ws. */
+  remotes?: Array<{ name: string; url: string }>;
 }
 
 /** A client further behind than this gets a snapshot instead of a replay. */
@@ -75,6 +77,7 @@ function parseHost(value: string | undefined): URL | undefined {
 
 export function createFleetServer(options: ServerOptions): { server: Server; close: () => void } {
   const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit } = options;
+  const remotes = options.remotes ?? [];
   const allowed = (req: IncomingMessage): boolean =>
     isAllowedRequest(req.headers, allowedHosts, allowedOrigins);
 
@@ -92,11 +95,12 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on("upgrade", (req, socket, head) => {
-    if (req.url !== "/ws" || !allowed(req)) {
+    const remote = remotes.find((r) => req.url === `/remote/${r.name}/ws`);
+    if ((req.url !== "/ws" && !remote) || !allowed(req)) {
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => attach(ws));
+    wss.handleUpgrade(req, socket, head, (ws) => (remote ? relay(ws, remote.url) : attach(ws)));
   });
 
   const attach = (ws: WebSocket): void => {
@@ -247,4 +251,32 @@ async function proxyOrbit(
   });
   res.on("close", () => upstream.destroy());
   req.pipe(upstream);
+}
+
+/**
+ * Connects a browser socket to a remote daemon's socket, so the UI reaches every daemon
+ * through this one. The remote sees a non-browser client on its loopback tunnel.
+ */
+function relay(browser: WebSocket, url: string): void {
+  const remote = new WebSocket(`${url.replace(/^http/, "ws").replace(/\/$/, "")}/ws`);
+  const queued: string[] = [];
+  browser.on("message", (data) => {
+    const text = data.toString();
+    if (remote.readyState === WebSocket.OPEN) remote.send(text);
+    else queued.push(text);
+  });
+  remote.on("open", () => {
+    for (const text of queued.splice(0)) remote.send(text);
+  });
+  remote.on("message", (data) => {
+    if (browser.readyState === WebSocket.OPEN) browser.send(data.toString());
+  });
+  // Either side ending ends both; the browser reconnects and replays from its last event.
+  const closeBoth = () => {
+    browser.close();
+    remote.terminate();
+  };
+  remote.on("close", closeBoth);
+  remote.on("error", closeBoth);
+  browser.on("close", closeBoth);
 }

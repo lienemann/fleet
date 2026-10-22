@@ -25,7 +25,7 @@ type Overlay = "new-task" | "shortcuts" | "palette";
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
 export function App() {
-  const { state, connected, error, send, toggleTheme } = useFleet();
+  const { state, connected, offline, error, send, toggleTheme } = useFleet();
   const [view, setView] = useState<View>("board");
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
@@ -276,6 +276,11 @@ export function App() {
       <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
       {error && <div className="banner">{error}</div>}
+      {offline.length > 0 && (
+        <div className="banner">
+          {offline.join(", ")} out of reach; retrying. Its agents keep working on the pod.
+        </div>
+      )}
       <PowerBanner />
       <div className="body">
         <Rail selected={selected} onSelect={view === "grid" ? open : select} />

@@ -114,6 +114,8 @@ export interface DaemonInfo {
   host: string;
   workspaces: WorkspaceInfo[];
   wip: { running: number; review: number };
+  /** Daemons on other hosts this one relays at `/remote/<name>/ws`. */
+  remotes: string[];
 }
 
 export type ServerMessage =

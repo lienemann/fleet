@@ -33,6 +33,10 @@ const ConfigFile = z.object({
     .object({ enabled: z.boolean().default(true), path: z.string().optional() })
     .default({ enabled: true }),
   workspaces: z.array(WorkspaceConfig).default([]),
+  /** Daemons on other hosts (Coder pods), reached through a tunnel to their loopback port. */
+  remotes: z
+    .array(z.object({ name: z.string().regex(/^[\w.-]+$/), url: z.url({ protocol: /^https?$/ }) }))
+    .default([]),
   /** jj orbit for the history view; the repo defaults to the director's workspace. */
   history: z
     .object({
@@ -58,6 +62,7 @@ export interface Config {
   model?: string;
   /** Working directory of the director, if there is one. */
   director?: string;
+  remotes: Array<{ name: string; url: string }>;
   /** Repository the history view shows, and the Python that runs jj orbit. */
   history?: { repo: string; python: string };
   workspaces: Workspace[];
@@ -83,6 +88,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     wip: parsed.wip,
     model: parsed.model,
     director: parsed.director.enabled ? expandHome(parsed.director.path ?? fallbackCwd) : undefined,
+    remotes: parsed.remotes,
     history: parsed.history.enabled
       ? {
           repo: expandHome(

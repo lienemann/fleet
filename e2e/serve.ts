@@ -1,9 +1,14 @@
-// Starts the daemon in demo mode on a fresh home with two workspaces, each a jj repo
-// whose trunk has one file the demo agents change.
-import { execFileSync } from "node:child_process";
+// Starts the daemon in demo mode on a fresh home with two workspaces, each a jj repo whose
+// trunk has one file the demo agents change. Unless it is the pod itself, it also starts a
+// second daemon, "pod", and relays it as a remote, as a Coder pod would be.
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const port = Number(process.env.PORT ?? 7791);
+const isPod = process.env.FLEET_POD === "1";
+const podPort = port + 100;
 
 const home = mkdtempSync(join(tmpdir(), "fleet-e2e-"));
 const workspaces = ["ws1", "ws2"].map((name) => {
@@ -21,11 +26,22 @@ const workspaces = ["ws1", "ws2"].map((name) => {
   jj("bookmark", "create", "main", "-r", "@-");
   return `[[workspaces]]\nname = "${name}"\npath = "${path}"\n`;
 });
-writeFileSync(
-  join(home, "config.toml"),
-  // The director (and so the history view) works in ws1.
-  `port = ${process.env.PORT ?? 7791}\nhost = "test"\n\n[director]\npath = "${join(home, "ws1")}"\n\n${workspaces.join("\n")}`,
-);
+
+const config = isPod
+  ? // A pod has workers only; the director lives on the Mac.
+    `port = ${port}\nhost = "pod"\n\n[director]\nenabled = false\n\n[history]\nenabled = false\n\n${workspaces.join("\n")}`
+  : // The director (and so the history view) works in ws1.
+    `port = ${port}\nhost = "test"\n\n[director]\npath = "${join(home, "ws1")}"\n\n` +
+    `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n${workspaces.join("\n")}`;
+writeFileSync(join(home, "config.toml"), config);
+
+if (!isPod) {
+  const pod = spawn(process.execPath, [new URL(import.meta.url).pathname], {
+    env: { ...process.env, PORT: String(podPort), FLEET_POD: "1" },
+    stdio: "inherit",
+  });
+  process.on("exit", () => pod.kill());
+}
 
 process.env.FLEET_HOME = home;
 process.env.FLEET_DEMO = "1";
