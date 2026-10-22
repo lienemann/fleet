@@ -200,3 +200,77 @@ describe("AgentSession", () => {
     await session.stop();
   });
 });
+
+describe("AgentSession lifecycle", () => {
+  it("keeps a session started while it was stopping", async () => {
+    let release: (() => void) | undefined;
+    const { queryFn, calls } = fakeQuery(async function* () {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      yield result();
+    }, echoing(result()));
+    const { session, agent } = newSession(queryFn);
+    session.start();
+    const stopping = session.stop();
+    session.start();
+    release?.();
+    await stopping;
+    await until(() => calls.length === 2);
+    expect(session.isRunning).toBe(true);
+    expect(agent()?.activity).toBe("idle");
+    await session.stop();
+  });
+
+  it("stops at once while waiting to reconnect", async () => {
+    const { queryFn } = fakeQuery(async function* () {
+      yield init();
+      throw new Error("offline");
+    });
+    const never = () => new Promise<void>(() => undefined);
+    const { session, agent } = newSession(queryFn, { sleep: never });
+    session.start();
+    await until(() => agent()?.reconnecting === true);
+    await session.stop();
+    expect(agent()?.activity).toBe("stopped");
+  });
+
+  it("stays working through a turn queued behind another", async () => {
+    const state = (s: string) =>
+      sdk({ type: "system", subtype: "session_state_changed", state: s });
+    let next: (() => void) | undefined;
+    const { queryFn } = fakeQuery(async function* () {
+      yield state("running");
+      yield result();
+      // The second prompt was queued; its turn runs right after the first result.
+      await new Promise<void>((resolve) => {
+        next = resolve;
+      });
+      yield result();
+      yield state("idle");
+    });
+    const { session, agent, log } = newSession(queryFn);
+    const activities = () =>
+      log.since(0).flatMap((e) => (e.kind === "activity" ? [e.activity] : []));
+    session.start();
+    session.prompt("one");
+    session.prompt("two");
+    await until(() => next !== undefined);
+    expect(agent()?.activity).toBe("working");
+    next?.();
+    // Idle only once the queued turn is over; the scripted CLI then exits.
+    await until(() => activities().at(-1) === "stopped");
+    expect(activities()).toEqual(["idle", "working", "idle", "stopped"]);
+  });
+
+  it("survives control calls on a dead query", async () => {
+    const { queryFn } = fakeQuery(async function* () {
+      yield result();
+    });
+    const { session } = newSession(queryFn);
+    session.start();
+    await until(() => !session.isRunning);
+    await expect(session.interrupt()).resolves.toBeUndefined();
+    await expect(session.setModel("opus")).resolves.toBeUndefined();
+  });
+});

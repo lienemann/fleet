@@ -34,6 +34,8 @@ export interface SessionOptions {
   /** Added to Claude Code's system prompt; the role's contract with the daemon. */
   appendSystemPrompt?: string;
   mcpServers?: Record<string, McpServerConfig>;
+  /** Hooks the CLI runs whatever the permission mode, e.g. to keep the director from editing code. */
+  hooks?: Options["hooks"];
   /** Settles a permission request without asking the user, or returns undefined to ask. */
   autoDecide?: (toolName: string, input: Record<string, unknown>) => PermissionResult | undefined;
   sleep?: (ms: number) => Promise<void>;
@@ -52,6 +54,21 @@ const MAX_BACKOFF_MS = 60_000;
 const backoff = (attempt: number): number => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1));
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+/** An interrupt the CLI does not answer must not hold up a stop. */
+const INTERRUPT_TIMEOUT_MS = 5000;
+
+/** Resolves when `promise` settles or after `ms`, whichever comes first; never rejects. */
+const settleWithin = (promise: Promise<unknown> | undefined, ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    if (!promise) return resolve();
+    const timer = setTimeout(resolve, ms);
+    void promise
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+  });
 
 /**
  * One Claude Code session: streaming input, permission routing and recovery from
@@ -68,6 +85,13 @@ export class AgentSession {
   private model: string | undefined;
   private permissionMode: PermissionMode;
   private running = false;
+  /** Bumped by every start and stop; a run loop acts only while its generation is current. */
+  private generation = 0;
+  /** Ends a reconnect backoff early when the session stops. */
+  private wake: (() => void) | undefined;
+  /** The CLI reports turn changes itself; older ones only send results. */
+  private turnSignals = false;
+  private activity: Activity | undefined;
   private reconnecting = false;
   private lastCost = 0;
   /** Text the agent wrote since its last tool result; explains the next tool call. */
@@ -93,8 +117,9 @@ export class AgentSession {
   start(): void {
     if (this.running) return;
     this.running = true;
+    const generation = ++this.generation;
     this.setActivity("idle");
-    this.done = this.run();
+    this.done = this.run(generation);
   }
 
   prompt(text: string): void {
@@ -105,29 +130,34 @@ export class AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    await this.query?.interrupt();
+    await settleWithin(this.query?.interrupt(), INTERRUPT_TIMEOUT_MS);
   }
 
   /** Ends the process but keeps the transcript, so `start()` resumes it. */
   async stop(activity: Extract<Activity, "stopped" | "detached"> = "stopped"): Promise<void> {
     if (!this.running) return;
-    this.running = false;
     this.resolveAllStale();
-    this.queue.close();
-    await this.query?.interrupt().catch(() => undefined);
-    this.query?.close();
-    await this.done;
-    this.query = undefined;
-    this.setActivity(activity);
+    await this.end(true);
+    // A start while stopping wins; it has reported its own activity.
+    if (!this.running) this.setActivity(activity);
   }
 
   /** Ends the process without recording it, for a daemon shutdown; the next run resumes. */
   async close(): Promise<void> {
-    if (!this.running) return;
+    if (this.running) await this.end(false);
+  }
+
+  /** Stops the current run; captures what it ends first, so a start meanwhile is left alone. */
+  private async end(interrupt: boolean): Promise<void> {
+    const { query, done } = this;
     this.running = false;
+    this.generation++;
+    this.query = undefined;
     this.queue.close();
-    this.query?.close();
-    await this.done;
+    this.wake?.();
+    if (interrupt) await settleWithin(query?.interrupt(), INTERRUPT_TIMEOUT_MS);
+    query?.close();
+    await done;
   }
 
   /**
@@ -163,43 +193,55 @@ export class AgentSession {
     return true;
   }
 
+  /** Applies at once to a live query; a dead or reconnecting one picks it up when it starts. */
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionMode = mode;
-    await this.query?.setPermissionMode(mode);
+    await this.query?.setPermissionMode(mode).catch(() => undefined);
     this.options.emit({ kind: "settings", permissionMode: mode });
   }
 
   async setModel(model: string): Promise<void> {
     this.model = model;
-    await this.query?.setModel(model);
+    await this.query?.setModel(model).catch(() => undefined);
     this.options.emit({ kind: "settings", model });
   }
 
-  private async run(): Promise<void> {
+  private current(generation: number): boolean {
+    return this.running && generation === this.generation;
+  }
+
+  private async run(generation: number): Promise<void> {
     let attempt = 0;
-    while (this.running) {
+    while (this.current(generation)) {
       try {
         this.lastCost = 0;
-        this.query = this.options.queryFn({
+        const query = this.options.queryFn({
           prompt: this.queue.stream(),
           options: this.sdkOptions(),
         });
-        for await (const message of this.query) {
+        this.query = query;
+        for await (const message of query) {
+          if (!this.current(generation)) return;
           attempt = 0;
           this.handle(message);
         }
-        if (this.running) {
+        if (this.current(generation)) {
           // The CLI ended the session on its own.
           this.running = false;
           this.setActivity("stopped");
         }
         return;
       } catch (error) {
-        if (!this.running) return;
+        if (!this.current(generation)) return;
         attempt++;
         this.resolveAllStale();
         this.setReconnecting(true, error instanceof Error ? error.message : String(error));
-        await this.sleep(backoff(attempt));
+        await Promise.race([
+          this.sleep(backoff(attempt)),
+          new Promise<void>((resolve) => {
+            this.wake = resolve;
+          }),
+        ]);
       }
     }
   }
@@ -211,6 +253,7 @@ export class AgentSession {
       model: this.model,
       allowedTools,
       mcpServers,
+      hooks: this.options.hooks,
       resume: this.sessionId,
       canUseTool: this.canUseTool,
       permissionMode: this.permissionMode,
@@ -222,6 +265,13 @@ export class AgentSession {
 
   private handle(message: SDKMessage): void {
     if (this.reconnecting && message.type !== "system") this.setReconnecting(false);
+
+    // The authoritative turn signal: a prompt queued during a turn keeps the session running.
+    if (message.type === "system" && message.subtype === "session_state_changed") {
+      this.turnSignals = true;
+      if (message.state === "running") this.setActivity("working");
+      if (message.state === "idle" && this.pending.size === 0) this.setActivity("idle");
+    }
 
     for (const event of translate(message)) {
       if (event.kind === "session_started") this.sessionId = event.sessionId;
@@ -243,7 +293,7 @@ export class AgentSession {
         costUsd,
         error: message.is_error ? message.subtype : undefined,
       });
-      if (this.pending.size === 0) this.setActivity("idle");
+      if (!this.turnSignals && this.pending.size === 0) this.setActivity("idle");
       // Not awaited: the answer arrives through the stream this loop is reading.
       void this.reportContext();
     }
@@ -291,6 +341,8 @@ export class AgentSession {
   }
 
   private setActivity(activity: Activity): void {
+    if (activity === this.activity) return;
+    this.activity = activity;
     this.options.emit({ kind: "activity", activity });
   }
 
