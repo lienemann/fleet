@@ -13,6 +13,7 @@ import type {
   TaskState,
   Todo,
 } from "./events.ts";
+import type { ReviewComment, ReviewEdit } from "./review.ts";
 
 /** Board column: the task state, except that an active task waiting on the user needs you. */
 export type Column = TaskState | "needs_you";
@@ -100,6 +101,12 @@ export interface AgentView {
   report?: Report;
   /** The director's ledger note. */
   note?: string;
+  /** Hunks approved in the diff view, as of its last load. */
+  reviewProgress?: { approved: number; total: number };
+  /** Draft review comments, not yet sent. */
+  comments: ReviewComment[];
+  /** Edits the user made in the diff view, reported with the next comments. */
+  edits: ReviewEdit[];
 }
 
 export interface FleetState {
@@ -197,6 +204,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       log: [],
       todos: [],
       subagents: [],
+      comments: [],
+      edits: [],
       costUsd: 0,
       reconnecting: false,
       unseen: false,
@@ -280,6 +289,22 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ status: event.text });
     case "note":
       return patch({ note: event.text });
+    case "review_progress":
+      return patch({ reviewProgress: { approved: event.approved, total: event.total } });
+    case "comment_added":
+      return patch({ comments: [...agent.comments, event.comment] });
+    case "comment_updated":
+      return patch({
+        comments: agent.comments.map((c) =>
+          c.id === event.commentId ? { ...c, body: event.body } : c,
+        ),
+      });
+    case "comment_removed":
+      return patch({ comments: agent.comments.filter((c) => c.id !== event.commentId) });
+    case "review_edited":
+      return patch({ edits: [...agent.edits, event.edit] });
+    case "review_sent":
+      return patch({ comments: [], edits: [] });
     case "open_points":
       return {
         ...state,

@@ -11,8 +11,10 @@ import {
   type TaskState,
   USER,
 } from "../shared/events.ts";
-import type { Answer, ClientMessage } from "../shared/protocol.ts";
+import type { Answer, Call, CallResults, Command } from "../shared/protocol.ts";
 import { type AgentView, agentList, columnOf } from "../shared/reducer.ts";
+import type { ReviewModel } from "../shared/review.ts";
+import { changeRequest } from "./changeRequest.ts";
 import type { Config, Workspace } from "./config.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
@@ -22,6 +24,7 @@ import {
   resolveInside,
 } from "./files.ts";
 import { directorPrompt, workerPrompt } from "./prompts.ts";
+import { ReviewService } from "./review.ts";
 import { AgentSession, type QueryFn } from "./session.ts";
 import {
   type DecisionAsk,
@@ -85,6 +88,7 @@ export class Supervisor implements ToolHost {
   private readonly queryFn: QueryFn;
   private readonly config: SupervisorOptions["config"];
   private readonly sessions = new Map<string, AgentSession>();
+  private readonly reviews = new ReviewService();
 
   constructor({ log, queryFn, config }: SupervisorOptions) {
     this.log = log;
@@ -134,11 +138,10 @@ export class Supervisor implements ToolHost {
     this.schedule();
   }
 
-  handle(message: ClientMessage): void {
+  handle(message: Command): void {
     switch (message.type) {
       case "subscribe":
-      case "read_file":
-        return; // answered by the server
+        return; // the server's business
       case "prompt":
         this.prompt(message.agent, message.text);
         return;
@@ -183,6 +186,48 @@ export class Supervisor implements ToolHost {
         if (this.agent(message.agent))
           this.append(message.agent, { kind: "settings", color: message.color });
         return;
+      case "comment_add":
+        if (this.agent(message.agent)) {
+          const comment = { ...message.comment, id: randomUUID() };
+          this.append(message.agent, { kind: "comment_added", comment });
+        }
+        return;
+      case "comment_update":
+        this.append(message.agent, {
+          kind: "comment_updated",
+          commentId: message.commentId,
+          body: message.body,
+        });
+        return;
+      case "comment_remove":
+        this.append(message.agent, { kind: "comment_removed", commentId: message.commentId });
+        return;
+      case "request_changes":
+        this.requestChanges(message.agent, message.message);
+        return;
+    }
+  }
+
+  /** Answers a request from the browser; the server sends the result back. */
+  async call(call: Call): Promise<CallResults[Call["type"]]> {
+    const agent = this.agent(call.agent);
+    if (!agent) throw new Error(`No agent "${call.agent}".`);
+    switch (call.type) {
+      case "read_file":
+        return readWorkspaceFile(agent.cwd, call.path);
+      case "review_load":
+        return this.trackProgress(await this.reviews.load(agent.name, agent.cwd));
+      case "review_approve":
+        return this.trackProgress(await this.reviews.approve(agent.name, call.ids, call.approved));
+      case "review_edit": {
+        // Never write under a working agent: only a resting session may be edited under.
+        if (agent.activity === "working" || agent.pending > 0) {
+          throw new Error(`${agent.name} is working; interrupt it or wait before editing.`);
+        }
+        const { model, edit } = await this.reviews.edit(agent.name, call.hunkId, call.lines);
+        this.append(agent.name, { kind: "review_edited", edit });
+        return this.trackProgress(model);
+      }
     }
   }
 
@@ -339,6 +384,28 @@ export class Supervisor implements ToolHost {
   }
 
   // --- Internals ---------------------------------------------------------------------
+
+  /** Keeps the card's "3/9 hunks approved" current. */
+  private trackProgress(model: ReviewModel): ReviewModel {
+    const { approved, total } = model.progress;
+    const known = this.agent(model.agent)?.reviewProgress;
+    if (known?.approved !== approved || known.total !== total) {
+      this.append(model.agent, { kind: "review_progress", approved, total });
+    }
+    return model;
+  }
+
+  /** Sends the draft comments and edits as one message, and the task goes back to work. */
+  private requestChanges(name: string, note: string | undefined): void {
+    const agent = this.agent(name);
+    if (agent?.role !== "worker") return;
+    const body = changeRequest(agent.comments, agent.edits, note);
+    this.append(name, { kind: "review_sent" });
+    if (agent.task !== "changes_requested")
+      this.append(name, { kind: "task_state", state: "changes_requested" });
+    this.append(USER, { kind: "message", to: name, body });
+    this.deliver(name, USER, body);
+  }
 
   private async ask(agent: string, request: Parameters<AgentSession["ask"]>[1]): Promise<Answer> {
     const session = this.sessions.get(agent);

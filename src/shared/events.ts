@@ -62,6 +62,8 @@ export interface OpenPoint {
   text: string;
 }
 
+import type { ReviewComment, ReviewEdit } from "./review.ts";
+
 /** Sender name of messages the user writes on the bus. */
 export const USER = "you";
 
@@ -124,7 +126,14 @@ export type EventBody =
   | { kind: "open_points"; docId: string; path: string; points: OpenPoint[] }
   | { kind: "point_answered"; docId: string; pointId: string; answer: string }
   /** The director's ledger note on a task. */
-  | { kind: "note"; text: string };
+  | { kind: "note"; text: string }
+  | { kind: "review_progress"; approved: number; total: number }
+  | { kind: "comment_added"; comment: ReviewComment }
+  | { kind: "comment_updated"; commentId: string; body: string }
+  | { kind: "comment_removed"; commentId: string }
+  | { kind: "review_edited"; edit: ReviewEdit }
+  /** Draft comments and edits went to the agent with a change request. */
+  | { kind: "review_sent" };
 
 export type EventKind = EventBody["kind"];
 

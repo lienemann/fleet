@@ -1,7 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { EventLog } from "../src/daemon/eventLog.ts";
@@ -15,7 +12,7 @@ afterEach(() => closeServer?.());
 async function start() {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));
-  const supervisor = { handle: vi.fn() };
+  const supervisor = { handle: vi.fn(), call: vi.fn() };
   const info = { host: "mac", workspaces: [], wip: { running: 4, review: 2 } };
   const { server, close } = createFleetServer({
     log,
@@ -86,23 +83,22 @@ describe("websocket server", () => {
     await vi.waitFor(() => expect(supervisor.handle).toHaveBeenCalledOnce());
   });
 
-  it("reads files of an agent's workspace, and nothing outside it", async () => {
-    const { log, port } = await start();
-    const cwd = mkdtempSync(join(tmpdir(), "fleet-ws-"));
-    writeFileSync(join(cwd, "plan.md"), "# Plan");
-    log.append(worker("a2", { cwd }));
+  it("answers calls with a reply of the same id, errors included", async () => {
+    const { supervisor, port } = await start();
+    supervisor.call.mockImplementation(async (call: { path?: string }) => {
+      if (call.path === "plan.md") return "# Plan";
+      throw new Error("outside the workspace");
+    });
     const client = connect(port);
     await client.opened;
-    client.send({ type: "read_file", id: "1", agent: "a2", path: "plan.md" });
-    client.send({ type: "read_file", id: "2", agent: "a2", path: "../../etc/hosts" });
+    client.send({ type: "read_file", id: "1", agent: "a1", path: "plan.md" });
+    client.send({ type: "read_file", id: "2", agent: "a1", path: "../../etc/hosts" });
     await vi.waitFor(() =>
-      expect(client.received.filter((m) => m.type === "file")).toHaveLength(2),
+      expect(client.received.filter((m) => m.type === "reply")).toHaveLength(2),
     );
-    const files = client.received.filter((m) => m.type === "file");
-    expect(files.find((m) => m.id === "1")).toMatchObject({ content: "# Plan" });
-    expect(files.find((m) => m.id === "2")).toMatchObject({
-      error: expect.stringContaining("outside"),
-    });
+    const replies = client.received.filter((m) => m.type === "reply");
+    expect(replies.find((m) => m.id === "1")).toMatchObject({ value: "# Plan" });
+    expect(replies.find((m) => m.id === "2")).toMatchObject({ error: "outside the workspace" });
   });
 
   it("refuses browser pages from other origins", async () => {

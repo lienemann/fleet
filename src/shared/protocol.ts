@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FleetEvent } from "./events.ts";
 import { PERMISSION_MODES, USER_MOVES } from "./events.ts";
 import type { FleetState } from "./reducer.ts";
+import type { ReviewModel } from "./review.ts";
 
 const agent = z.string().min(1);
 
@@ -16,7 +17,7 @@ export const AnswerSchema = z.discriminatedUnion("behavior", [
   }),
 ]);
 
-export const ClientMessageSchema = z.discriminatedUnion("type", [
+export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("subscribe"), since: z.number().int().nonnegative() }),
   z.object({ type: z.literal("prompt"), agent, text: z.string().min(1) }),
   z.object({ type: z.literal("interrupt"), agent }),
@@ -28,8 +29,6 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     answer: z.string().trim().min(1),
   }),
   z.object({ type: z.literal("open"), agent }),
-  /** Reads a file of the agent's workspace; answered with a `file` message of the same id. */
-  z.object({ type: z.literal("read_file"), id: z.string().min(1), agent, path: z.string().min(1) }),
   z.object({ type: z.literal("mark_all_seen") }),
   z.object({
     type: z.literal("create_task"),
@@ -44,10 +43,64 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_mode"), agent, mode: z.enum(PERMISSION_MODES) }),
   z.object({ type: z.literal("set_model"), agent, model: z.string().min(1) }),
   z.object({ type: z.literal("set_color"), agent, color: z.string().regex(/^#[0-9a-f]{6}$/i) }),
+  z.object({
+    type: z.literal("comment_add"),
+    agent,
+    comment: z.object({
+      path: z.string().min(1),
+      hunkId: z.string().min(1),
+      line: z.number().int().positive(),
+      side: z.enum(["head", "base"]),
+      quote: z.string(),
+      body: z.string().trim().min(1),
+    }),
+  }),
+  z.object({
+    type: z.literal("comment_update"),
+    agent,
+    commentId: z.string().min(1),
+    body: z.string().trim().min(1),
+  }),
+  z.object({ type: z.literal("comment_remove"), agent, commentId: z.string().min(1) }),
+  /** Sends the draft comments and the user's edits as one message and moves the task to "changes requested". */
+  z.object({ type: z.literal("request_changes"), agent, message: z.string().optional() }),
+]);
+
+const id = z.string().min(1);
+
+/** Requests that get an answer: a `reply` message with the same id. */
+export const CallSchema = z.discriminatedUnion("type", [
+  /** A file of the agent's workspace. */
+  z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
+  z.object({ type: z.literal("review_load"), id, agent }),
+  z.object({
+    type: z.literal("review_approve"),
+    id,
+    agent,
+    ids: z.array(z.string()),
+    approved: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("review_edit"),
+    id,
+    agent,
+    hunkId: z.string().min(1),
+    lines: z.array(z.string()),
+  }),
 ]);
 
 export type Answer = z.infer<typeof AnswerSchema>;
-export type ClientMessage = z.infer<typeof ClientMessageSchema>;
+export type Command = z.infer<typeof CommandSchema>;
+export type Call = z.infer<typeof CallSchema>;
+export type ClientMessage = Command | Call;
+
+/** What each call answers with. */
+export interface CallResults {
+  read_file: string;
+  review_load: ReviewModel;
+  review_approve: ReviewModel;
+  review_edit: ReviewModel;
+}
 
 export interface WorkspaceInfo {
   name: string;
@@ -67,5 +120,5 @@ export type ServerMessage =
   /** Sent instead of a long replay: the projection as of `state.lastSeq`. */
   | { type: "snapshot"; state: FleetState }
   | { type: "events"; events: FleetEvent[] }
-  | { type: "file"; id: string; content?: string; error?: string }
+  | { type: "reply"; id: string; value?: unknown; error?: string }
   | { type: "error"; message: string };

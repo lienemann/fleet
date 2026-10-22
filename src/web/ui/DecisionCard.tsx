@@ -122,15 +122,17 @@ function Questions({ decision, onAnswer }: BodyProps) {
 }
 
 function Review({ decision, onAnswer }: BodyProps) {
-  const { readFile } = useFleet();
+  const { call } = useFleet();
   const [content, setContent] = useState<string>();
   const [error, setError] = useState<string>();
   const [comment, setComment] = useState("");
   const path = decision.path ?? "";
 
   useEffect(() => {
-    readFile(decision.agent, path).then(setContent, (e: Error) => setError(e.message));
-  }, [readFile, decision.agent, path]);
+    call({ type: "read_file", agent: decision.agent, path }).then(setContent, (e: Error) =>
+      setError(e.message),
+    );
+  }, [call, decision.agent, path]);
 
   const message = comment.trim() || undefined;
   return (

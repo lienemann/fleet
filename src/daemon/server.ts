@@ -3,14 +3,18 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, sep } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import type { FleetEvent } from "../shared/events.ts";
-import { ClientMessageSchema, type DaemonInfo, type ServerMessage } from "../shared/protocol.ts";
+import {
+  CallSchema,
+  CommandSchema,
+  type DaemonInfo,
+  type ServerMessage,
+} from "../shared/protocol.ts";
 import type { EventLog } from "./eventLog.ts";
-import { readWorkspaceFile } from "./files.ts";
 import type { Supervisor } from "./supervisor.ts";
 
 export interface ServerOptions {
   log: EventLog;
-  supervisor: Pick<Supervisor, "handle">;
+  supervisor: Pick<Supervisor, "handle" | "call">;
   info: DaemonInfo;
   /** Directory with the built web UI. */
   staticDir: string;
@@ -87,43 +91,32 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
     ws.on("close", () => unsubscribe?.());
     ws.on("message", (data) => {
       const parsed = parseJson(data.toString());
-      const result = ClientMessageSchema.safeParse(parsed);
-      if (!result.success) {
-        send(ws, {
-          type: "error",
-          message: `rejected message: ${result.error.issues[0]?.message ?? "invalid"}`,
-        });
+      const call = CallSchema.safeParse(parsed);
+      if (call.success) {
+        const { id } = call.data;
+        supervisor.call(call.data).then(
+          (value) => send(ws, { type: "reply", id, value }),
+          (error: unknown) => send(ws, { type: "reply", id, error: errorText(error) }),
+        );
         return;
       }
-      const message = result.data;
-      if (message.type === "subscribe") {
+      const command = CommandSchema.safeParse(parsed);
+      if (!command.success) {
+        const reason = command.error.issues[0]?.message ?? "invalid";
+        send(ws, { type: "error", message: `rejected message: ${reason}` });
+        return;
+      }
+      if (command.data.type === "subscribe") {
         unsubscribe?.();
-        unsubscribe = subscribe(ws, message.since);
-        return;
-      }
-      if (message.type === "read_file") {
-        send(ws, readFile(message.id, message.agent, message.path));
+        unsubscribe = subscribe(ws, command.data.since);
         return;
       }
       try {
-        supervisor.handle(message);
+        supervisor.handle(command.data);
       } catch (error) {
-        send(ws, {
-          type: "error",
-          message: error instanceof Error ? error.message : String(error),
-        });
+        send(ws, { type: "error", message: errorText(error) });
       }
     });
-  };
-
-  const readFile = (id: string, agent: string, path: string): ServerMessage => {
-    const cwd = log.state.agents[agent]?.cwd;
-    if (!cwd) return { type: "file", id, error: `No agent "${agent}"` };
-    try {
-      return { type: "file", id, content: readWorkspaceFile(cwd, path) };
-    } catch (error) {
-      return { type: "file", id, error: error instanceof Error ? error.message : String(error) };
-    }
   };
 
   /**
@@ -167,6 +160,9 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
 const send = (ws: WebSocket, message: ServerMessage): void => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
 };
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 function parseJson(raw: string): unknown {
   try {

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { themedColor } from "../shared/colors.ts";
 import type { FleetEvent } from "../shared/events.ts";
-import type { ClientMessage, DaemonInfo, ServerMessage } from "../shared/protocol.ts";
+import type { Call, CallResults, Command, DaemonInfo, ServerMessage } from "../shared/protocol.ts";
 import { emptyState, type FleetState, reduceAll } from "../shared/reducer.ts";
 import { type Theme, useTheme } from "./useTheme.ts";
 
@@ -20,6 +20,10 @@ const apply = (state: FleetState, action: Action): FleetState =>
   action.type === "snapshot" ? action.state : reduceAll(action.events, state);
 
 const MAX_BACKOFF_MS = 10_000;
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+/** A call as the caller writes it; the id is added on sending. */
+type CallRequest = DistributiveOmit<Call, "id">;
 // Request ids only need to be unique per page; crypto.randomUUID is missing outside secure contexts.
 let requestCounter = 0;
 
@@ -27,15 +31,15 @@ export interface Fleet {
   state: FleetState;
   info: DaemonInfo | undefined;
   connected: boolean;
-  send: (message: ClientMessage) => void;
+  send: (message: Command) => void;
   theme: Theme;
   toggleTheme: () => void;
   /** An agent color adjusted to the theme. */
   color: (color: string) => string;
   /** The last error the daemon reported, e.g. a rejected message. */
   error: string | undefined;
-  /** Reads a file from an agent's workspace through the daemon. */
-  readFile: (agent: string, path: string) => Promise<string>;
+  /** Sends a request to the daemon and resolves with its reply. */
+  call: <R extends CallRequest>(request: R) => Promise<CallResults[R["type"]]>;
 }
 
 const FleetContext = createContext<Fleet | undefined>(undefined);
@@ -57,8 +61,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string>();
   const { theme, toggle: toggleTheme } = useTheme();
   const socket = useRef<WebSocket | undefined>(undefined);
-  const fileRequests = useRef(
-    new Map<string, { resolve: (s: string) => void; reject: (e: Error) => void }>(),
+  const pending = useRef(
+    new Map<string, { resolve: (value: unknown) => void; reject: (e: Error) => void }>(),
   );
   const lastSeq = useRef(0);
   lastSeq.current = state.lastSeq;
@@ -75,9 +79,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       ws.onopen = () => {
         attempt = 0;
         setConnected(true);
-        ws.send(
-          JSON.stringify({ type: "subscribe", since: lastSeq.current } satisfies ClientMessage),
-        );
+        ws.send(JSON.stringify({ type: "subscribe", since: lastSeq.current } satisfies Command));
       };
       ws.onmessage = (message) => {
         const data = JSON.parse(message.data as string) as ServerMessage;
@@ -94,17 +96,21 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           case "error":
             setError(data.message);
             break;
-          case "file": {
-            const request = fileRequests.current.get(data.id);
-            fileRequests.current.delete(data.id);
-            if (data.content !== undefined) request?.resolve(data.content);
-            else request?.reject(new Error(data.error ?? "unreadable"));
+          case "reply": {
+            const request = pending.current.get(data.id);
+            pending.current.delete(data.id);
+            if (data.error === undefined) request?.resolve(data.value);
+            else request?.reject(new Error(data.error));
             break;
           }
         }
       };
       ws.onclose = () => {
         setConnected(false);
+        // Replies to calls on this socket will never come.
+        for (const request of pending.current.values())
+          request.reject(new Error("Disconnected from the daemon"));
+        pending.current.clear();
         if (closed) return;
         attempt++;
         timer = setTimeout(connect, Math.min(MAX_BACKOFF_MS, 250 * 2 ** attempt));
@@ -119,27 +125,30 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const send = useCallback((message: ClientMessage): void => {
+  const send = useCallback((message: Command): void => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message));
   }, []);
   const color = useCallback((c: string) => themedColor(c, theme), [theme]);
-  const readFile = useCallback(
-    (agent: string, path: string) =>
-      new Promise<string>((resolve, reject) => {
+  const call = useCallback(
+    <R extends CallRequest>(request: R) =>
+      new Promise<CallResults[R["type"]]>((resolve, reject) => {
         if (socket.current?.readyState !== WebSocket.OPEN) {
           reject(new Error("Not connected to the daemon"));
           return;
         }
         const id = String(++requestCounter);
-        fileRequests.current.set(id, { resolve, reject });
-        send({ type: "read_file", id, agent, path });
+        pending.current.set(id, {
+          resolve: (value) => resolve(value as CallResults[R["type"]]),
+          reject,
+        });
+        socket.current.send(JSON.stringify({ ...request, id }));
       }),
-    [send],
+    [],
   );
 
   return (
     <FleetContext.Provider
-      value={{ state, info, connected, send, theme, toggleTheme, color, error, readFile }}
+      value={{ state, info, connected, send, theme, toggleTheme, color, error, call }}
     >
       {children}
     </FleetContext.Provider>
