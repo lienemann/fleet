@@ -1,0 +1,367 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg0);
+  color: var(--fg);
+  font:
+    13px / 1.45 Inter,
+    system-ui,
+    sans-serif;
+}
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: var(--btn);
+  border: 1px solid var(--btnline);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--onaccent);
+}
+button.active {
+  background: var(--sel);
+  border-color: var(--accent);
+}
+kbd {
+  font:
+    11px "JetBrains Mono",
+    ui-monospace,
+    monospace;
+  color: var(--dim);
+}
+button.primary kbd {
+  color: var(--onaccent);
+  opacity: 0.7;
+}
+h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font: 700 17px var(--title);
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.views {
+  display: flex;
+  gap: 6px;
+}
+.counters {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+  color: var(--muted);
+}
+.counters .warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.banner {
+  background: var(--warnbg);
+  color: var(--warnfg);
+  border-bottom: 1px solid var(--warnline);
+  padding: 4px 16px;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.rail {
+  width: 220px;
+  padding: 12px;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  text-align: left;
+}
+.rail-item.active {
+  background: var(--selrow);
+  border-color: var(--line);
+}
+.rail-name {
+  font-weight: 600;
+}
+.rail-state {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 11px;
+}
+.new {
+  background: var(--warn);
+  color: var(--onwarn);
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dim);
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+.dot.state-running {
+  background: var(--run);
+}
+.dot.state-needs_you {
+  background: var(--warn);
+}
+.dot.state-review {
+  background: var(--rev);
+}
+.dot.state-accepted {
+  background: var(--ok);
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.empty {
+  color: var(--muted);
+}
+
+.inbox {
+  max-width: 760px;
+}
+.decision {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.decision.focused {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 1px var(--warn);
+}
+.decision header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.decision .tool {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  color: var(--tool);
+}
+.decision .explanation {
+  margin: 8px 0;
+  color: var(--fg3);
+  white-space: pre-wrap;
+}
+.decision .input {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: var(--term);
+  border-radius: 6px;
+  font:
+    12px "JetBrains Mono",
+    ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.decision footer {
+  display: flex;
+  gap: 8px;
+}
+.decision fieldset {
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  margin: 8px 0;
+}
+.option {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+.option small {
+  color: var(--dim);
+}
+.risk {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--warnbg);
+  color: var(--warnfg);
+  border: 1px solid var(--warnline);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--agent);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tile.selected {
+  border-color: var(--agent);
+}
+.tile > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line2);
+}
+.tile .name {
+  font-weight: 700;
+  color: var(--agent);
+}
+.tile .meta {
+  color: var(--dim);
+  font-size: 11px;
+}
+.tile .filters {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.tile .filters button {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+.pill {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: var(--btn);
+}
+.pill.state-running {
+  background: var(--runbg);
+  color: var(--runfg);
+}
+.pill.state-needs_you {
+  background: var(--warnbg);
+  color: var(--warnfg);
+}
+.pill.state-review {
+  background: var(--revbg);
+  color: var(--revfg);
+}
+.pill.state-accepted {
+  background: var(--okbg);
+  color: var(--okfg);
+}
+.log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--term);
+  font:
+    12px / 1.5 "JetBrains Mono",
+    ui-monospace,
+    monospace;
+}
+.line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 4px;
+}
+.line.user {
+  background: var(--userbg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.line.user::before {
+  content: "> ";
+  color: var(--accent);
+}
+.line.tool_use {
+  color: var(--tool);
+}
+.line.tool_result {
+  color: var(--dim);
+  max-height: 6em;
+  overflow: hidden;
+}
+.line.sub {
+  margin-left: 14px;
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+.toolname {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.tile .decision {
+  margin: 8px;
+}
+.prompt {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line2);
+  align-items: flex-end;
+}
+.prompt textarea {
+  flex: 1;
+  resize: none;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}

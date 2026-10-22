@@ -47,6 +47,7 @@ export const emptyState = (): FleetState => ({ lastSeq: 0, agents: {}, decisions
 
 /** Pure projection step; the daemon and the browser both fold the log through it. */
 export function reduce(state: FleetState, event: FleetEvent): FleetState {
+  if (event.seq <= state.lastSeq) return state; // already applied; replays can overlap
   const next: FleetState = { ...state, lastSeq: Math.max(state.lastSeq, event.seq) };
   const agent = state.agents[event.agent];
   const patch = (changes: Partial<AgentView>): void => {
