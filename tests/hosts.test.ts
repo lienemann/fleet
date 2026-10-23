@@ -50,6 +50,10 @@ describe("mergeStates", () => {
     expect(merged.agents["pod1/alpha"]?.name).toBe("pod1/alpha");
   });
 
+  it("names remote workspaces after their host, so a pod's ws3 is not this host's", () => {
+    expect(merged.agents["pod1/alpha"]?.workspace).toBe("pod1/ws3");
+  });
+
   it("renames everything that points at a remote agent", () => {
     expect(merged.decisions["pod1/r1"]).toMatchObject({
       agent: "pod1/alpha",

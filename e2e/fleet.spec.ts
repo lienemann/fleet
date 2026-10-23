@@ -275,7 +275,7 @@ test("tasks on a remote daemon show up and are answered like local ones", async 
 
   const remote = page.locator(".card", { hasText: "Benchmark on the pod" });
   await expect(remote).toContainText("pod/alpha", { timeout: 15_000 });
-  await expect(remote.locator(".card-ws")).toHaveText("ws1");
+  await expect(remote.locator(".card-ws")).toHaveText("pod/ws1");
   await expect(remote.locator(".card-meta")).toContainText("pod");
 
   await page.keyboard.press("2");

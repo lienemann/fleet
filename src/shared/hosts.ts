@@ -24,7 +24,7 @@ function renameAgents(state: FleetState, host: string): FleetState {
   const q = (name: string) => qualify(host, name);
   const agents: Record<string, AgentView> = {};
   for (const agent of Object.values(state.agents))
-    agents[q(agent.name)] = { ...agent, name: q(agent.name) };
+    agents[q(agent.name)] = { ...agent, name: q(agent.name), workspace: q(agent.workspace) };
   return {
     ...state,
     agents,
