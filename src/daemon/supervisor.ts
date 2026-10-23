@@ -125,6 +125,10 @@ export interface WorkspaceStatus {
 /** How often the daemon looks at which Claude Code processes hold its sessions. */
 export const HOLDER_POLL_MS = 3000;
 
+/** How long Attach waits for the other client to exit after SIGTERM. */
+export const ATTACH_TIMEOUT_MS = 5000;
+const ATTACH_POLL_MS = 200;
+
 /** A session lost to another client twice within this time stays there. */
 export const LOOP_WINDOW_MS = 60_000;
 
@@ -256,7 +260,14 @@ export class Supervisor implements ToolHost {
       case "subscribe":
         return; // the server's business
       case "prompt":
-        this.prompt(message.agent, message.text, message.attachments);
+        if (this.agent(message.agent)?.activity === "detached") {
+          this.background(this.attach(message.agent, message.text, message.attachments));
+        } else {
+          this.prompt(message.agent, message.text, message.attachments);
+        }
+        return;
+      case "attach":
+        this.background(this.attach(message.agent));
         return;
       case "interrupt":
         this.background(this.sessions.get(message.agent)?.interrupt());
@@ -280,7 +291,8 @@ export class Supervisor implements ToolHost {
       case "start": {
         // A queued task starts past the WIP limit, but never in a workspace someone else holds.
         const agent = this.agent(message.agent);
-        if (agent?.task !== "queued") this.session(message.agent)?.start();
+        if (agent?.activity === "detached") this.background(this.attach(agent.name));
+        else if (agent?.task !== "queued") this.session(message.agent)?.start();
         else if (this.workspaceFree(agent.workspace, agent.name)) this.begin(agent);
         return;
       }
@@ -594,6 +606,47 @@ export class Supervisor implements ToolHost {
       holder,
       note: "This session went back and forth between fleet and another client, so fleet leaves it there. Attach brings it back.",
     });
+  }
+
+  /**
+   * Takes a detached session over at the user's request: ends the client that holds it and
+   * runs the session in fleet, with `text` as its next prompt. fleet never ends a background
+   * job of Claude Code or a process it cannot confirm, and never sends more than SIGTERM.
+   */
+  private async attach(
+    name: string,
+    text?: string,
+    attachments: PromptAttachment[] = [],
+  ): Promise<void> {
+    const sessionId = this.agent(name)?.sessionId;
+    if (this.agent(name)?.activity !== "detached" || !sessionId) return;
+    this.manualOnly.delete(name);
+    const holder = (await this.scan())?.get(sessionId);
+    if (holder) {
+      const note = holder.background
+        ? "A background job of Claude Code holds this session, and fleet leaves those alone. fleet takes the session once the job ends."
+        : !holder.verified
+          ? "fleet cannot confirm which process holds this session, so it does not end it. Close it there, and fleet takes the session back."
+          : await this.endHolder(sessionId, holder.pid);
+      if (note) {
+        this.seen.set(name, holder.pid);
+        this.append(name, { kind: "holder", holder, note });
+        return;
+      }
+    }
+    this.seen.delete(name);
+    if (text === undefined) await this.pickUp(name);
+    else this.prompt(name, text, attachments);
+  }
+
+  /** Sends SIGTERM and waits for the session to be free; a note when it is not. */
+  private async endHolder(sessionId: string, pid: number): Promise<string | undefined> {
+    this.holders?.terminate(pid);
+    for (let waited = 0; waited < ATTACH_TIMEOUT_MS; waited += ATTACH_POLL_MS) {
+      await new Promise((resolve) => setTimeout(resolve, ATTACH_POLL_MS));
+      if (!(await this.scan())?.has(sessionId)) return undefined;
+    }
+    return `The other client did not exit within ${ATTACH_TIMEOUT_MS / 1000} s of SIGTERM. Close it there, and fleet takes the session back.`;
   }
 
   /**

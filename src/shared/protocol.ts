@@ -72,6 +72,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start"), agent }),
   z.object({ type: z.literal("stop"), agent }),
   z.object({ type: z.literal("detach"), agent }),
+  /** Ends the client that holds a detached session and runs the session in fleet. */
+  z.object({ type: z.literal("attach"), agent }),
   /** Takes a task off the board; its changes stay in the workspace. The browser asks first. */
   z.object({ type: z.literal("remove"), agent }),
   z.object({ type: z.literal("move"), agent, to: z.enum(USER_MOVES) }),

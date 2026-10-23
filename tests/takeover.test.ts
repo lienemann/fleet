@@ -4,7 +4,7 @@ import { EventLog } from "../src/daemon/eventLog.ts";
 import type { HolderHost, ProcessInfo } from "../src/daemon/holders.ts";
 import { BACK_IN_FLEET, BRIEFING_ACK } from "../src/daemon/prompts.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
-import { Supervisor } from "../src/daemon/supervisor.ts";
+import { ATTACH_TIMEOUT_MS, Supervisor } from "../src/daemon/supervisor.ts";
 import { echoing, fakeQuery, result, until } from "./helpers.ts";
 
 const ID = "3f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11";
@@ -42,7 +42,12 @@ function clients() {
     },
     self: SELF,
   };
-  const hold = (pid: number, fields: Record<string, unknown> = {}, ppid = 1): void => {
+  const hold = (
+    pid: number,
+    fields: Record<string, unknown> = {},
+    ppid = 1,
+    started = STARTED,
+  ): void => {
     files[`${pid}.json`] = JSON.stringify({
       pid,
       sessionId: ID,
@@ -53,7 +58,7 @@ function clients() {
       status: "idle",
       ...fields,
     });
-    processes.set(pid, { ppid, started: STARTED });
+    processes.set(pid, { ppid, started });
   };
   // A process that ends leaves its file behind, as one that crashed would.
   const release = (pid: number): void => void processes.delete(pid);
@@ -288,5 +293,76 @@ describe("telling a session where it is", () => {
     await until(() => userLines().length === 2);
     expect(userLines()[1]?.startsWith(BACK_IN_FLEET)).toBe(true);
     expect(userLines()[1]).toMatch(/Next$/);
+  });
+});
+
+describe("attach", () => {
+  it("ends the holder and runs the session in fleet", async () => {
+    const { host, hold, terminated } = clients();
+    hold(701);
+    const { calls, importIt, supervisor } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    await until(() => calls.length === 1);
+    expect(terminated).toEqual([701]);
+    expect(calls[0]?.options?.resume).toBe(ID);
+  });
+
+  it("is what sending to a detached session does", async () => {
+    const { host, hold, terminated } = clients();
+    hold(702);
+    const { calls, importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Carry on" });
+    await until(() => calls.length === 1);
+    expect(terminated).toEqual([702]);
+    expect(userLines()[0]).toMatch(/Carry on$/);
+  });
+
+  it("never signals a background job or a process it cannot confirm", async () => {
+    for (const fields of [{ kind: "bg" }, { procStart: "?" }]) {
+      const { host, hold, terminated } = clients();
+      hold(703, fields);
+      const { agent, calls, importIt, supervisor } = setup(host);
+      await importIt();
+      supervisor.handle({ type: "attach", agent: "alpha" });
+      await until(() => agent()?.holderNote !== undefined);
+      expect(terminated).toEqual([]);
+      expect(calls).toHaveLength(0);
+      expect(agent()?.activity).toBe("detached");
+    }
+  });
+
+  it("never signals a recycled pid", async () => {
+    const { host, hold, terminated } = clients();
+    hold(704, {}, 1, "Fri Oct 23 18:06:19 2026");
+    const { calls, importIt, supervisor } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    await until(() => calls.length === 1);
+    expect(terminated).toEqual([]);
+  });
+
+  it("gives up when the holder does not exit", async () => {
+    const { host, hold, terminated, stayOnTerm } = clients();
+    hold(705);
+    stayOnTerm();
+    const { agent, calls, importIt, supervisor } = setup(host);
+    await importIt();
+    vi.useFakeTimers();
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    await vi.advanceTimersByTimeAsync(ATTACH_TIMEOUT_MS + 1000);
+    expect(terminated).toEqual([705]);
+    expect(agent()?.holderNote).toMatch(/SIGTERM/);
+    expect(agent()?.activity).toBe("detached");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("without a session directory, resumes as before", async () => {
+    const host: HolderHost = { ...clients().host, list: () => undefined };
+    const { calls, importIt, supervisor } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    await until(() => calls.length === 1);
   });
 });
