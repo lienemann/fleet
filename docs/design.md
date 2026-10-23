@@ -194,7 +194,33 @@ The Agent SDK runs the same harness as the CLI, so most capabilities exist; the 
 | Cost and usage                         | Per agent, per day                           | 3     |
 | Skills, hooks, MCP, plugins            | Read-only list; manage in the CLI            | later |
 
-**Escape hatch.** Any agent can be handed to a terminal: the daemon releases the session and prints `claude --resume <id>` for its workspace. Two processes must never write the same transcript, so the tile shows the session as detached until it is taken back.
+**Escape hatch.** Any agent can be handed to a terminal: the daemon releases the session and prints `claude --resume <id>` for its workspace. Two processes must never write the same transcript, so while another process holds the session, the tile shows it as detached. An imported session starts the same way when something else still has it open.
+
+**Finding the other process.** Every running Claude Code writes `~/.claude/sessions/<pid>.json`: the terminal CLI, the VS Code extension and the Desktop app alike. The file names the pid, the session id, the cwd, whether the process is busy or idle, when it started (`procStart`) and which client it is (`entrypoint`). The format is undocumented, and Claude Code sometimes leaves a file with stray characters after the JSON object that then never updates. The daemon reads such files defensively and, when in doubt, treats a session as held, never as free:
+- It reads the first complete JSON object in a file. A file whose pid is alive and whose `sessionId` names the session holds it, however old the file is.
+- A file with a dead pid, or a live pid whose start time no longer matches `procStart` (on the Mac, `ps -o lstart` in UTC), holds nothing.
+- The `.key` files next to them stay untouched. A process the daemon started itself is never a holder.
+- Each daemon reads only its own host's directory, so a pod's daemon reads the pod's.
+
+When the directory is missing, or none of its files has the expected shape, the daemon cannot tell who holds a session and behaves as before these rules: a detached tile shows the `claude --resume` line, and Attach resumes without ending anything.
+
+**Attach.** A detached tile has an Attach button, also a command in the keymap and the palette, and sending a prompt to a detached tile does the same. Attach ends the holder with SIGTERM, then resumes the session in fleet. I want the session in fleet and do not mind what happens in the terminal, VS Code or the Desktop app it came from.
+- Before signalling, the daemon checks that the pid still belongs to the process the file describes (its start time matches `procStart`), so a recycled pid is never hit. If it cannot compare the start time, for example on a pod whose format it does not know, it does not signal and asks me to close the process myself.
+- A holder whose `kind` is not `interactive` is a background job of Claude Code, whose process may since run another job. It is never signalled: the banner says a background job holds the session, and Attach stays disabled.
+- While the holder is busy, the browser asks first.
+- If the holder has not exited a few seconds after SIGTERM, the tile shows an error and the session stays detached. No SIGKILL.
+- Only I take a session over. A message from another agent to a detached session (`send_message`, the director's messages, a restart note) waits in its queue until the session is back in fleet; it never ends a holder.
+
+**Picking up by itself.** I should not have to go back to fleet and press anything after closing a terminal.
+- An import with no holder resumes the session right away.
+- While a session is detached, the daemon watches the holder it saw. When that process exits, or its file stops naming the session (after `/clear` or `/resume` there), the daemon resumes the session and adds the turns made elsewhere to the tile's log, as an import does. A tile handed to a terminal waits for the terminal to appear first, so it is not taken straight back. After a daemon restart, a detached session with no holder waits for Attach.
+- The detached banner names the holder (a terminal, VS Code or the Desktop app), its cwd and whether it is busy or idle.
+
+**Opened elsewhere.** If I open a session in another client while fleet runs it, without handing it off first, fleet steps back: it ends its own process, shows the tile as detached with the new holder, and picks up again when that holder exits. The daemon therefore watches the session files for its running sessions too, not only for detached ones. A client that restarts a session it lost, as the Desktop app might after Attach, would take it back and forth with fleet; when fleet loses the same session twice within a minute, it stays detached and the banner says why.
+
+**Briefing.** fleet's rules are in the appended system prompt, but an imported conversation grew up in another client, and its history outweighs a system prompt that changed underneath it. So the first turn fleet runs after an import starts with a message telling the agent that it is now fleet worker `<name>` in workspace `<ws>`, that I watch it through the web UI, and that it reaches me through the fleet tools. Whatever I typed follows. Without typed text, as on a pickup, the agent confirms in one line and waits for me. The briefing goes out once per import, so the daemon records it in the event log. A session coming back from a terminal hand-off, the director included, resumes idle; one line saying it is back in fleet goes in front of my next prompt instead of costing a turn. Compaction needs no new briefing, since the system prompt survives it.
+
+**Bringing my own director.** I may already have a Claude Code session that coordinates my work, and fleet's director should start from what it knows. Its conversation is not taken over, since a director needs a clean context and fleet's rules from its first turn. In the import dialog, "Use as director" on a session resumes a fork of it (the SDK's `forkSession`), so the original stays untouched wherever it is open and nothing is ended. The fork gets the handover request and writes the handover file under the director's `.fleet/`. fleet's director then starts a fresh session from that file, as after a handover; its previous session ends. The board and tasks are in the event log and need no handover.
 
 ## Security, auth and Mac specifics
 
