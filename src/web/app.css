@@ -1905,10 +1905,6 @@ button.ln:hover {
   color: var(--muted);
   font-size: 12px;
 }
-.legend .bottleneck {
-  margin-left: auto;
-  color: var(--fg2);
-}
 .swatch-box {
   display: inline-block;
   width: 10px;

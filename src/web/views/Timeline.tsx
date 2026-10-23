@@ -63,7 +63,6 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
     visible(agent.history, from, now)
       .filter((s) => s.lane === "needs_you")
       .reduce((sum, s) => sum + (s.to - s.from), 0);
-  const total = agents.reduce((sum, a) => sum + waiting(a), 0);
   const at = (ts: number) => `${(100 * (ts - from)) / span.ms}%`;
   const ticks = Array.from({ length: span.ms / span.tick + 1 }, (_, i) => span.ms - i * span.tick);
   const messages = state.messages.filter((m) => m.ts >= from);
@@ -143,11 +142,6 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
         )}
         <span>
           <span className="swatch-box mark-box" /> message
-        </span>
-        <span className="bottleneck">
-          {total > 0
-            ? `You were the bottleneck for ${duration(total)} in this window.`
-            : "Nobody waited on you in this window."}
         </span>
       </footer>
     </section>

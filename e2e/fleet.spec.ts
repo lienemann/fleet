@@ -236,7 +236,6 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
   await page.keyboard.press("t");
   await expect(page.locator(".lane").first()).toBeVisible();
   await expect(page.locator(".lane-wait", { hasText: /waited .+ on you/ }).first()).toBeVisible();
-  await expect(page.locator(".legend")).toContainText("You were the bottleneck for");
   await expect(page.locator(".axis")).toContainText("−5 min");
   await page.keyboard.press("w");
   await expect(page.getByRole("button", { name: "2 h" })).toHaveAttribute("aria-pressed", "true");
