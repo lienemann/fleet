@@ -248,6 +248,9 @@ test("everything works from the keyboard", async ({ page }) => {
   const strip = page.locator(".strip");
   await expect(strip.getByRole("button", { name: /All tiles/ })).toBeVisible();
   await expect(strip).toContainText("director");
+  // The tile fits the main area; its log scrolls, not the frame around it.
+  const main = page.locator(".main");
+  expect(await main.evaluate((m) => m.scrollHeight <= m.clientHeight)).toBe(true);
   await page.keyboard.press("x");
   await expect(page.locator(".grid .tile").first()).toBeVisible();
 });

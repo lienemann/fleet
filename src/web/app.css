@@ -875,6 +875,10 @@ button.link.accent {
   gap: 8px;
   min-height: 0;
 }
+/* An enlarged tile fits the main area, so only its log scrolls, not the frame around it. */
+.main > .grid-enlarged {
+  flex: 1 1 0;
+}
 .strip {
   display: flex;
   gap: 6px;
