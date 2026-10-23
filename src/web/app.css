@@ -996,17 +996,40 @@ h2 {
   overflow-y: auto;
   padding: 0 4px 16px;
 }
-.diff-bar {
+.diff-head {
   position: sticky;
   top: 0;
   z-index: 2;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 0;
   background: var(--bg1);
   border-bottom: 1px solid var(--line2);
 }
+.diff-scope,
+.diff-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+}
+.diff-scope {
+  font-size: 12px;
+  border-bottom: 1px solid var(--line2);
+}
+.diff-scope .name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.diff-scope .path {
+  min-width: 0;
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-scope select {
+  max-width: 46ch;
+}
+.diff-scope .spacer,
 .diff-bar .spacer,
 .hunk header .spacer {
   flex: 1;
@@ -1024,6 +1047,8 @@ h2 {
   margin-bottom: 8px;
   background: var(--term);
   overflow: hidden;
+  /* Clears the sticky header when j and k scroll a hunk into view. */
+  scroll-margin-top: 96px;
 }
 .hunk.focused {
   border-color: var(--accent);

@@ -30,7 +30,15 @@ import {
   walkthroughMentions,
   walkthroughOrder,
 } from "@zhinst/reviewdiff-core";
-import type { FileView, HunkView, MoveView, ReviewEdit, ReviewModel } from "../shared/review.ts";
+import type {
+  FileView,
+  HunkView,
+  MoveView,
+  ReviewCommit,
+  ReviewEdit,
+  ReviewModel,
+  ReviewScope,
+} from "../shared/review.ts";
 
 /** Unchanged lines shown around each hunk. */
 const CONTEXT = 3;
@@ -38,9 +46,14 @@ const CONTEXT = 3;
 /** What a task is reviewed against: its changes since it forked from trunk. */
 const TRUNK = "trunk()";
 
+const BRANCH: ReviewScope = { kind: "branch" };
+
 interface Loaded {
   repo: Repository;
   store: FileApprovalStore;
+  scope: ReviewScope;
+  target: string;
+  commits: ReviewCommit[];
   review: Review;
   moves: Move[];
   walkthrough?: string;
@@ -77,16 +90,45 @@ export class ReviewError extends Error {}
 export class ReviewService {
   private readonly loaded = new Map<string, Loaded>();
 
-  /** Loads (or reloads) the review of an agent's workspace: its working copy against trunk. */
-  async load(agent: string, cwd: string, walkthrough?: string): Promise<ReviewModel> {
+  /**
+   * Loads (or reloads) the review of an agent's workspace: by default its working copy against
+   * trunk, or a single commit against its parent. A commit that left the stack (squashed or
+   * abandoned) falls back to the whole branch.
+   */
+  async load(
+    agent: string,
+    cwd: string,
+    walkthrough?: string,
+    scope: ReviewScope = BRANCH,
+  ): Promise<ReviewModel> {
     const repo = await openRepository(cwd, { prefer: "jj" });
     if (!repo) throw new ReviewError(`${cwd} is not in a jj or git repository.`);
     const store = await FileApprovalStore.open(join(await repo.stateDir(), "approvals.json"));
     const target = repo.kind === "jj" ? TRUNK : "main";
-    const review = await loadReview(repo, { mode: "branch", target });
+    const commits = repo instanceof JjAdapter ? await stack(repo, target) : [];
+    const commit =
+      scope.kind === "commit" ? commits.find((c) => c.change === scope.change) : undefined;
+    const review = await loadReview(
+      repo,
+      commit
+        ? { mode: "compare", base: `${commit.change}-`, head: commit.change }
+        : { mode: "branch", target },
+    );
     const moves = detectReviewMoves(review.files).moves;
-    const guide = walkthrough ? await this.guide(repo, review, moves, walkthrough) : undefined;
-    const loaded = { repo, store, review, moves, walkthrough, guide };
+    // The walkthrough describes the whole change, so only the branch review follows it.
+    const guide =
+      walkthrough && !commit ? await this.guide(repo, review, moves, walkthrough) : undefined;
+    const loaded: Loaded = {
+      repo,
+      store,
+      scope: commit ? scope : BRANCH,
+      target,
+      commits,
+      review,
+      moves,
+      walkthrough,
+      guide,
+    };
     this.loaded.set(agent, loaded);
     return this.model(agent, loaded);
   }
@@ -170,7 +212,7 @@ export class ReviewService {
 
     // The edit makes new hunks; the user wrote them, so they count as reviewed.
     const before = new Set(review.files.flatMap((f) => f.hunks.map((h) => h.id)));
-    await this.load(agent, repo.root, loaded.walkthrough);
+    await this.load(agent, repo.root, loaded.walkthrough, loaded.scope);
     const fresh = this.require(agent).review.files.find((f) => f.change.path === hunk.path);
     const created = (fresh?.hunks ?? []).filter((h) => !before.has(h.id)).map((h) => h.id);
     const model = await this.approve(agent, created, true);
@@ -202,7 +244,10 @@ export class ReviewService {
     return loaded;
   }
 
-  private model(agent: string, { store, review, moves, guide }: Loaded): ReviewModel {
+  private model(
+    agent: string,
+    { repo, store, scope, target, commits, review, moves, guide }: Loaded,
+  ): ReviewModel {
     const approvedMoves = new Set(moves.filter((m) => store.get(m.id)).map((m) => m.id));
     const moveOf = new Map(moves.flatMap((m) => m.hunkIds.map((id) => [id, m.id] as const)));
     const isApproved = (file: FileReview, hunk: Hunk): boolean =>
@@ -251,6 +296,10 @@ export class ReviewService {
     const hunks = files.flatMap((f) => f.hunks);
     return {
       agent,
+      scope,
+      root: repo.root,
+      target,
+      commits,
       range: review.range,
       files,
       moves: moveViews,
@@ -268,6 +317,20 @@ export class ReviewService {
     if (!closest) return { uncovered: true };
     return { walkthrough: linkLabel(closest.link.link) || sectionLabel(closest.link.link.section) };
   }
+}
+
+/** The commits between `target` and the working copy, newest first. */
+async function stack(repo: JjAdapter, target: string): Promise<ReviewCommit[]> {
+  // One snapshot, so that the working copy's "empty" is current; snapshots must not overlap.
+  const [workingCopy] = await repo.commits("@", { snapshot: true });
+  const commits = await repo.commits(`${target}..@`);
+  return commits.map((c) => ({
+    change: c.changeId,
+    short: c.shortId,
+    summary: c.summary,
+    workingCopy: c.commitId === workingCopy?.commitId,
+    empty: c.empty,
+  }));
 }
 
 function findHunk(review: Review, id: string): { file: FileReview; hunk: Hunk } | undefined {

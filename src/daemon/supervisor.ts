@@ -307,7 +307,7 @@ export class Supervisor implements ToolHost {
         return agentNotes(agent.cwd, agent.name);
       case "review_load":
         return this.trackProgress(
-          await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough),
+          await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough, call.scope),
         );
       case "review_approve":
         return this.trackProgress(await this.reviews.approve(agent.name, call.ids, call.approved));
@@ -704,8 +704,9 @@ export class Supervisor implements ToolHost {
 
   // --- Internals ---------------------------------------------------------------------
 
-  /** Keeps the card's "3/9 hunks approved" current. */
+  /** Keeps the card's "3/9 hunks approved" current; it counts the whole branch only. */
   private trackProgress(model: ReviewModel): ReviewModel {
+    if (model.scope.kind !== "branch") return model;
     const { approved, total } = model.progress;
     const known = this.agent(model.agent)?.reviewProgress;
     if (known?.approved !== approved || known.total !== total) {

@@ -45,9 +45,31 @@ export interface MoveView {
   approved: boolean;
 }
 
+/** What the diff shows: everything the workspace changed since trunk, or one commit. */
+export type ReviewScope = { kind: "branch" } | { kind: "commit"; change: string };
+
+/** A commit between trunk and the working copy. */
+export interface ReviewCommit {
+  /** Full jj change id; stays the same when the commit is rewritten. */
+  change: string;
+  /** Shortest unique prefix of the change id. */
+  short: string;
+  summary: string;
+  workingCopy: boolean;
+  /** Changes no files. */
+  empty: boolean;
+}
+
 export interface ReviewModel {
   agent: string;
-  /** The agent's working copy against trunk, as commit ids. */
+  scope: ReviewScope;
+  /** Root of the reviewed workspace on its host. */
+  root: string;
+  /** What the branch is reviewed against, e.g. `trunk()`. */
+  target: string;
+  /** The workspace's commits since trunk, newest first; empty outside jj. */
+  commits: ReviewCommit[];
+  /** The compared revisions as commit ids: the fork point or the commit's parent, and the head. */
   range: { base: string; head: string };
   files: FileView[];
   moves: MoveView[];

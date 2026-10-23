@@ -58,7 +58,9 @@ export function Hunk(props: Props) {
     <article
       className={`hunk ${focused ? "focused" : ""} ${hunk.approved ? "approved" : ""}`}
       data-hunk={hunk.id}
-      onPointerDown={props.onFocus}
+      // On release, not on press: focusing collapses the hunk focused before, and the layout
+      // must not shift between pressing and releasing a button, or the click is lost.
+      onPointerUp={props.onFocus}
     >
       <header>
         <span className="dim">

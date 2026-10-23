@@ -37,7 +37,9 @@ Agents talk to fleet through tools the daemon serves in-process. A worker calls 
 
 Review happens in a diff view built on reviewdiff-core. You approve hunk by hunk, and approvals go into
 ReviewDiff's own `approvals.json`, so when the agent revises its change only the hunks it touched come back. The
-diff follows the order of the agent's walkthrough and marks the hunks the walkthrough leaves out. You can comment
+diff follows the order of the agent's walkthrough and marks the hunks the walkthrough leaves out. Its header names
+the workspace and the revisions compared, and lets you review the whole change since trunk or one commit of the
+workspace's stack at a time. You can comment
 on lines, fix a typo yourself (the edit lands in the commit that wrote the line), and then accept the task or send
 the comments back as one message.
 
@@ -173,6 +175,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
 | Shift+H, Shift+F | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
 | `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, comment, edit, side by side, walkthrough or file order, reload |
+| `[`, `]` in the diff | review the next newer or older commit; above the newest is the whole change |
 | `w` in the timeline | switch between the last 15 minutes and 2 hours |
 
 ## Vendored code

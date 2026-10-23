@@ -131,6 +131,51 @@ describe("ReviewService", () => {
     expect(readFileSync(join(repo, "lib.py"), "utf8")).toContain("return 21");
   });
 
+  it("lists the stack and reviews a single commit against its parent", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    jj("commit", "-m", "change a");
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10").replace("return 3", "return 30")),
+    );
+    const reviews = service();
+    const branch = await reviews.load("alpha", repo);
+    expect(branch.scope).toEqual({ kind: "branch" });
+    expect(branch.target).toBe("trunk()");
+    expect(branch.files[0]?.hunks).toHaveLength(2);
+    expect(branch.commits.map((c) => [c.summary, c.workingCopy, c.empty])).toEqual([
+      ["", true, false],
+      ["change a", false, false],
+    ]);
+
+    const older = branch.commits[1]?.change ?? "";
+    const commit = await reviews.load("alpha", repo, undefined, { kind: "commit", change: older });
+    expect(commit.scope).toEqual({ kind: "commit", change: older });
+    expect(commit.files[0]?.hunks.map((h) => h.added)).toEqual([["    return 10"]]);
+    // Edits stay in the reviewed commit, and the review stays on it.
+    const { model } = await reviews.edit("alpha", commit.files[0]?.hunks[0]?.id ?? "", [
+      "    return 11",
+    ]);
+    expect(model.scope).toEqual({ kind: "commit", change: older });
+    expect(jj("file", "show", "-r", "@-", "lib.py")).toContain("return 11");
+  });
+
+  it("falls back to the branch when the reviewed commit is gone", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    const model = await service().load("alpha", repo, undefined, {
+      kind: "commit",
+      change: "zzzzzzzzzzzz",
+    });
+    expect(model.scope).toEqual({ kind: "branch" });
+    expect(model.files[0]?.hunks).toHaveLength(1);
+  });
+
   it("asks for a load before anything else", async () => {
     await expect(service().approve("nobody", [], true)).rejects.toThrow(ReviewError);
   });

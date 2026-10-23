@@ -1,5 +1,5 @@
 // Starts the daemon in demo mode on a fresh home with two workspaces, each a jj repo whose
-// trunk has one file the demo agents change. Unless it is the pod itself, it also starts a
+// trunk has one file the demo agents change; ws1 has a commit of its own on top. Unless it is the pod itself, it also starts a
 // second daemon, "pod", and relays it as a remote, as a Coder pod would be.
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -24,6 +24,15 @@ const workspaces = ["ws1", "ws2"].map((name) => {
   );
   jj("commit", "-m", "base");
   jj("bookmark", "create", "main", "-r", "@-");
+  if (name === "ws1") {
+    // A commit of its own on top of trunk, for reviewing one commit at a time.
+    mkdirSync(join(path, "tests"));
+    writeFileSync(
+      join(path, "tests", "test_sweep.py"),
+      "from lib import tolerance\n\n\ndef test_sweep():\n    assert tolerance() > 0\n",
+    );
+    jj("commit", "-m", "Add a sweep test");
+  }
   return `[[workspaces]]\nname = "${name}"\npath = "${path}"\n`;
 });
 

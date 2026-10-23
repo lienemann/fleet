@@ -83,9 +83,27 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await page.keyboard.press("a");
   await expect(diff.locator(".progress")).toContainText("1/");
   await shot(page, "diff");
+
+  // One commit at a time: the workspace's own commit holds the test, not the agent's change.
+  await expect(diff.locator(".diff-scope")).toContainText("ws1");
+  const picker = diff.getByLabel("What to review");
+  const own = await picker.locator("option", { hasText: "Add a sweep test" }).getAttribute("value");
+  await picker.selectOption(own ?? "");
+  await expect(diff.locator(".diff-scope")).toContainText("against its parent");
+  await expect(diff.locator(".diff-file")).toHaveCount(1);
+  await expect(diff.locator(".diff-file")).toContainText("tests/test_sweep.py");
+  await shot(page, "diff-commit");
+  // Up the stack: the working copy with the agent's change, then everything again.
+  await page.locator(".diff-bar").click();
+  await page.keyboard.press("[");
+  await expect(diff.locator(".diff-file")).toHaveCount(1);
+  await expect(diff.locator(".diff-file")).toContainText("lib.py");
+  await page.keyboard.press("[");
+  await expect(diff.locator(".diff-scope")).toContainText("from the fork point");
+  await expect(diff.locator(".diff-file")).toHaveCount(2);
+
   await diff
-    .locator(".hunk")
-    .last()
+    .locator(".hunk", { hasText: "return 50" })
     .getByRole("button", { name: /^Comment/ })
     .click();
   await diff.getByPlaceholder(/Goes to the agent/).fill("Why 50 runs?");

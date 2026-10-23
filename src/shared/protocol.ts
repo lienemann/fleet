@@ -114,7 +114,18 @@ const id = z.string().min(1);
 export const CallSchema = z.discriminatedUnion("type", [
   /** A file of the agent's workspace. */
   z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
-  z.object({ type: z.literal("review_load"), id, agent }),
+  /** Loads the diff view; without a scope, the agent's whole change since trunk. */
+  z.object({
+    type: z.literal("review_load"),
+    id,
+    agent,
+    scope: z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("branch") }),
+        z.object({ kind: z.literal("commit"), change: z.string().regex(/^[k-z]+$/) }),
+      ])
+      .optional(),
+  }),
   /** Paths of the agent's workspace, for @ mentions. */
   z.object({ type: z.literal("list_files"), id, agent }),
   /** The jj workspaces of the repo, for adding existing ones; answered by the local daemon. */
