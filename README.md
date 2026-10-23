@@ -148,9 +148,10 @@ With two hooks in `~/.claude/settings.json`, sessions claim and release workspac
 ```
 
 A session that starts inside a free workspace then holds it, and one that starts where a task works is told so.
-When the session ends, its workspace stays reserved for ten minutes: a session that starts there in that time
-takes it over (after `/clear`, a resume or a handover), otherwise fleet releases it. fleet's own sessions set
-`FLEET_AGENT` and skip the hooks.
+A session that starts in the repo itself learns a name such as `session-ab12cd34` to claim workspaces under. When
+the session ends, everything it claimed stays reserved for ten minutes: a session that starts in such a workspace
+in that time takes it over (after `/clear` or a handover), a resumed session keeps it, and otherwise fleet releases
+it. fleet's own sessions set `FLEET_AGENT` and skip the hooks.
 
 ## Security
 

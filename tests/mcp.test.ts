@@ -20,12 +20,12 @@ const workspaces = ["ws1", "ws2"].map((name) => ({
 }));
 for (const ws of workspaces) mkdirSync(ws.path);
 
-function setup() {
+function setup(director?: string) {
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
-    config: { workspaces, wip: { running: 4, review: 2 }, host: "mac" },
+    config: { workspaces, wip: { running: 4, review: 2 }, host: "mac", director },
   });
   supervisor.init();
   return { log, supervisor };
@@ -118,7 +118,7 @@ describe("session hooks", () => {
     expect(supervisor.sessionHook(start("aaaaaaaa-1", join(ws1, "src")))).toContain(
       "ws1 is reserved for this session as session-aaaaaaaa",
     );
-    expect(supervisor.sessionHook(start("bbbbbbbb-2"))).toBe(
+    expect(supervisor.sessionHook(start("bbbbbbbb-2"))).toContain(
       `fleet: ws1 is claimed by session-aaaaaaaa (Claude Code session in ${join(ws1, "src")}).`,
     );
 
@@ -146,6 +146,33 @@ describe("session hooks", () => {
     );
     expect(supervisor.sessionHook(start("aaaaaaaa-1", root))).toBe("");
     expect(log.state.claims).toEqual({});
+  });
+
+  it("release what a session in the repo claimed when it ends, unless it is resumed", () => {
+    const { log, supervisor } = setup(root);
+    expect(supervisor.sessionHook(start("aaaaaaaa-1", root))).toContain(
+      "claim_workspace tool as session-aaaaaaaa",
+    );
+    supervisor.claimWorkspace("session-aaaaaaaa", "ws2");
+    supervisor.claimWorkspace("cli", "ws1");
+
+    supervisor.sessionHook(end("aaaaaaaa-1", root));
+    expect(log.state.claims.ws2?.until).toBeGreaterThan(Date.now());
+    expect(log.state.claims.ws1?.until).toBeUndefined();
+    supervisor.sessionHook(start("aaaaaaaa-1", root));
+    expect(log.state.claims.ws2).toMatchObject({ holder: "session-aaaaaaaa", until: undefined });
+
+    supervisor.sessionHook(end("aaaaaaaa-1", root));
+    supervisor.expireClaims(Date.now() + CLAIM_GRACE_MS);
+    expect(Object.keys(log.state.claims)).toEqual(["ws1"]);
+  });
+
+  it("let a session claim again what it is about to lose", () => {
+    const { log, supervisor } = setup();
+    supervisor.sessionHook(start("aaaaaaaa-1"));
+    supervisor.sessionHook(end("aaaaaaaa-1"));
+    supervisor.claimWorkspace("session-aaaaaaaa", "ws1");
+    expect(log.state.claims.ws1?.until).toBeUndefined();
   });
 
   it("are taken over HTTP, from Claude Code but not from web pages", async () => {

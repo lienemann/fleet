@@ -803,7 +803,11 @@ export class Supervisor implements ToolHost {
       );
     }
     const workspace = { name: status.name, path: status.path };
-    if (status.claim?.holder === holder) return workspace;
+    if (status.claim?.holder === holder) {
+      // Claiming again keeps a claim whose session ended.
+      if (status.claim.until !== undefined) this.keepClaim(status.name, status.claim);
+      return workspace;
+    }
     if (status.claim) throw new ToolError(`${status.name} is claimed by ${status.claim.holder}.`);
     if (status.tasks.length > 0) {
       throw new ToolError(`${status.name} holds the work of ${status.tasks.join(", ")}.`);
@@ -822,47 +826,51 @@ export class Supervisor implements ToolHost {
 
   /**
    * A Claude Code session outside fleet started or ended, as its hooks report. Starting in a
-   * free workspace reserves it. Ending keeps the reservation for a while, so that a session
-   * that carries on with the work (after /clear, a resume or a handover) takes it over;
-   * otherwise it lapses. Returns what a starting session should know, which Claude Code adds
-   * to its context.
+   * free workspace reserves it, and the session learns the holder name to claim others under.
+   * Ending keeps its claims for a while, so that a session that carries on with the work (after
+   * /clear, a resume or a handover) takes them over; otherwise they lapse. Returns what a
+   * starting session should know, which Claude Code adds to its context.
    */
   sessionHook({ event, session, cwd }: SessionHook): string {
-    const ws = this.config.workspaces.find((w) => cwd === w.path || cwd.startsWith(`${w.path}/`));
-    if (!ws) return "";
-    const claim = this.log.state.claims[ws.name];
+    const holder = `session-${session.slice(0, 8)}`;
+    const held = Object.entries(this.log.state.claims).filter(([, c]) => c.holder === holder);
     if (event === "SessionEnd") {
-      if (claim?.session === session) {
-        this.append(DAEMON, {
-          kind: "workspace_claim",
-          workspace: ws.name,
-          holder: claim.holder,
-          note: claim.note,
-          session,
-          until: Date.now() + CLAIM_GRACE_MS,
-        });
+      const until = Date.now() + CLAIM_GRACE_MS;
+      for (const [name, claim] of held) {
+        if (claim.until === undefined) this.keepClaim(name, claim, until);
       }
       return "";
+    }
+    // A resumed session keeps what it held.
+    for (const [name, claim] of held) if (claim.until !== undefined) this.keepClaim(name, claim);
+
+    const claimHint = `claim a free workspace with fleet's claim_workspace tool as ${holder}; the claim ends with this session`;
+    const ws = this.config.workspaces.find((w) => isWithin(cwd, w.path));
+    if (!ws) {
+      const inRepo = this.config.director !== undefined && isWithin(cwd, this.config.director);
+      return inRepo ? `fleet: to work apart from fleet's agents, ${claimHint}.` : "";
     }
     const tasks = this.agents
       .filter((a) => a.workspace === ws.name && HOLDS_WORKSPACE.has(a.task))
       .map((a) => `${a.name} ("${a.title}")`);
     if (tasks.length > 0) {
-      return `fleet: ${ws.name} holds the work of ${tasks.join(", ")}; your edits here would collide with it. Ask the user, or claim a free workspace with fleet's claim_workspace tool.`;
+      return `fleet: ${ws.name} holds the work of ${tasks.join(", ")}; your edits here would collide with it. Ask the user, or ${claimHint}.`;
     }
-    if (claim && claim.session !== session && claim.until === undefined) {
-      return `fleet: ${ws.name} is claimed by ${claim.holder}${claim.note ? ` (${claim.note})` : ""}.`;
+    const claim = this.log.state.claims[ws.name];
+    if (claim && claim.holder !== holder && claim.until === undefined) {
+      return `fleet: ${ws.name} is claimed by ${claim.holder}${claim.note ? ` (${claim.note})` : ""}. Ask the user, or ${claimHint}.`;
     }
-    // Free, already ours, or left by a session that ended: this session takes it.
-    const holder = `session-${session.slice(0, 8)}`;
-    this.append(DAEMON, {
-      kind: "workspace_claim",
-      workspace: ws.name,
-      holder,
-      note: `Claude Code session in ${cwd}`,
-      session,
-    });
-    return `fleet: ${ws.name} is reserved for this session as ${holder}; fleet starts no task there until the session ends.`;
+    // Free, or left by a session that ended: this session takes it.
+    if (claim?.holder !== holder) {
+      this.append(DAEMON, {
+        kind: "workspace_claim",
+        workspace: ws.name,
+        holder,
+        note: `Claude Code session in ${cwd}`,
+        session,
+      });
+    }
+    return `fleet: ${ws.name} is reserved for this session as ${holder}; fleet starts no task there until the session ends. To claim another workspace, use fleet's claim_workspace tool with that name.`;
   }
 
   /** Releases the claims of sessions that ended longer ago than the grace period. */
@@ -885,6 +893,12 @@ export class Supervisor implements ToolHost {
     this.sessions.delete(name);
     this.append(name, { kind: "task_removed" });
     this.schedule(); // its workspace may be free now
+  }
+
+  /** Keeps a claim, until `until` if given, otherwise for as long as its holder wants. */
+  private keepClaim(name: string, claim: Claim, until?: number): void {
+    const { holder, note, session } = claim;
+    this.append(DAEMON, { kind: "workspace_claim", workspace: name, holder, note, session, until });
   }
 
   private release(name: string): void {
@@ -1206,4 +1220,9 @@ function saveAttachment(cwd: string, agent: string, file: PromptAttachment): str
   for (let n = 2; existsSync(join(cwd, path)); n++) path = join(dir, `${n}-${safe}`);
   writeFileSync(join(cwd, path), Buffer.from(file.data, "base64"));
   return path;
+}
+
+/** Whether `path` is `dir` or lies below it. */
+function isWithin(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(`${dir}/`);
 }

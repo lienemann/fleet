@@ -21,7 +21,9 @@ export type McpHost = Pick<
 const holder = z
   .string()
   .regex(/^[\w.:@-]{1,60}$/)
-  .describe("Who you are, e.g. the branch or topic you work on; the same name releases it");
+  .describe(
+    "Who you are: the session name fleet gave you when you started, or else the branch or topic you work on. The same name releases it.",
+  );
 
 /**
  * Tools for Claude Code sessions that fleet does not run: see which workspaces are free,
