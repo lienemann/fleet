@@ -41,6 +41,15 @@ export const MODE_LABELS: Record<PermissionMode, string> = {
   auto: "auto",
 };
 
+/** "6 s ago", "4 min ago", "2 h ago": how long ago something happened. */
+export function ago(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds} s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.floor(minutes / 60)} h ago`;
+}
+
 /** "4m", "1h 52m": how long something has been going on. */
 export function duration(ms: number): string {
   const minutes = Math.floor(ms / 60_000);

@@ -149,7 +149,7 @@ test("the director spawns a worker per line and reports to the user", async ({ p
 test("everything works from the keyboard", async ({ page }) => {
   await page.goto("/");
   // Keys only work once the app has mounted; the host name arrives from the daemon after that.
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   // The help closes with Esc, with ? again, and with its button.
   for (const close of ["Escape", "?"]) {
     await page.keyboard.press("?");
@@ -173,7 +173,8 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("g");
   await expect(page.locator(".chord-hint")).toContainText("Inbox");
   await page.keyboard.press("i");
-  await expect(page.getByRole("button", { name: "Inbox 2" })).toHaveClass(/active/);
+  // Its name also carries the count of what waits there.
+  await expect(page.getByRole("button", { name: /^Inbox/ })).toHaveClass(/active/);
 
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("textbox", { name: "Command" }).fill("brd");
@@ -202,7 +203,7 @@ test("everything works from the keyboard", async ({ page }) => {
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   await page.keyboard.press("g");
   await page.keyboard.press("t");
   await expect(page.locator(".lane").first()).toBeVisible();
@@ -221,7 +222,7 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
 
 test("tasks on a remote daemon show up and are answered like local ones", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   await page.keyboard.press("n");
   await page.getByLabel("Title").fill("Benchmark on the pod");
   await page.getByLabel("Workspace").selectOption("pod/ws1");
@@ -246,7 +247,7 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   // The director works in ws1, whose trunk has lib.py.
   await page.keyboard.press("g");
   await page.keyboard.press("d");
@@ -301,7 +302,7 @@ test("desktop notifications tell about agents that need you while fleet is in th
     Object.defineProperty(document, "visibilityState", { get: () => "hidden" });
   });
   await page.goto("/");
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   await page.getByRole("button", { name: "Notify" }).click();
   await expect(page.getByRole("button", { name: "Notify" })).toHaveClass(/active/);
 
@@ -315,7 +316,7 @@ test("desktop notifications tell about agents that need you while fleet is in th
 
 test("an existing Claude Code session can be imported and taken back", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".host")).toHaveText("test");
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
   await page.keyboard.press("i");
   const dialog = page.getByRole("dialog", { name: "Import a session" });
   await dialog.getByLabel("Speed up the sweep loop").check();

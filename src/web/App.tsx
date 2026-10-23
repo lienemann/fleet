@@ -343,6 +343,7 @@ export function App() {
         onView={setView}
         onNewTask={() => show("new-task")}
         onImport={() => show("import")}
+        onPalette={() => show("palette")}
         onHelp={() => show("shortcuts")}
         notifications={notifications}
         font={font}
