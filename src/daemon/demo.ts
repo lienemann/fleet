@@ -145,6 +145,10 @@ type Step =
       parent?: undefined;
     };
 
+/** The worker's walkthrough, in its first report and in each revision. */
+const WALKTHROUGH =
+  "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.";
+
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string): Step[] {
   const id = (n: number) => `${session}-${turn}-${n}`;
@@ -162,6 +166,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
           changes: ["zmplwqrs"],
           tests: "13 passed",
           open_questions: [],
+          walkthrough: WALKTHROUGH,
         },
       },
     ];
@@ -245,8 +250,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
         changes: ["zmplwqrs"],
         tests: "50 of 50 repetitions green",
         open_questions: ["Apply the same fix to the two similar sweep tests?"],
-        walkthrough:
-          "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.",
+        walkthrough: WALKTHROUGH,
       },
     },
   ];
