@@ -42,7 +42,9 @@ const config = isPod
     `port = ${port}\nhost = "pod"\n\n[director]\nenabled = false\n\n[history]\nenabled = false\n\n${workspaces.join("\n")}`
   : // The director (and so the history view) works in ws1.
     `port = ${port}\nhost = "test"\n\n[director]\npath = "${join(home, "ws1")}"\n\n` +
-    `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n${workspaces.join("\n")}`;
+    `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n${workspaces.join("\n")}` +
+    // The screenshots show a repository with more history than the demo's.
+    (process.env.HISTORY_REPO ? `\n[history]\nrepo = "${process.env.HISTORY_REPO}"\n` : "");
 writeFileSync(join(home, "config.toml"), config);
 writeFileSync(join(home, "secret"), isPod ? POD_SECRET : MAC_SECRET, { mode: 0o600 });
 if (!isPod) {

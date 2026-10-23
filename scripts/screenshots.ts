@@ -1,8 +1,11 @@
-// Takes the README's screenshots from a demo daemon; run after the UI changes.
+// Takes the screenshots for the README and the homepage from a demo daemon; run after the UI
+// changes.
 //
 //   npm run build:web && node scripts/screenshots.ts
-import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium, type Page } from "@playwright/test";
 import { MAC_SECRET } from "../e2e/secrets.ts";
 import { Auth } from "../src/daemon/auth.ts";
@@ -11,10 +14,65 @@ const PORT = 7841;
 const out = new URL("../docs/screenshots/", import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 
+/** A repository for the history view with more going on than the demo's: branches, a merge, workspaces. */
+function historyRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "fleet-history-"));
+  const repo = join(root, "sweep");
+  mkdirSync(repo);
+  const env = { ...process.env, JJ_USER: "Demo", JJ_EMAIL: "demo@example.com" };
+  const jj = (...args: string[]) => execFileSync("jj", args, { cwd: repo, env, stdio: "ignore" });
+  const commit = (file: string, message: string) => {
+    appendFileSync(join(repo, file), `# ${message}\n`);
+    jj("commit", "-m", message);
+  };
+  jj("git", "init");
+  for (const message of [
+    "Add the sweep driver",
+    "Read the instrument settings",
+    "Add a readout loop",
+    "Log every sweep",
+    "Check the settings before a sweep",
+  ]) {
+    commit("sweep.py", message);
+  }
+  jj("bookmark", "create", "main", "-r", "@-");
+  const branch = (from: string, name: string, messages: string[]) => {
+    jj("new", from);
+    for (const message of messages) commit(`${name}.py`, message);
+    jj("bookmark", "create", name, "-r", "@-");
+  };
+  branch("main---", "docs", ["Document the sweep API", "Add examples to the docs"]);
+  jj("new", "main", "docs", "-m", "Merge the docs");
+  jj("bookmark", "set", "main", "-r", "@");
+  jj("new");
+  commit("sweep.py", "Bump numpy");
+  jj("bookmark", "set", "main", "-r", "@-");
+  branch("main", "flaky-sweep", [
+    "Scale the tolerance with the run count",
+    "Retry a timed-out sweep",
+  ]);
+  branch("main-", "readout-batching", ["Batch the readout", "Reuse the buffer", "Time the loop"]);
+  branch('description(substring:"Log every sweep")', "parser", ["Port the settings parser"]);
+  for (const [workspace, revision] of [
+    ["ws1", "flaky-sweep"],
+    ["ws2", "readout-batching"],
+    ["ws3", "parser"],
+  ] as const) {
+    jj("workspace", "add", "-r", revision, join(root, workspace));
+  }
+  jj("new", "main");
+  return repo;
+}
+const history = historyRepo();
+
 const daemon: ChildProcess = spawn(
   process.execPath,
   [new URL("../e2e/serve.ts", import.meta.url).pathname],
-  { env: { ...process.env, PORT: String(PORT) }, stdio: "ignore", detached: true },
+  {
+    env: { ...process.env, PORT: String(PORT), HISTORY_REPO: history },
+    stdio: "ignore",
+    detached: true,
+  },
 );
 // The demo daemon starts a pod of its own; ending the process group ends both.
 let stopped = false;
@@ -121,6 +179,11 @@ await press("x");
 await press("4");
 await page.locator(".lane").first().waitFor();
 await shot("timeline", "light");
+await press("6");
+await page.frameLocator(".history iframe").locator("canvas").first().waitFor();
+await page.waitForTimeout(2000);
+// jj orbit has a light look of its own, so the shell around it is light too.
+await shot("history", "light");
 
 await browser.close();
 stop();

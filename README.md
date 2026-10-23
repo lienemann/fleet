@@ -27,7 +27,7 @@ messages to whom, and the history view embeds jj orbit with the op log as checkp
 | --- | --- |
 | ![The inbox with two permission requests and Claude's reason for each](docs/screenshots/inbox.png) | ![The grid of live tiles, each like the CLI](docs/screenshots/grid.png) |
 | ![The diff of a task in review, in the order of its walkthrough](docs/screenshots/diff.png) | ![The flow view with the director, three workers and two running subagents](docs/screenshots/flow.png) |
-| ![The timeline with time spent waiting on you](docs/screenshots/timeline.png) | |
+| ![The timeline with time spent waiting on you](docs/screenshots/timeline.png) | ![The history view: jj orbit with the branches and workspaces of a repo](docs/screenshots/history.png) |
 
 The screenshots come from the demo; `just screenshots` takes them again.
 
