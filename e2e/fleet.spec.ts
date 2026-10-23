@@ -491,6 +491,29 @@ test("a workspace in use stays, and a free one can be removed", async ({ page })
   await expect(row("docs")).toBeHidden();
 });
 
+test("names the model with its version, sets the effort, and shows the plan's usage", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".rail-foot .usage")).toContainText("5 h 34%");
+  await expect(page.locator(".rail-foot .usage")).toContainText("week 61%");
+
+  await page.getByRole("button", { name: /^Grid/ }).click();
+  const tile = page
+    .locator(".grid .tile")
+    .filter({ has: page.locator("header .name", { hasText: /^director$/ }) });
+  const model = tile.getByTitle("Model");
+  // Before its first turn the session runs the default; then it names the model it runs.
+  await expect(model.locator("option:checked")).toHaveText(
+    /^(Default: )?Opus 5\.5 \(claude-opus-5-5\)$/,
+  );
+  await expect(model.locator("option", { hasText: "Sonnet 5.5" })).toHaveCount(1);
+  const effort = tile.getByTitle("Effort");
+  await expect(effort).toHaveValue("");
+  await effort.selectOption("xhigh");
+  await expect(effort).toHaveValue("xhigh");
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

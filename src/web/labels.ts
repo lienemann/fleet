@@ -1,4 +1,13 @@
-import type { Activity, LowDisk, PermissionMode, RiskTag } from "../shared/events.ts";
+import {
+  type Activity,
+  EFFORT_LEVELS,
+  type EffortLevel,
+  type LowDisk,
+  type ModelChoice,
+  type PermissionMode,
+  type RiskTag,
+  type Usage,
+} from "../shared/events.ts";
 import { type AgentView, type Column, columnOf, needsUser } from "../shared/reducer.ts";
 
 export const COLUMNS: Array<{ id: Column; label: string }> = [
@@ -103,4 +112,47 @@ export function duration(ms: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+/** The choice for an alias, or for the full id a running session reports. */
+const findModel = (models: readonly ModelChoice[], value: string): ModelChoice | undefined =>
+  models.find((m) => m.value === value) ??
+  models.find((m) => m.value !== "default" && m.resolved === value);
+
+/** "Opus 5.5 (claude-opus-5-5)"; the default names the model it stands for. */
+export function modelLabel(models: readonly ModelChoice[], value = "default"): string {
+  const choice = findModel(models, value);
+  if (!choice) return value;
+  const version =
+    choice.resolved && choice.resolved !== choice.label ? ` (${choice.resolved})` : "";
+  if (value !== "default") return `${choice.label}${version}`;
+  const named = models.find((m) => m.value !== "default" && m.resolved === choice.resolved);
+  return `Default: ${named?.label ?? choice.label}${version}`;
+}
+
+/** The effort levels a model takes; all of them while the models are not known yet. */
+export function effortsOf(
+  models: readonly ModelChoice[],
+  value = "default",
+): readonly EffortLevel[] {
+  const choice = findModel(models, value);
+  return choice ? choice.efforts : EFFORT_LEVELS;
+}
+
+/** "5 h 34% · week 61%" */
+export const usageText = (usage: Usage): string =>
+  usage.limits.map((limit) => `${limit.label} ${limit.percent}%`).join(" · ");
+
+/** Each limit with when it resets, and the extra usage, for a tooltip. */
+export function usageDetails(usage: Usage, now: number): string {
+  const lines = usage.limits.map((limit) => {
+    const reset = limit.resetsAt ? Date.parse(limit.resetsAt) - now : Number.NaN;
+    const resets = Number.isFinite(reset) && reset > 0 ? `, resets in ${duration(reset)}` : "";
+    return `${limit.label}: ${limit.percent}% used${resets}`;
+  });
+  if (usage.extra) {
+    const { used, limit, currency } = usage.extra;
+    lines.push(`Extra usage: ${used.toFixed(2)} of ${limit.toFixed(2)} ${currency}`);
+  }
+  return [usage.plan && `${usage.plan} plan`, ...lines].filter(Boolean).join("\n");
 }

@@ -65,19 +65,23 @@ export const echoing = (...messages: SDKMessage[]): Script =>
 /** A scripted stand-in for the SDK's `query()`; each call runs the next script. */
 export function fakeQuery(...scripts: Script[]) {
   const calls: Params[] = [];
+  const queries: Query[] = [];
   const queryFn = vi.fn((params: Params) => {
     calls.push(params);
     const script = scripts[calls.length - 1] ?? scripts.at(-1);
     if (!script) throw new Error("no script");
-    return Object.assign(script(params), {
+    const query = Object.assign(script(params), {
       interrupt: vi.fn(async () => undefined),
       close: vi.fn(),
       setPermissionMode: vi.fn(async () => undefined),
       setModel: vi.fn(async () => undefined),
+      applyFlagSettings: vi.fn(async () => undefined),
       getContextUsage: vi.fn(async () => ({ totalTokens: 1000, maxTokens: 200_000 })),
     }) as unknown as Query;
+    queries.push(query);
+    return query;
   }) as unknown as QueryFn;
-  return { queryFn, calls };
+  return { queryFn, calls, queries };
 }
 
 export const worker = (

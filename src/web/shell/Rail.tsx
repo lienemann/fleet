@@ -2,7 +2,8 @@ import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
 import { type AgentView, agentList, workspaceInUse, workspaceUse } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { agentStatus } from "../labels.ts";
+import { agentStatus, usageDetails, usageText } from "../labels.ts";
+import { useNow } from "../useNow.ts";
 
 const clock = (ts: number): string =>
   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -18,6 +19,7 @@ interface Props {
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
 export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }: Props) {
   const { state, info } = useFleet();
+  const now = useNow();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
 
   return (
@@ -91,11 +93,21 @@ export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }:
           </ul>
         </>
       )}
-      <footer className="rail-foot" title={`Built ${new Date(__FLEET_BUILD__).toLocaleString()}`}>
-        fleet {__FLEET_VERSION__} ·{" "}
-        <a href={NOTICE_URL} target="_blank" rel="noreferrer" title={LEGAL_NOTICE}>
-          AGPL
-        </a>
+      <footer className="rail-foot">
+        <span title={`Built ${new Date(__FLEET_BUILD__).toLocaleString()}`}>
+          fleet {__FLEET_VERSION__} ·{" "}
+          <a href={NOTICE_URL} target="_blank" rel="noreferrer" title={LEGAL_NOTICE}>
+            AGPL
+          </a>
+        </span>
+        {state.usage && state.usage.limits.length > 0 && (
+          <span
+            className={`usage${state.usage.limits.some((l) => l.percent >= 80) ? " high" : ""}`}
+            title={usageDetails(state.usage, now)}
+          >
+            {usageText(state.usage)}
+          </span>
+        )}
       </footer>
     </aside>
   );

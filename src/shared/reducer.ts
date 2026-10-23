@@ -4,9 +4,11 @@ import {
   type ContextCategory,
   DEFAULT_PERMISSION_MODE,
   type DecisionKind,
+  type EffortLevel,
   type FleetEvent,
   type LogRole,
   type LowDisk,
+  type ModelChoice,
   type OpenPoint,
   type PermissionMode,
   type Question,
@@ -18,6 +20,7 @@ import {
   type TaskState,
   type Tint,
   type Todo,
+  type Usage,
 } from "./events.ts";
 import type { ReviewComment, ReviewEdit } from "./review.ts";
 
@@ -103,6 +106,8 @@ export interface AgentView {
   pending: number;
   sessionId?: string;
   model?: string;
+  /** Set by the user; without it the model's own default. */
+  effort?: EffortLevel;
   permissionMode: PermissionMode;
   slashCommands: string[];
   log: LogLine[];
@@ -162,6 +167,10 @@ export interface FleetState {
   power: PowerState;
   /** Volumes short of space; one entry per volume, so the list stays short. */
   disk: LowDisk[];
+  /** The models Claude Code offers, as the daemon last read them. */
+  models: ModelChoice[];
+  /** The subscription's usage, when the login has plan limits. */
+  usage?: Usage;
   /** The daemon restarts as soon as no agent is mid-turn. */
   restartPending: boolean;
   /** Workspaces that sessions outside fleet hold, by workspace name. */
@@ -196,6 +205,8 @@ export const TEXT_LIMIT = 4000;
 export const MESSAGE_LIMIT = 500;
 /** Timeline segments kept per agent. */
 export const HISTORY_LIMIT = 400;
+/** Models offered for picking; Claude Code lists about a dozen. */
+export const MODELS_LIMIT = 40;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
@@ -280,6 +291,7 @@ export const emptyState = (): FleetState => ({
   openPoints: {},
   power: { caffeinated: false, lidMode: false },
   disk: [],
+  models: [],
   restartPending: false,
   claims: {},
 });
@@ -331,6 +343,13 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     return { ...state, power: { caffeinated, lidMode, since, note } };
   }
   if (event.kind === "disk") return { ...state, disk: event.low };
+  if (event.kind === "account") {
+    return {
+      ...state,
+      models: event.models?.slice(0, MODELS_LIMIT) ?? state.models,
+      usage: event.usage ?? state.usage,
+    };
+  }
   if (event.kind === "workspace_claim") {
     const { [event.workspace]: _released, ...claims } = state.claims;
     if (event.holder !== null) {
@@ -424,6 +443,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     case "settings":
       return patch({
         model: event.model ?? agent.model,
+        effort: event.effort === undefined ? agent.effort : (event.effort ?? undefined),
         permissionMode: event.permissionMode ?? agent.permissionMode,
         color: event.color ?? agent.color,
         tint: event.tint ?? agent.tint,

@@ -12,6 +12,7 @@ import {
   type Activity,
   type AgentEvent,
   DEFAULT_PERMISSION_MODE,
+  type EffortLevel,
   type EventBody,
   type PermissionMode,
   type PromptAttachment,
@@ -31,6 +32,7 @@ export interface SessionOptions {
   /** Session id from an earlier run to continue. */
   resume?: string;
   model?: string;
+  effort?: EffortLevel;
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   /** Added to Claude Code's system prompt: the role's instructions from `prompts.ts`. */
@@ -87,6 +89,7 @@ export class AgentSession {
   private query: Query | undefined;
   private sessionId: string | undefined;
   private model: string | undefined;
+  private effort: EffortLevel | undefined;
   private permissionMode: PermissionMode;
   private running = false;
   /** Bumped by every start and stop; a run loop acts only while its generation is current. */
@@ -106,6 +109,7 @@ export class AgentSession {
     this.options = options;
     this.sessionId = options.resume;
     this.model = options.model;
+    this.effort = options.effort;
     this.permissionMode = options.permissionMode ?? DEFAULT_PERMISSION_MODE;
     this.sleep = options.sleep ?? defaultSleep;
   }
@@ -220,6 +224,13 @@ export class AgentSession {
     this.options.emit({ kind: "settings", model });
   }
 
+  /** Like /effort in the CLI; null goes back to the model's own default. */
+  async setEffort(effort: EffortLevel | null): Promise<void> {
+    this.effort = effort ?? undefined;
+    await this.query?.applyFlagSettings({ effortLevel: effort }).catch(() => undefined);
+    this.options.emit({ kind: "settings", effort });
+  }
+
   private current(generation: number): boolean {
     return this.running && generation === this.generation;
   }
@@ -266,6 +277,7 @@ export class AgentSession {
       cwd,
       env: env && { ...process.env, ...env },
       model: this.model,
+      effort: this.effort,
       allowedTools,
       mcpServers,
       hooks: this.options.hooks,

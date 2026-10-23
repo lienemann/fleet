@@ -6,6 +6,7 @@ import type {
   SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { USAGE_METHOD } from "./account.ts";
 import type { QueryFn } from "./session.ts";
 import type { SessionSource } from "./sessions.ts";
 import { SERVER, toolsOf } from "./tools.ts";
@@ -69,7 +70,7 @@ export function demoQuery(delayMs = 400): QueryFn {
         type: "system",
         subtype: "init",
         session_id: sessionId,
-        model: options.model ?? "demo",
+        model: options.model ?? "claude-opus-5-5",
         permissionMode: options.permissionMode ?? "default",
         slash_commands: ["compact", "context", "review", "init"],
       });
@@ -105,6 +106,9 @@ export function demoQuery(delayMs = 400): QueryFn {
       },
       setPermissionMode: async () => undefined,
       setModel: async () => undefined,
+      applyFlagSettings: async () => undefined,
+      initializationResult: async () => ({ models: DEMO_MODELS }),
+      [USAGE_METHOD]: async () => DEMO_USAGE,
       getContextUsage: async () => ({
         totalTokens: 18_000 + 9_000 * sessions,
         maxTokens: 200_000,
@@ -121,6 +125,45 @@ export function demoQuery(delayMs = 400): QueryFn {
     }) as unknown as Query;
   }) as QueryFn;
 }
+
+const efforts = ["low", "medium", "high", "xhigh", "max"];
+const DEMO_MODELS = [
+  {
+    value: "default",
+    resolvedModel: "claude-opus-5-5",
+    displayName: "Default (recommended)",
+    supportedEffortLevels: efforts,
+  },
+  {
+    value: "opus",
+    resolvedModel: "claude-opus-5-5",
+    displayName: "Opus 5.5",
+    supportedEffortLevels: efforts,
+  },
+  {
+    value: "sonnet",
+    resolvedModel: "claude-sonnet-5-5",
+    displayName: "Sonnet 5.5",
+    supportedEffortLevels: efforts,
+  },
+  {
+    value: "haiku",
+    resolvedModel: "claude-haiku-5-5",
+    displayName: "Haiku 5.5",
+    supportedEffortLevels: efforts,
+  },
+];
+const inDays = (days: number): string => new Date(Date.now() + days * 86_400_000).toISOString();
+const DEMO_USAGE = {
+  subscription_type: "max",
+  rate_limits_available: true,
+  rate_limits: {
+    limits: [
+      { kind: "session", percent: 34, resets_at: inDays(0.1), severity: "normal" },
+      { kind: "weekly_all", percent: 61, resets_at: inDays(3), severity: "normal" },
+    ],
+  },
+};
 
 type Step =
   | { type: "say"; text: string; parent?: string | null }

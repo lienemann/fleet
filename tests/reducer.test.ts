@@ -237,3 +237,20 @@ describe("holder", () => {
     expect(run(detached).holder).toBeUndefined();
   });
 });
+
+describe("account", () => {
+  it("keeps the latest models and usage, each until the next report of it", () => {
+    const models = [
+      { value: "default", label: "Default", resolved: "claude-opus-5-5", efforts: [] },
+    ];
+    const usage = { plan: "team", limits: [{ label: "5 h", percent: 8 }] };
+    const state = reduceAll(
+      events(
+        { kind: "account", agent: "daemon", models, usage },
+        { kind: "account", agent: "daemon", models },
+      ),
+    );
+    expect(state.models).toEqual(models);
+    expect(state.usage).toEqual(usage);
+  });
+});

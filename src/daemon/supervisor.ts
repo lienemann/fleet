@@ -303,6 +303,9 @@ export class Supervisor implements ToolHost {
       case "set_model":
         this.background(this.session(message.agent)?.setModel(message.model));
         return;
+      case "set_effort":
+        this.background(this.session(message.agent)?.setEffort(message.effort));
+        return;
       case "set_color":
         if (this.agent(message.agent))
           this.append(message.agent, { kind: "settings", color: message.color });
@@ -1269,6 +1272,7 @@ export class Supervisor implements ToolHost {
       queryFn: this.queryFn,
       resume: agent.sessionId,
       model: agent.model ?? this.config.model,
+      effort: agent.effort,
       permissionMode: agent.permissionMode,
       allowedTools: allowed.filter((rule) => rule.includes("(")),
       mcpServers: { [SERVER]: fleetServer(name, agent.role, this) },

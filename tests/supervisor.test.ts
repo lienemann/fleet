@@ -23,7 +23,7 @@ function setup(log = new EventLog(":memory:"), queryFn?: QueryFn, running = 4) {
     const agent = log.state.agents[name];
     return agent && columnOf(agent);
   };
-  return { log, supervisor, calls: fake.calls, column };
+  return { log, supervisor, calls: fake.calls, queries: fake.queries, column };
 }
 
 describe("Supervisor", () => {
@@ -60,6 +60,24 @@ describe("Supervisor", () => {
     await until(() => calls.length === 1);
     expect(calls[0]?.options?.permissionMode).toBe("auto");
     expect(log.state.agents.alpha?.permissionMode).toBe("auto");
+  });
+
+  it("sets the effort of a running session and of its later starts", async () => {
+    const { log, supervisor, calls, queries } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => calls.length === 1);
+    supervisor.handle({ type: "set_effort", agent: "alpha", effort: "xhigh" });
+    await until(() => log.state.agents.alpha?.effort === "xhigh");
+    expect(queries[0]?.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "xhigh" });
+
+    supervisor.handle({ type: "stop", agent: "alpha" });
+    await until(() => log.state.agents.alpha?.activity === "stopped");
+    supervisor.handle({ type: "start", agent: "alpha" });
+    await until(() => calls.length === 2);
+    expect(calls[1]?.options?.effort).toBe("xhigh");
+
+    supervisor.handle({ type: "set_effort", agent: "alpha", effort: null });
+    await until(() => log.state.agents.alpha?.effort === undefined);
   });
 
   it("starts a new task straight into work, without a moment in Needs you", () => {

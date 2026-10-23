@@ -1,13 +1,18 @@
-import { PERMISSION_MODES } from "../../shared/events.ts";
+import { EFFORT_LEVELS, type ModelChoice, PERMISSION_MODES } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { contextPercent, MODE_LABELS } from "../labels.ts";
+import { contextPercent, effortsOf, MODE_LABELS, modelLabel } from "../labels.ts";
 
-const MODELS = ["opus", "sonnet", "haiku"];
+/** Until the daemon has asked Claude Code for its models. */
+const FALLBACK_MODELS: ModelChoice[] = ["opus", "sonnet", "haiku"].map((value) => ({
+  value,
+  label: value,
+  efforts: [],
+}));
 
-/** The CLI's status line: permission mode, model, context, and session controls. */
+/** The CLI's status line: permission mode, model, effort, context, and session controls. */
 export function CliBar({ agent }: { agent: AgentView }) {
-  const { send } = useFleet();
+  const { send, state } = useFleet();
   const name = agent.name;
   const live = agent.activity === "working" || agent.activity === "idle";
   const nextMode =
@@ -15,7 +20,14 @@ export function CliBar({ agent }: { agent: AgentView }) {
       (PERMISSION_MODES.indexOf(agent.permissionMode) + 1) % PERMISSION_MODES.length
     ];
   const percent = contextPercent(agent);
-  const models = agent.model && !MODELS.includes(agent.model) ? [agent.model, ...MODELS] : MODELS;
+  const known = state.models.length > 0 ? state.models : FALLBACK_MODELS;
+  // A running session reports the full id; it takes its alias's place in the list.
+  const listed = known
+    .filter((m) => m.value !== "default")
+    .map((m) => (agent.model !== undefined && m.resolved === agent.model ? agent.model : m.value));
+  const values = [
+    ...new Set(agent.model && !listed.includes(agent.model) ? [agent.model, ...listed] : listed),
+  ];
 
   return (
     <div className="cli-bar">
@@ -34,10 +46,29 @@ export function CliBar({ agent }: { agent: AgentView }) {
           value={agent.model ?? ""}
           onChange={(event) => send({ type: "set_model", agent: name, model: event.target.value })}
         >
-          {!agent.model && <option value="">default model</option>}
-          {models.map((model) => (
-            <option key={model} value={model}>
-              {model}
+          {!agent.model && <option value="">{modelLabel(state.models)}</option>}
+          {values.map((value) => (
+            <option key={value} value={value}>
+              {modelLabel(known, value)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="cli-pill"
+          title="Effort"
+          value={agent.effort ?? ""}
+          onChange={(event) =>
+            send({
+              type: "set_effort",
+              agent: name,
+              effort: EFFORT_LEVELS.find((level) => level === event.target.value) ?? null,
+            })
+          }
+        >
+          <option value="">effort: default</option>
+          {effortsOf(state.models, agent.model).map((level) => (
+            <option key={level} value={level}>
+              effort: {level}
             </option>
           ))}
         </select>

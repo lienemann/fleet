@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentEvent, DAEMON } from "../shared/events.ts";
+import { ACCOUNT_POLL_MS, Account } from "./account.ts";
 import { Auth, loadRemoteSecret, loadSecret, loginLink } from "./auth.ts";
 import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery, demoSessions } from "./demo.ts";
@@ -51,6 +52,10 @@ const supervisor = new Supervisor({
 
 // Workspaces of Claude Code sessions that ended are released once nobody took them over.
 setInterval(() => supervisor.expireClaims(), 30_000).unref();
+// The models Claude Code offers and the subscription's usage, for the model picker and the header.
+const account = new Account(queryFn, (event) => log.append({ ...event, agent: DAEMON }), home);
+void account.refresh();
+setInterval(() => void account.refresh(), ACCOUNT_POLL_MS).unref();
 // Sessions held by a terminal, VS Code or the Desktop app are taken back once those let go.
 setInterval(() => void supervisor.watchHolders(), HOLDER_POLL_MS).unref();
 

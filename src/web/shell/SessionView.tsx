@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ContextCategory } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { MODE_LABELS } from "../labels.ts";
+import { MODE_LABELS, modelLabel } from "../labels.ts";
 import { canHandOver } from "../tile/CliBar.tsx";
 
 /** Outputs shown before "Show more". */
@@ -30,6 +30,7 @@ export function SessionView({ agent }: { agent: AgentView }) {
 }
 
 function Environment({ agent }: { agent: AgentView }) {
+  const { state } = useFleet();
   return (
     <section className="panel">
       <h3>Environment</h3>
@@ -41,7 +42,10 @@ function Environment({ agent }: { agent: AgentView }) {
           {agent.workspace} · <code>{agent.cwd}</code>
         </dd>
         <dt>Model</dt>
-        <dd>{agent.model ?? "default"}</dd>
+        <dd>
+          {modelLabel(state.models, agent.model)}
+          {agent.effort && `, effort ${agent.effort}`}
+        </dd>
         <dt>Permissions</dt>
         <dd>{MODE_LABELS[agent.permissionMode]}</dd>
         <dt>Session</dt>

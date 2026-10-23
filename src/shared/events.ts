@@ -116,6 +116,36 @@ export interface LowDisk {
   host?: string;
 }
 
+/** How hard the model thinks, as Claude Code's /effort sets it. */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** A model Claude Code offers: the alias a session is started with and what it stands for. */
+export interface ModelChoice {
+  /** "default", "opus", or a full id. */
+  value: string;
+  label: string;
+  /** The versioned model id, e.g. "claude-opus-5-5". */
+  resolved?: string;
+  efforts: EffortLevel[];
+}
+
+/** One limit of the subscription, e.g. the 5-hour session or the week. */
+export interface UsageLimit {
+  label: string;
+  percent: number;
+  resetsAt?: string;
+  severity?: string;
+}
+
+/** How much of the subscription is used, as Claude Code's /usage shows it. */
+export interface Usage {
+  plan?: string;
+  limits: UsageLimit[];
+  /** Usage beyond the plan, paid from credits. */
+  extra?: { used: number; limit: number; currency: string };
+}
+
 /** A Claude Code process outside fleet that has a session open. */
 export interface SessionHolder {
   pid: number;
@@ -165,6 +195,8 @@ export type EventBody =
   | {
       kind: "settings";
       model?: string;
+      /** null: the model's own default. */
+      effort?: EffortLevel | null;
       permissionMode?: PermissionMode;
       color?: string;
       tint?: Tint;
@@ -236,6 +268,8 @@ export type EventBody =
   | { kind: "restart"; pending: boolean }
   /** The Mac's sleep settings; logged by the daemon itself. */
   | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string }
+  /** The models Claude Code offers and the subscription's usage; logged by the daemon. */
+  | { kind: "account"; models?: ModelChoice[]; usage?: Usage }
   /** The volumes that are short of space now, none when all are fine; logged by the daemon. */
   | { kind: "disk"; low: LowDisk[] }
   /**
