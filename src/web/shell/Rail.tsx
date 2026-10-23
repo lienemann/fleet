@@ -1,7 +1,11 @@
+import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
-import { type AgentView, agentList } from "../../shared/reducer.ts";
+import { type AgentView, agentList, workspaceInUse, workspaceUse } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { agentStatus } from "../labels.ts";
+
+const clock = (ts: number): string =>
+  new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 interface Props {
   selected: string | undefined;
@@ -13,12 +17,8 @@ interface Props {
 
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
 export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }: Props) {
-  const { state, info, send } = useFleet();
+  const { state, info } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
-  const holder = (workspace: string) =>
-    agentList(state).find(
-      (a) => a.workspace === workspace && a.task !== "queued" && a.task !== "accepted",
-    );
 
   return (
     <aside className="rail">
@@ -79,41 +79,15 @@ export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }:
             </button>
           </h2>
           <ul className="workspaces">
-            {info.workspaces.map((ws) => {
-              const claim = state.claims[ws.name];
-              const task = holder(ws.name);
-              return (
-                <li key={ws.name} title={ws.path}>
-                  <span className="name">{ws.name}</span>
-                  {claim ? (
-                    <span
-                      className="dim"
-                      title={
-                        claim.until
-                          ? `${claim.note ?? ""} The session ended; a new session in ${ws.name} takes it over, or it is released then.`
-                          : claim.note
-                      }
-                    >
-                      {claim.holder}
-                      {claim.until !== undefined &&
-                        ` until ${new Date(claim.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}{" "}
-                      <button
-                        type="button"
-                        className="link"
-                        title={`Release ${ws.name}: tasks waiting for it start`}
-                        onClick={() => send({ type: "release_workspace", workspace: ws.name })}
-                      >
-                        release
-                      </button>
-                    </span>
-                  ) : task ? (
-                    <span className="dim name">{task.name}</span>
-                  ) : (
-                    <span className="dim">free</span>
-                  )}
-                </li>
-              );
-            })}
+            {info.workspaces.map((ws) => (
+              <WorkspaceRow
+                key={ws.name}
+                name={ws.name}
+                path={ws.path}
+                only={lastWorkspace(info, ws.name)}
+                onSelect={onSelect}
+              />
+            ))}
           </ul>
         </>
       )}
@@ -152,5 +126,90 @@ function AgentRow({
       <span className="rail-title">{agent.title}</span>
       {agent.unseen && <span className="new">new</span>}
     </button>
+  );
+}
+
+/**
+ * A workspace with whoever is in it and what they do there: a task's agent, a session outside
+ * fleet that claimed it, or nobody. Only a workspace nobody uses can be removed.
+ */
+function WorkspaceRow({
+  name,
+  path,
+  only,
+  onSelect,
+}: {
+  name: string;
+  path: string;
+  /** The last workspace stays, so that tasks have somewhere to go. */
+  only: boolean;
+  onSelect: (agent: string) => void;
+}) {
+  const { state, send, color } = useFleet();
+  const use = workspaceUse(state, name);
+  const { claim } = use;
+  const task = use.tasks[0];
+  const status = task && agentStatus(task);
+  const kept = only ? "it is the only one" : workspaceInUse(use);
+  const detail = claim ? claim.note : task?.title;
+
+  return (
+    <li title={path}>
+      <div className="ws-line">
+        <span className="name">{name}</span>
+        <span className="ws-use">
+          {claim ? (
+            <span
+              className="dim"
+              title={
+                claim.until
+                  ? `The session ended; a new session in ${name} takes it over, or it is released at ${clock(claim.until)}.`
+                  : `Claimed by a session outside fleet since ${clock(claim.since)}`
+              }
+            >
+              {claim.holder}
+              {claim.until !== undefined && ` until ${clock(claim.until)}`}{" "}
+              <button
+                type="button"
+                className="link"
+                title={`Release ${name}: tasks waiting for it start`}
+                onClick={() => send({ type: "release_workspace", workspace: name })}
+              >
+                release
+              </button>
+            </span>
+          ) : task && status ? (
+            <button
+              type="button"
+              className="link ws-agent"
+              title={`${task.name}: ${task.title}`}
+              onClick={() => onSelect(task.name)}
+            >
+              <span className={`dot col-${status.dot} act-${task.activity}`} />
+              <span style={{ color: color(task.color) }}>{task.name}</span>
+              <span className="dim">{status.label}</span>
+            </button>
+          ) : (
+            <span className="dim">free</span>
+          )}
+          {use.queued > 0 && <span className="dim">+{use.queued} queued</span>}
+          <button
+            type="button"
+            className="link remove-x"
+            aria-label={`Remove ${name}`}
+            title={
+              kept
+                ? `${name} stays in fleet: ${kept}`
+                : `Remove ${name} from fleet; jj and the directory stay`
+            }
+            disabled={kept !== undefined}
+            onClick={() => send({ type: "remove_workspace", workspace: name })}
+          >
+            ×
+          </button>
+        </span>
+      </div>
+      {detail && <div className="ws-detail">{detail}</div>}
+    </li>
   );
 }

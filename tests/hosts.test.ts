@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
 import {
   LOCAL,
+  lastWorkspace,
   locate,
   mergeInfo,
   mergeStates,
@@ -99,6 +100,8 @@ describe("routing", () => {
       remotes,
     );
     expect(task[0]).toMatchObject({ host: "pod1", message: { workspace: "ws3" } });
+    const removal = routeCommand({ type: "remove_workspace", workspace: "pod1/ws3" }, remotes);
+    expect(removal[0]).toMatchObject({ host: "pod1", message: { workspace: "ws3" } });
   });
 
   it("marks everything seen everywhere, but switches only the local Mac's sleep", () => {
@@ -123,14 +126,26 @@ describe("routing", () => {
   });
 });
 
-it("lists the workspaces of all daemons", () => {
-  const info = (host: string, names: string[]) => ({
+describe("mergeInfo", () => {
+  const info = (host: string, names: string[], remotes: string[] = []) => ({
     host,
     workspaces: names.map((name) => ({ name, path: `/${name}`, host })),
     wip: { running: 4, review: 2 },
-    remotes: [],
+    remotes,
   });
-  expect(
-    mergeInfo(info("mac", ["ws1"]), { pod1: info("pod", ["ws3"]) }).workspaces.map((w) => w.name),
-  ).toEqual(["ws1", "pod1/ws3"]);
+
+  it("lists the workspaces of all daemons", () => {
+    expect(
+      mergeInfo(info("mac", ["ws1"]), { pod1: info("pod", ["ws3"]) }).workspaces.map((w) => w.name),
+    ).toEqual(["ws1", "pod1/ws3"]);
+  });
+
+  it("knows the last workspace of each daemon", () => {
+    const merged = mergeInfo(info("mac", ["ws1", "ws2"], ["pod1"]), { pod1: info("pod", ["ws3"]) });
+    expect(merged.workspaces.map((ws) => lastWorkspace(merged, ws.name))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
 });

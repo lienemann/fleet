@@ -210,6 +210,32 @@ export function workspaceHolder(
   return task?.name ?? state.claims[workspace]?.holder;
 }
 
+/** Who uses a workspace right now. */
+export interface WorkspaceUse {
+  /** Agents whose work lives in the workspace. */
+  tasks: AgentView[];
+  /** Tasks waiting for it. */
+  queued: number;
+  claim?: Claim;
+}
+
+export function workspaceUse(state: FleetState, workspace: string): WorkspaceUse {
+  const here = agentList(state).filter((a) => a.workspace === workspace);
+  return {
+    tasks: here.filter((a) => HOLDS_WORKSPACE.has(a.task)),
+    queued: here.filter((a) => a.task === "queued").length,
+    claim: state.claims[workspace],
+  };
+}
+
+/** Why a workspace cannot leave fleet now, or undefined if nothing keeps it. */
+export function workspaceInUse({ tasks, queued, claim }: WorkspaceUse): string | undefined {
+  if (claim) return `${claim.holder} has claimed it`;
+  if (tasks.length > 0) return `it holds the work of ${tasks.map((a) => a.name).join(", ")}`;
+  if (queued > 0) return `${queued} queued ${queued === 1 ? "task waits" : "tasks wait"} for it`;
+  return undefined;
+}
+
 export function columnOf(agent: AgentView): Column {
   const waiting = agent.pending > 0 || agent.activity === "idle";
   return ACTIVE.has(agent.task) && waiting ? "needs_you" : agent.task;

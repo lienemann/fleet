@@ -30,6 +30,8 @@ import {
   type Claim,
   columnOf,
   HOLDS_WORKSPACE,
+  workspaceInUse,
+  workspaceUse,
 } from "../shared/reducer.ts";
 import type { ReviewModel } from "../shared/review.ts";
 import { changeRequest } from "./changeRequest.ts";
@@ -57,7 +59,7 @@ import {
   ToolError,
   type ToolHost,
 } from "./tools.ts";
-import { listJjWorkspaces, persistWorkspace } from "./workspaces.ts";
+import { forgetWorkspace, listJjWorkspaces, persistWorkspace } from "./workspaces.ts";
 
 const NAMES = [
   "alpha",
@@ -305,6 +307,9 @@ export class Supervisor implements ToolHost {
       case "add_workspace":
         this.addWorkspace(message.name, message.path, message.explicit);
         return;
+      case "remove_workspace":
+        this.removeWorkspace(message.workspace);
+        return;
       case "release_workspace":
         if (this.log.state.claims[message.workspace]) this.release(message.workspace);
         return;
@@ -385,6 +390,20 @@ export class Supervisor implements ToolHost {
     if (this.configFile) persistWorkspace(this.configFile, { name, path, explicit }, before);
     this.onWorkspacesChanged?.();
     this.schedule();
+  }
+
+  /** Takes a workspace out of fleet and config.toml; jj and the directory stay as they are. */
+  private removeWorkspace(name: string): void {
+    const index = this.config.workspaces.findIndex((ws) => ws.name === name);
+    if (index < 0) return;
+    const reason =
+      this.config.workspaces.length === 1
+        ? "it is the only one"
+        : workspaceInUse(workspaceUse(this.log.state, name));
+    if (reason) throw new Error(`${name} stays: ${reason}.`);
+    if (this.configFile) forgetWorkspace(this.configFile, name);
+    this.config.workspaces.splice(index, 1);
+    this.onWorkspacesChanged?.();
   }
 
   /** Checks a directory before it is added as a workspace: any directory, also of another repo. */
@@ -778,16 +797,10 @@ export class Supervisor implements ToolHost {
 
   /** Every workspace with what holds it: tasks, a claim, or nothing. */
   workspaceList(): WorkspaceStatus[] {
-    return this.config.workspaces.map(({ name, path, explicit }) => ({
-      name,
-      path,
-      explicit,
-      tasks: this.agents
-        .filter((a) => a.workspace === name && HOLDS_WORKSPACE.has(a.task))
-        .map((a) => a.name),
-      queued: this.agents.filter((a) => a.workspace === name && a.task === "queued").length,
-      claim: this.log.state.claims[name],
-    }));
+    return this.config.workspaces.map(({ name, path, explicit }) => {
+      const use = workspaceUse(this.log.state, name);
+      return { name, path, explicit, ...use, tasks: use.tasks.map((a) => a.name) };
+    });
   }
 
   /**

@@ -91,7 +91,10 @@ Any agent takes a message from the prompt at the bottom of its tile (`p` focuses
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it
 does not use yet, and the one you pick is saved to the config. The same dialog takes any other directory, such as
 another project: once it is added, `i` imports the Claude Code sessions recorded there. Tasks go into such a
-directory only when they name it, so the director never puts work for this repo there.
+directory only when they name it, so the director never puts work for this repo there. The list shows who is in
+each workspace and what they are doing; the × on a free one takes it out of fleet and the config again, and leaves
+jj and the directory alone. The × on an agent removes it the same way; its transcript stays, so `i` can bring it
+back.
 
 To update fleet without losing sessions, pull and rebuild, then run `fleet restart` or pick "Restart fleet" in the command palette.
 The daemon waits until no agent is in the middle of a turn, exits, and the `fleet` command starts the new version,

@@ -87,6 +87,12 @@ export function mergeInfo(
   };
 }
 
+/** Whether `workspace` is the last one of its daemon, which keeps it so tasks can go somewhere. */
+export function lastWorkspace(info: DaemonInfo, workspace: string): boolean {
+  const host = locate(workspace, info.remotes).host;
+  return info.workspaces.filter((ws) => locate(ws.name, info.remotes).host === host).length === 1;
+}
+
 type Routed<T> = Array<{ host: string; message: T }>;
 
 /** Which daemons a command goes to, each with the names that daemon knows. */
@@ -109,7 +115,8 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
     }
     case "import_session":
     case "create_task":
-    case "release_workspace": {
+    case "release_workspace":
+    case "remove_workspace": {
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
     }

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { MAC_SECRET } from "./secrets.ts";
 
@@ -414,6 +415,28 @@ test("removing an agent asks first while its workspace holds its work", async ({
   await row.getByRole("button", { name: `Remove ${name}` }).click();
   await expect(rail).not.toContainText("Explain the scheduler");
   await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeHidden();
+});
+
+test("a workspace in use stays, and a free one can be removed", async ({ page }) => {
+  await page.goto("/");
+  const row = (name: string) =>
+    page.locator(".workspaces li", { has: page.getByText(name, { exact: true }) });
+
+  await newTask(page, "Hold a workspace", "ws2");
+  await row("ws2").hover();
+  await expect(row("ws2").getByRole("button", { name: "Remove ws2" })).toBeDisabled();
+
+  await page.locator(".rail").getByTitle("Add an existing jj workspace").click();
+  const other = page.locator(".other-directory");
+  await other.getByLabel("Directory").fill(join(process.cwd(), "docs"));
+  await other.getByRole("button", { name: "Check" }).click();
+  await other.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a workspace" }).getByLabel("Close").click();
+
+  await expect(row("docs")).toContainText("free");
+  await row("docs").hover();
+  await row("docs").getByRole("button", { name: "Remove docs" }).click();
+  await expect(row("docs")).toBeHidden();
 });
 
 test("can be installed as an app", async ({ page, request }) => {

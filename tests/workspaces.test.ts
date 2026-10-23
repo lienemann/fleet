@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { loadConfig } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
+import { forgetWorkspace } from "../src/daemon/workspaces.ts";
 import { echoing, fakeQuery, result } from "./helpers.ts";
 
 const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
@@ -90,4 +91,56 @@ it("checks any other directory before it becomes a workspace, and imports its se
   expect(supervisor.startTask({ title: "Here", context: "x", workspace: "other-repo" })).toContain(
     "in other-repo",
   );
+});
+
+it("takes a workspace out of config.toml and keeps the rest of the file as it was", () => {
+  const home = mkdtempSync(join(tmpdir(), "fleet-forget-"));
+  const file = join(home, "config.toml");
+  const config = (middle: string) =>
+    `# fleet\nport = 7777\n\n[[workspaces]]\nname = "ws1"\npath = "/w/ws1"\n${middle}\n[[workspaces]]\nname = "ws3"\npath = "/w/ws3"\n\n# Off for now.\n[history]\nenabled = false\n`;
+  writeFileSync(
+    file,
+    config(
+      `\n# Runs the slow tests.\n[[workspaces]]\nname = "ws2"\npath = "/w/ws2"\nexplicit = true\n`,
+    ),
+  );
+
+  forgetWorkspace(file, "ws2");
+  expect(readFileSync(file, "utf8")).toBe(config(""));
+  forgetWorkspace(file, "ws3");
+  expect(loadConfig(home).workspaces.map((ws) => ws.name)).toEqual(["ws1"]);
+  expect(readFileSync(file, "utf8")).toContain("# Off for now.\n[history]");
+
+  writeFileSync(file, `workspaces = [{ name = "ws1", path = "/w/ws1" }]\n`);
+  expect(() => forgetWorkspace(file, "ws1")).toThrow("remove it there");
+});
+
+it("removes only a workspace nobody uses, and never the last one", () => {
+  const home = mkdtempSync(join(tmpdir(), "fleet-remove-"));
+  const file = join(home, "config.toml");
+  const entry = (name: string) => `\n[[workspaces]]\nname = "${name}"\npath = "${home}/${name}"\n`;
+  writeFileSync(file, `[director]\nenabled = false\n${["ws1", "ws2", "ws3"].map(entry).join("")}`);
+  const changed = vi.fn();
+  const supervisor = new Supervisor({
+    log: new EventLog(":memory:"),
+    queryFn: fakeQuery(echoing(result())).queryFn,
+    config: loadConfig(home),
+    configFile: file,
+    onWorkspacesChanged: changed,
+  });
+  const remove = (workspace: string) => supervisor.handle({ type: "remove_workspace", workspace });
+
+  supervisor.startTask({ title: "One", context: "x", workspace: "ws1" });
+  supervisor.claimWorkspace("outside", "ws2");
+  expect(() => remove("ws1")).toThrow("ws1 stays: it holds the work of alpha.");
+  expect(() => remove("ws2")).toThrow("ws2 stays: outside has claimed it.");
+
+  remove("ws3");
+  expect(changed).toHaveBeenCalledOnce();
+  expect(supervisor.workspaceList().map((ws) => ws.name)).toEqual(["ws1", "ws2"]);
+  expect(loadConfig(home).workspaces.map((ws) => ws.name)).toEqual(["ws1", "ws2"]);
+
+  supervisor.releaseWorkspace("outside", "ws2");
+  remove("ws2");
+  expect(() => remove("ws1")).toThrow("ws1 stays: it is the only one.");
 });

@@ -430,7 +430,8 @@ h2 {
   .remove-x {
     visibility: hidden;
   }
-  .rail-row:hover .remove-x {
+  .rail-row:hover .remove-x,
+  .workspaces li:hover .remove-x {
     visibility: visible;
   }
   .rail-row:hover .rail-item {
@@ -471,10 +472,35 @@ h2 {
   border: 2px solid var(--c, var(--dim));
 }
 .workspaces li {
+  font: 12px var(--font-mono);
+  padding: 3px 4px;
+}
+.ws-line {
   display: flex;
   justify-content: space-between;
-  font: 12px var(--font-mono);
-  padding: 2px 4px;
+  align-items: baseline;
+  gap: 8px;
+}
+.ws-use {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.ws-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  font: inherit;
+}
+.ws-detail {
+  overflow: hidden;
+  color: var(--dim);
+  font: 11px var(--text-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Drawer */

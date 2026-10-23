@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { DIRECTOR, PERMISSION_MODES, type UserMove } from "../shared/events.ts";
-import { agentList, HOLDS_WORKSPACE, pendingDecisions } from "../shared/reducer.ts";
+import { lastWorkspace } from "../shared/hosts.ts";
+import {
+  agentList,
+  HOLDS_WORKSPACE,
+  pendingDecisions,
+  workspaceInUse,
+  workspaceUse,
+} from "../shared/reducer.ts";
 import { useFleet } from "./fleet.tsx";
 import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, useCommands } from "./keys/keymap.tsx";
@@ -32,7 +39,7 @@ type Overlay = "new-task" | "import" | "workspaces" | "shortcuts" | "palette";
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
 export function App() {
-  const { state, connected, offline, error, send, toggleTheme } = useFleet();
+  const { state, info, connected, offline, error, send, toggleTheme } = useFleet();
   const [view, setView] = useState<View>("board");
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
@@ -193,6 +200,19 @@ export function App() {
       select,
     ),
     ...agentCommands(selected),
+    ...(info?.workspaces ?? [])
+      .filter(
+        (ws) =>
+          info && !lastWorkspace(info, ws.name) && !workspaceInUse(workspaceUse(state, ws.name)),
+      )
+      .map(
+        (ws): Command => ({
+          id: `workspace.remove.${ws.name}`,
+          label: `Remove workspace ${ws.name}`,
+          group: "Fleet",
+          run: () => send({ type: "remove_workspace", workspace: ws.name }),
+        }),
+      ),
     ...agents.map(
       (a): Command => ({
         id: `open.${a.name}`,
