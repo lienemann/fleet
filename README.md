@@ -232,3 +232,11 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 packaged as the npm package `@zhinst/reviewdiff-core` would be. `vendor/jj-orbit` holds jj orbit's server and
 viewer. Both are copies of upstream that a test keeps byte for byte; the README in each folder says how to update
 them.
+
+## License
+
+fleet is copyright Jan Lienemann and free software under the GNU Affero General Public License, version 3 or
+later ([LICENSE](LICENSE)). You may use, change and pass on fleet, also at work. If you pass on a changed version,
+or let others use one over a network, its source has to be available under the same license. [NOTICE](NOTICE) adds
+one term the license allows: the attribution "fleet by Jan Lienemann" stays in the notices the program shows.
+ReviewDiff's code in `vendor/reviewdiff` keeps its MIT license.

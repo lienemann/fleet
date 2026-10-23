@@ -2,6 +2,8 @@
   "name": "fleet",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Jan Lienemann",
   "type": "module",
   "description": "Personal supervisor UI and daemon for parallel Claude Code agents",
   "engines": {

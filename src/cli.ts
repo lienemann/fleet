@@ -9,6 +9,7 @@ import { loadSecret, loginLink } from "./daemon/auth.ts";
 import { fleetHome, loadConfig } from "./daemon/config.ts";
 import { init } from "./daemon/init.ts";
 import { RESTART_EXIT_CODE } from "./daemon/restart.ts";
+import { LEGAL_NOTICE } from "./shared/legal.ts";
 import { VERSION } from "./shared/version.ts";
 
 const USAGE = `Usage:
@@ -85,7 +86,7 @@ function restart(): void {
 if (values.help) {
   process.stdout.write(USAGE);
 } else if (values.version) {
-  console.log(`fleet ${VERSION}`);
+  console.log(`fleet ${VERSION}\n${LEGAL_NOTICE}`);
 } else if (positionals[0] === "init") {
   try {
     const result = init({

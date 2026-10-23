@@ -1,3 +1,4 @@
+import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
 import { type AgentView, agentList } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { agentStatus } from "../labels.ts";
@@ -92,7 +93,10 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
         </>
       )}
       <footer className="rail-foot" title={`Built ${new Date(__FLEET_BUILD__).toLocaleString()}`}>
-        fleet {__FLEET_VERSION__}
+        fleet {__FLEET_VERSION__} ·{" "}
+        <a href={NOTICE_URL} target="_blank" rel="noreferrer" title={LEGAL_NOTICE}>
+          AGPL
+        </a>
       </footer>
     </aside>
   );

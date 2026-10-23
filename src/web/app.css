@@ -358,6 +358,9 @@ h2 {
   color: var(--dim);
   font: 11px var(--font-mono);
 }
+.rail-foot a {
+  color: inherit;
+}
 .tree,
 .tree ul,
 .workspaces {
