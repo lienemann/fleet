@@ -5,6 +5,8 @@ work from you, splits it into tasks and hands each one to a worker agent in its 
 all in one browser tab and answer what they ask. The design is in [docs/design.md](docs/design.md), and
 [docs/mockup/](docs/mockup/) has the clickable mockup it was built from.
 
+![The board: one column per task state, with two workers waiting for a permission](docs/screenshots/board.png)
+
 ## What it does
 
 The daemon runs one Agent SDK session per agent and writes everything that happens to a SQLite event log. The
@@ -20,6 +22,14 @@ mentions. You can paste, drop or attach files there: images and PDFs go to Claud
 saved into the agent's `.fleet` folder and mentioned by path. Assistant text and messages render as Markdown, with
 tables and highlighted code. The timeline shows how long each agent waited on you, the flow view shows who sends
 messages to whom, and the history view embeds jj orbit with the op log as checkpoints.
+
+| | |
+| --- | --- |
+| ![The inbox with two permission requests and Claude's reason for each](docs/screenshots/inbox.png) | ![The grid of live tiles, each like the CLI](docs/screenshots/grid.png) |
+| ![The diff of a task in review, in the order of its walkthrough](docs/screenshots/diff.png) | ![The flow view with the director, three workers and two running subagents](docs/screenshots/flow.png) |
+| ![The timeline with time spent waiting on you](docs/screenshots/timeline.png) | |
+
+The screenshots come from the demo; `just screenshots` takes them again.
 
 Selecting an agent opens its drawer. Besides the diff, report and messages, the Session tab shows where the agent
 runs, what fills its context window (split up the way `/context` does it) and which files it wrote. The Activity

@@ -35,3 +35,8 @@ install: develop
     npm run build:web
     mkdir -p ~/.local/bin
     ln -sf "{{justfile_directory()}}/src/cli.ts" ~/.local/bin/fleet
+
+# Take the README's screenshots again from a demo daemon
+screenshots: develop
+    npm run build:web
+    node scripts/screenshots.ts
