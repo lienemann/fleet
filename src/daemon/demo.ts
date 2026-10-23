@@ -30,6 +30,7 @@ export function demoQuery(delayMs = 400): QueryFn {
     /** Runs a step; tool steps yield the call and then its result, like the CLI. */
     async function* perform(step: Step): AsyncGenerator<SDKMessage> {
       if (step.type === "say") return yield say(step.text, step.parent);
+      if (step.type === "done") return yield toolResult(step.id, step.output);
       if (step.type === "write") {
         mkdirSync(dirname(join(options.cwd ?? ".", step.path)), { recursive: true });
         writeFileSync(join(options.cwd ?? ".", step.path), step.content);
@@ -41,7 +42,10 @@ export function demoQuery(delayMs = 400): QueryFn {
         step.input,
         step.parent,
       );
-      if (step.type === "tool") return yield toolResult(step.id, step.output, step.parent);
+      if (step.type === "tool") {
+        if (step.output !== undefined) yield toolResult(step.id, step.output, step.parent);
+        return;
+      }
       if (step.type === "bash") {
         const verdict = await options.canUseTool?.("Bash", step.input, {
           signal: new AbortController().signal,
@@ -125,9 +129,11 @@ type Step =
       id: string;
       name: string;
       input: Record<string, unknown>;
-      output: string;
+      /** Without one, the call stays open until a "done" step answers it. */
+      output?: string;
       parent?: string | null;
     }
+  | { type: "done"; id: string; output: string }
   | {
       type: "bash";
       id: string;
@@ -188,7 +194,6 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
       id: id(2),
       name: "Task",
       input: { description: "Explore related code", prompt: "Find where this is handled" },
-      output: "src/a.py:12 is the relevant one.",
     },
     {
       type: "tool",
@@ -199,6 +204,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
       parent: id(2),
     },
     { type: "say", text: "Two call sites; src/a.py is the one on the hot path.", parent: id(2) },
+    { type: "done", id: id(2), output: "src/a.py:12 is the relevant one." },
     { type: "fleet", id: id(4), name: "report_status", input: { status: "Running the tests" } },
     {
       type: "say",

@@ -1458,6 +1458,10 @@ button.link.accent {
   stroke-width: 14;
   cursor: pointer;
 }
+/* No messages on it yet */
+.flow-graph .link.quiet line:first-child {
+  stroke-dasharray: 5 6;
+}
 .flow-graph .link.active line:first-child {
   stroke: var(--accent);
 }
@@ -1476,6 +1480,22 @@ button.link.accent {
 .flow-graph .node text {
   font-size: 11px;
   text-anchor: middle;
+}
+.flow-graph .node .state {
+  fill: var(--muted);
+  font-size: 10.5px;
+}
+.flow-graph .node.faded {
+  opacity: 0.55;
+}
+.flow-graph .node .needs-ring {
+  fill: none;
+  stroke: var(--warn);
+  stroke-dasharray: 4 4;
+}
+.flow-graph .sub-link line {
+  stroke: var(--line);
+  stroke-dasharray: 3 4;
 }
 .flow-messages h2 {
   display: flex;
@@ -1788,38 +1808,70 @@ button.ln:hover {
 }
 .lane {
   display: grid;
-  grid-template-columns: 110px 1fr 70px;
+  grid-template-columns: 170px minmax(0, 1fr) 130px;
   gap: 10px;
   align-items: center;
   margin-bottom: 6px;
 }
 .lane-name {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
   text-align: left;
+}
+.lane-title {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-wait {
+  color: var(--warn);
+  font-size: 11.5px;
 }
 .track {
   position: relative;
-  height: 18px;
+  height: 24px;
   background: var(--col);
   border: 1px solid var(--line2);
-  border-radius: 4px;
+  border-radius: 5px;
   overflow: hidden;
 }
 .segment {
   position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 2px;
+  border-radius: 3px;
+}
+/* A message to or from the agent */
+.mark {
+  position: absolute;
   top: 0;
   bottom: 0;
-  min-width: 2px;
+  width: 2px;
+  background: var(--msg);
 }
 .axis {
-  display: grid;
-  grid-template-columns: 110px 1fr 70px;
-  gap: 10px;
   color: var(--dim);
   font-size: 11px;
 }
 .axis-range {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 16px;
+}
+.axis-range span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.axis-range span:first-child {
+  transform: none;
+}
+.axis-range span:last-child {
+  transform: translateX(-100%);
 }
 .lane-running {
   background: var(--run);
@@ -1845,10 +1897,17 @@ button.ln:hover {
 }
 .legend {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px 16px;
   margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line2);
   color: var(--muted);
   font-size: 12px;
+}
+.legend .bottleneck {
+  margin-left: auto;
+  color: var(--fg2);
 }
 .swatch-box {
   display: inline-block;
@@ -1856,6 +1915,12 @@ button.ln:hover {
   height: 10px;
   border-radius: 2px;
   vertical-align: -1px;
+}
+.mark-box {
+  width: 2px;
+  height: 12px;
+  border-radius: 0;
+  background: var(--msg);
 }
 
 /* History */

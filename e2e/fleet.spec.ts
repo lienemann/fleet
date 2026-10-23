@@ -158,6 +158,10 @@ test("the director spawns a worker per line and reports to the user", async ({ p
 
   await page.getByRole("button", { name: "Flow 5" }).click();
   await expect(page.locator(".flow-graph .node", { hasText: "director" })).toBeVisible();
+  // Each worker shows what it is up to, and is linked to the director before any message.
+  await expect(
+    page.locator(".flow-graph .node .state", { hasText: /working|needs you/ }).first(),
+  ).toBeVisible();
   await expect(page.locator(".flow-messages")).toContainText("Started 2 worker(s).");
   await shot(page, "flow");
 });
@@ -231,7 +235,9 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
   await page.keyboard.press("g");
   await page.keyboard.press("t");
   await expect(page.locator(".lane").first()).toBeVisible();
-  await expect(page.locator(".timeline")).toContainText("waited on you");
+  await expect(page.locator(".lane-wait", { hasText: /waited .+ on you/ }).first()).toBeVisible();
+  await expect(page.locator(".legend")).toContainText("You were the bottleneck for");
+  await expect(page.locator(".axis")).toContainText("−5 min");
   await page.keyboard.press("w");
   await expect(page.getByRole("button", { name: "2 h" })).toHaveAttribute("aria-pressed", "true");
   await shot(page, "timeline");
