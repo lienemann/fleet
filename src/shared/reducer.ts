@@ -153,6 +153,14 @@ export interface FleetState {
   power: PowerState;
   /** The daemon restarts as soon as no agent is mid-turn. */
   restartPending: boolean;
+  /** Workspaces that sessions outside fleet hold, by workspace name. */
+  claims: Record<string, Claim>;
+}
+
+export interface Claim {
+  holder: string;
+  note?: string;
+  since: number;
 }
 
 export interface PowerState {
@@ -212,6 +220,7 @@ export const emptyState = (): FleetState => ({
   openPoints: {},
   power: { caffeinated: false, lidMode: false },
   restartPending: false,
+  claims: {},
 });
 
 /**
@@ -259,6 +268,13 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
   if (event.kind === "power") {
     const { caffeinated, lidMode, since, note } = event;
     return { ...state, power: { caffeinated, lidMode, since, note } };
+  }
+  if (event.kind === "workspace_claim") {
+    const { [event.workspace]: _released, ...claims } = state.claims;
+    if (event.holder !== null) {
+      claims[event.workspace] = { holder: event.holder, note: event.note, since: event.ts };
+    }
+    return { ...state, claims };
   }
   if (event.kind === "agent_created") {
     const agent: AgentView = {

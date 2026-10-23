@@ -198,7 +198,12 @@ export type EventBody =
   /** A restart was asked for, and waits until no agent is mid-turn; logged by the daemon itself. */
   | { kind: "restart"; pending: boolean }
   /** The Mac's sleep settings; logged by the daemon itself. */
-  | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string };
+  | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string }
+  /**
+   * A session outside fleet took a workspace (`holder` set) or gave it back (`holder` null);
+   * logged by the daemon itself. No task starts in a claimed workspace.
+   */
+  | { kind: "workspace_claim"; workspace: string; holder: string | null; note?: string };
 
 export type EventKind = EventBody["kind"];
 

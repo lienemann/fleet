@@ -16,7 +16,7 @@ import {
   USER,
 } from "../shared/events.ts";
 import type { Answer, Call, CallResults, Command, SessionSummary } from "../shared/protocol.ts";
-import { type AgentView, agentList, columnOf } from "../shared/reducer.ts";
+import { type AgentView, agentList, type Claim, columnOf } from "../shared/reducer.ts";
 import type { ReviewModel } from "../shared/review.ts";
 import { changeRequest } from "./changeRequest.ts";
 import type { Config, Workspace } from "./config.ts";
@@ -84,6 +84,16 @@ const DEFAULT_WORKSPACE = "default";
 const RESTART_NOTE =
   "The fleet daemon restarted while you were working. Continue where you left off; " +
   "requests you were waiting on were cancelled, so ask again if you still need them.";
+
+export interface WorkspaceStatus {
+  name: string;
+  path: string;
+  /** Agents whose work lives in the workspace. */
+  tasks: string[];
+  /** Tasks waiting for the workspace. */
+  queued: number;
+  claim?: Claim;
+}
 
 export interface SupervisorOptions {
   log: EventLog;
@@ -261,6 +271,9 @@ export class Supervisor implements ToolHost {
         return;
       case "add_workspace":
         this.addWorkspace(message.name, message.path);
+        return;
+      case "release_workspace":
+        if (this.log.state.claims[message.workspace]) this.release(message.workspace);
         return;
       case "restart":
         if (message.cancel) this.cancelRestart();
@@ -572,19 +585,21 @@ export class Supervisor implements ToolHost {
     return `Sent to ${to}.`;
   }
 
-  spawn({ title, context, workspace }: SpawnRequest): string {
+  spawn(request: SpawnRequest): string {
     const inReview = this.agents.filter((a) => a.role === "worker" && a.task === "review").length;
     if (inReview >= this.config.wip.review) {
       throw new ToolError(
         `Review is full (${inReview}/${this.config.wip.review}); spawn again once the user has reviewed.`,
       );
     }
+    return this.startTask(request);
+  }
+
+  /** Creates a worker task with its brief written to the workspace; the director's limits aside. */
+  startTask({ title, context, workspace }: SpawnRequest): string {
     const ws = workspace ?? this.pickWorkspace();
     const name = this.createTask(title, context, ws);
-    if (!name) {
-      const names = this.config.workspaces.map((w) => w.name).join(", ");
-      throw new ToolError(`No workspace "${ws}". Workspaces: ${names}.`);
-    }
+    if (!name) throw new ToolError(`No workspace "${ws}". Workspaces: ${this.workspaceNames()}.`);
     this.writeContextPack(name, context);
     return `Spawned ${name} in ${ws}; it is ${this.agent(name)?.task}.`;
   }
@@ -601,7 +616,7 @@ export class Supervisor implements ToolHost {
         if (a.status) lines.push(`- status: ${a.status}`);
         if (a.pending > 0) lines.push(`- waiting on ${a.pending} user decision(s)`);
         if (a.report) lines.push(`- report: ${a.report.summary}`);
-        if (a.note) lines.push(`- your note: ${a.note}`);
+        if (a.note) lines.push(`- director's note: ${a.note}`);
         return lines.join("\n");
       })
       .join("\n\n");
@@ -619,6 +634,72 @@ export class Supervisor implements ToolHost {
     if (!session?.isRunning) return `${agent} is not running.`;
     await session.stop();
     return `Stopped ${agent}.`;
+  }
+
+  // --- Workspaces for sessions outside fleet ----------------------------------------
+
+  /** Every workspace with what holds it: tasks, a claim, or nothing. */
+  workspaceList(): WorkspaceStatus[] {
+    return this.config.workspaces.map(({ name, path }) => ({
+      name,
+      path,
+      tasks: this.agents
+        .filter((a) => a.workspace === name && HOLDS_WORKSPACE.has(a.task))
+        .map((a) => a.name),
+      queued: this.agents.filter((a) => a.workspace === name && a.task === "queued").length,
+      claim: this.log.state.claims[name],
+    }));
+  }
+
+  /**
+   * Reserves a workspace for `holder`, so that no task starts there until it is released.
+   * Without a name, the first one that is free and has no task waiting for it.
+   */
+  claimWorkspace(holder: string, name?: string, note?: string): { name: string; path: string } {
+    const list = this.workspaceList();
+    const status = name
+      ? list.find((ws) => ws.name === name)
+      : list.find((ws) => !ws.claim && ws.tasks.length === 0 && ws.queued === 0);
+    if (!status) {
+      throw new ToolError(
+        name
+          ? `No workspace "${name}". Workspaces: ${this.workspaceNames()}.`
+          : "No workspace is free; list_workspaces shows who holds them.",
+      );
+    }
+    const workspace = { name: status.name, path: status.path };
+    if (status.claim?.holder === holder) return workspace;
+    if (status.claim) throw new ToolError(`${status.name} is claimed by ${status.claim.holder}.`);
+    if (status.tasks.length > 0) {
+      throw new ToolError(`${status.name} holds the work of ${status.tasks.join(", ")}.`);
+    }
+    this.append(DAEMON, { kind: "workspace_claim", workspace: status.name, holder, note });
+    return workspace;
+  }
+
+  releaseWorkspace(holder: string, name: string): string {
+    const claim = this.log.state.claims[name];
+    if (!claim) return `${name} was not claimed.`;
+    if (claim.holder !== holder) throw new ToolError(`${name} is claimed by ${claim.holder}.`);
+    this.release(name);
+    return `Released ${name}.`;
+  }
+
+  /** A message from a session outside fleet; replies can only go to the user. */
+  messageFromOutside(from: string, to: string, body: string): string {
+    if (from === USER || from === DAEMON || this.agent(from)) {
+      throw new ToolError(`"${from}" is taken by fleet; sign with another name.`);
+    }
+    return this.message(from, to, body);
+  }
+
+  private release(name: string): void {
+    this.append(DAEMON, { kind: "workspace_claim", workspace: name, holder: null });
+    this.schedule();
+  }
+
+  private workspaceNames(): string {
+    return this.config.workspaces.map((w) => w.name).join(", ");
   }
 
   // --- Internals ---------------------------------------------------------------------
@@ -737,9 +818,12 @@ export class Supervisor implements ToolHost {
   }
 
   private workspaceFree(workspace: string, except?: string): boolean {
-    return !this.agents.some(
-      (other) =>
-        other.name !== except && other.workspace === workspace && HOLDS_WORKSPACE.has(other.task),
+    return (
+      !this.log.state.claims[workspace] &&
+      !this.agents.some(
+        (other) =>
+          other.name !== except && other.workspace === workspace && HOLDS_WORKSPACE.has(other.task),
+      )
     );
   }
 

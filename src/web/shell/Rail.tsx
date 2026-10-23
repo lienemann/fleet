@@ -10,7 +10,7 @@ interface Props {
 
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
 export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
-  const { state, info } = useFleet();
+  const { state, info, send } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const holder = (workspace: string) =>
     agentList(state).find(
@@ -53,12 +53,29 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
             </button>
           </h2>
           <ul className="workspaces">
-            {info.workspaces.map((ws) => (
-              <li key={ws.name} title={ws.path}>
-                <span>{ws.name}</span>
-                <span className="dim">{holder(ws.name)?.name ?? "free"}</span>
-              </li>
-            ))}
+            {info.workspaces.map((ws) => {
+              const claim = state.claims[ws.name];
+              return (
+                <li key={ws.name} title={ws.path}>
+                  <span>{ws.name}</span>
+                  {claim ? (
+                    <span className="dim" title={claim.note}>
+                      {claim.holder}{" "}
+                      <button
+                        type="button"
+                        className="link"
+                        title={`Release ${ws.name}: tasks waiting for it start`}
+                        onClick={() => send({ type: "release_workspace", workspace: ws.name })}
+                      >
+                        release
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="dim">{holder(ws.name)?.name ?? "free"}</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

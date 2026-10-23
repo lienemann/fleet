@@ -45,7 +45,8 @@ const text = (value: string, isError = false): Result => ({
   ...(isError && { isError }),
 });
 
-async function run(body: () => string | Promise<string>): Promise<Result> {
+/** Runs a tool body; a `ToolError` becomes an error result the agent reads. */
+export async function run(body: () => string | Promise<string>): Promise<Result> {
   try {
     return text(await body());
   } catch (error) {

@@ -48,6 +48,7 @@ const { server, close, broadcastInfo } = createFleetServer({
   orbit,
   log,
   supervisor,
+  mcp: supervisor,
   info: () => ({
     host: config.host,
     workspaces: config.workspaces.map(({ name, path }) => ({ name, path, host: config.host })),

@@ -79,7 +79,7 @@ describe("director", () => {
     const ledger = supervisor.ledger();
     expect(ledger).toContain("## alpha: Fix it");
     expect(ledger).toContain("status: Running the tests");
-    expect(ledger).toContain("your note: blocked on CI");
+    expect(ledger).toContain("director's note: blocked on CI");
   });
 
   it("may write its notes but no code", () => {

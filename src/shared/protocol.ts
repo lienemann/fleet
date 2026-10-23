@@ -55,6 +55,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
     name: z.string().regex(/^[\w.-]+$/),
     path: z.string().min(1),
   }),
+  /** Ends a claim a session outside fleet holds on a workspace, e.g. one it forgot to release. */
+  z.object({ type: z.literal("release_workspace"), workspace: z.string().min(1) }),
   /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
   z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
   z.object({

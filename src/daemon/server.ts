@@ -16,6 +16,7 @@ import {
   type ServerMessage,
 } from "../shared/protocol.ts";
 import type { EventLog } from "./eventLog.ts";
+import { handleMcp, type McpHost } from "./mcp.ts";
 import type { Orbit } from "./orbit.ts";
 import type { Supervisor } from "./supervisor.ts";
 
@@ -32,6 +33,8 @@ export interface ServerOptions {
   orbit?: Pick<Orbit, "port">;
   /** Daemons on other hosts, relayed at /remote/<name>/ws. */
   remotes?: Array<{ name: string; url: string }>;
+  /** Serves fleet's tools to Claude Code sessions outside fleet at /mcp. */
+  mcp?: McpHost;
 }
 
 /** A client further behind than this gets a snapshot instead of a replay. */
@@ -82,7 +85,7 @@ export function createFleetServer(options: ServerOptions): {
   /** Sends the current daemon info to every page connected to this daemon. */
   broadcastInfo: () => void;
 } {
-  const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit } = options;
+  const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit, mcp } = options;
   const remotes = options.remotes ?? [];
   const allowed = (req: IncomingMessage): boolean =>
     isAllowedRequest(req.headers, allowedHosts, allowedOrigins);
@@ -94,6 +97,14 @@ export function createFleetServer(options: ServerOptions): {
     }
     if (orbit && (req.url === "/orbit" || req.url?.startsWith("/orbit/"))) {
       void proxyOrbit(orbit, req, res);
+      return;
+    }
+    if (mcp && new URL(req.url ?? "/", "http://localhost").pathname === "/mcp") {
+      handleMcp(mcp, req, res).catch((error: unknown) => {
+        console.error("fleet: mcp:", error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
       return;
     }
     serveStatic(staticDir, req, res);

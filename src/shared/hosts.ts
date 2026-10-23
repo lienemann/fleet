@@ -45,6 +45,7 @@ function renameAgents(state: FleetState, host: string): FleetState {
         { ...doc, docId: q(doc.docId), agent: q(doc.agent) },
       ]),
     ),
+    claims: Object.fromEntries(Object.entries(state.claims).map(([ws, c]) => [q(ws), c])),
   };
 }
 
@@ -62,6 +63,7 @@ export function mergeStates(
       decisions: { ...merged.decisions, ...renamed.decisions },
       messages: [...merged.messages, ...renamed.messages].sort((a, b) => a.ts - b.ts),
       openPoints: { ...merged.openPoints, ...renamed.openPoints },
+      claims: { ...merged.claims, ...renamed.claims },
     };
   }
   return merged;
@@ -104,7 +106,8 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       return [{ host, message: { ...message, docId: name } }];
     }
     case "import_session":
-    case "create_task": {
+    case "create_task":
+    case "release_workspace": {
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
     }

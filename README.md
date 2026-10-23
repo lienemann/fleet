@@ -116,6 +116,19 @@ url = "http://127.0.0.1:7801"
 On a pod, run the same daemon with its own workspaces and `[director] enabled = false`, then forward its port with
 `coder port-forward <pod> --tcp 7801:7777` or `ssh -L 7801:127.0.0.1:7777 <pod>`.
 
+## Claude Code sessions outside fleet
+
+The daemon serves an MCP server at `/mcp`, so a Claude Code session you run yourself can work alongside the fleet:
+
+```
+claude mcp add --transport http fleet http://127.0.0.1:7777/mcp
+```
+
+Such a session can then list the workspaces with whoever holds them, claim a free one to work in and release it
+afterwards, list fleet's tasks, hand a new task to fleet, and send a message to an agent, the director or you. No
+task starts in a claimed workspace, and the director's tasks go elsewhere. The rail shows the claim with a release
+link, for a session that forgot to give it back.
+
 ## Security
 
 The daemon can make agents run commands, so it listens on 127.0.0.1 only. It accepts browser connections only from
