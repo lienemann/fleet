@@ -235,6 +235,13 @@ test("everything works from the keyboard", async ({ page }) => {
   );
   await page.keyboard.press("Escape");
 
+  // A shortcut after a click leaves no focus frame on the clicked button.
+  const board = page.getByRole("button", { name: /^Board/ });
+  await board.click();
+  await page.keyboard.press("3");
+  await expect(board).not.toBeFocused();
+  await page.keyboard.press("1");
+
   // g then a letter goes to a view; after the g, a hint lists the letters.
   await page.keyboard.press("g");
   await expect(page.locator(".chord-hint")).toContainText("Inbox");

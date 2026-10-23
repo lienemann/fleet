@@ -128,13 +128,15 @@ export function KeymapProvider({ children }: { children: ReactNode }) {
           (best, c) => ((c.priority ?? 0) >= (best?.priority ?? 0) ? c : best),
           undefined,
         );
+      const isPrefix = candidates.some((c) => c.keys?.some((k) => k.startsWith(`${sequence} `)));
+      // A button clicked earlier keeps the focus; after a shortcut, the browser would frame it.
+      if ((match || isPrefix) && event.target instanceof HTMLButtonElement) event.target.blur();
       if (match) {
         event.preventDefault();
         setChord(undefined);
         match.run();
         return;
       }
-      const isPrefix = candidates.some((c) => c.keys?.some((k) => k.startsWith(`${sequence} `)));
       if (isPrefix && !pendingRef.current) {
         event.preventDefault();
         setChord(stroke);
