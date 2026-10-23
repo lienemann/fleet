@@ -4,6 +4,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   type DecisionKind,
   type EffortLevel,
+  type FileEdit,
   type FleetEvent,
   type LogRole,
   type LowDisk,
@@ -49,6 +50,8 @@ export interface LogLine {
   title?: string;
   /** The state keeps only the start of long output; the event log has all of it. */
   truncated?: boolean;
+  /** The files a turn edited, on the line that ends it; paths relative to the workspace. */
+  edits?: FileEdit[];
 }
 
 /** A shell, subagent, monitor or workflow the session runs on its own, or ran. */
@@ -141,6 +144,8 @@ export interface AgentView {
   };
   /** Files the session wrote or edited, newest first. */
   outputs: string[];
+  /** What the current turn changed so far, per file. */
+  turnEdits: FileEdit[];
   /** The latest handover to a fresh session, while it runs or if it failed. */
   handover?: { state: "writing" | "done" | "failed"; path: string; note?: string };
   /** Handovers so far; numbers the handover files. */
@@ -234,6 +239,8 @@ export const HISTORY_LIMIT = 400;
 export const HELD_LIMIT = 50;
 /** Models offered for picking; Claude Code lists about a dozen. */
 export const MODELS_LIMIT = 40;
+/** Files listed under a turn; a turn that edits more says how many. */
+export const EDITS_LIMIT = 100;
 /** Finished background tasks kept per agent; the oldest go first. */
 export const BACKGROUND_LIMIT = 20;
 
@@ -409,6 +416,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       subagents: [],
       backgroundTasks: [],
       outputs: [],
+      turnEdits: [],
       handovers: 0,
       comments: [],
       edits: [],
@@ -494,6 +502,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         log: appendLine(agent.log, event, event.role, event.text, event.toolName),
         subagents: trackSubagents(agent.subagents, event),
         outputs: trackOutputs(agent.outputs, event),
+        ...(event.edit && { turnEdits: addEdit(agent.turnEdits, event.edit, agent.cwd) }),
       });
     case "todos":
       return patch({ todos: event.todos });
@@ -532,7 +541,21 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     }
     case "turn_finished": {
       const day = dayOf(event.ts);
+      const edited = agent.turnEdits.length;
       return patch({
+        ...(edited > 0 && {
+          log: appendLine(
+            agent.log,
+            event,
+            "system",
+            `Edited ${edited} ${edited === 1 ? "file" : "files"}`,
+            undefined,
+            {
+              edits: agent.turnEdits.slice(0, EDITS_LIMIT),
+            },
+          ),
+          turnEdits: [],
+        }),
         offline: event.offline || undefined,
         costUsd: agent.costUsd + event.costUsd,
         costByDay: { ...agent.costByDay, [day]: (agent.costByDay[day] ?? 0) + event.costUsd },
@@ -647,6 +670,7 @@ function appendLine(
   role: LogRole,
   text: string,
   toolName?: string,
+  extra: Partial<LogLine> = {},
 ): LogLine[] {
   const truncated = text.length > TEXT_LIMIT;
   const line: LogLine = {
@@ -658,9 +682,19 @@ function appendLine(
     ...(event.kind === "log" && event.toolUseId && { toolUseId: event.toolUseId }),
     ...(event.kind === "log" && event.title && { title: event.title }),
     ...(truncated && { truncated }),
+    ...extra,
   };
   const kept = log.length >= LOG_LIMIT ? log.slice(log.length - LOG_LIMIT + 1) : log;
   return [...kept, line];
+}
+
+/** Adds an edit to the turn's, one entry per file; the path is shown relative to the workspace. */
+function addEdit(edits: FileEdit[], edit: FileEdit, cwd: string): FileEdit[] {
+  const path = edit.path.startsWith(`${cwd}/`) ? edit.path.slice(cwd.length + 1) : edit.path;
+  const before = edits.find((e) => e.path === path);
+  if (!before) return [...edits, { ...edit, path }];
+  const merged = { path, added: before.added + edit.added, removed: before.removed + edit.removed };
+  return edits.map((e) => (e === before ? merged : e));
 }
 
 /** Files kept in a session's outputs list. */

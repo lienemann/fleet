@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FileEdit } from "../../shared/events.ts";
 import type { LogLine, Subagent } from "../../shared/reducer.ts";
 import { Markdown } from "../ui/Markdown.tsx";
 
@@ -55,6 +56,46 @@ function ToolCall({ line }: { line: LogLine }) {
   );
 }
 
+/** Files listed before "Show all". */
+const EDITS_SHOWN = 3;
+
+const extensionOf = (path: string): string => /\.([\w]+)$/.exec(path)?.[1]?.slice(0, 4) ?? "";
+
+/** What a turn changed, file by file, like the Claude desktop app's card under a turn. */
+function EditedFiles({ title, edits }: { title: string; edits: FileEdit[] }) {
+  const [all, setAll] = useState(false);
+  const added = edits.reduce((sum, e) => sum + e.added, 0);
+  const removed = edits.reduce((sum, e) => sum + e.removed, 0);
+  return (
+    <div className="edited">
+      <div className="edited-head">
+        <span>{title}</span>
+        <Counts added={added} removed={removed} />
+      </div>
+      {(all ? edits : edits.slice(0, EDITS_SHOWN)).map((edit) => (
+        <div key={edit.path} className="edited-file">
+          <span className="file-type">{extensionOf(edit.path)}</span>
+          <span className="edited-path" title={edit.path}>
+            {edit.path}
+          </span>
+          <Counts added={edit.added} removed={edit.removed} />
+        </div>
+      ))}
+      {edits.length > EDITS_SHOWN && (
+        <button type="button" className="link dim" onClick={() => setAll(!all)}>
+          {all ? "Show less" : `Show all ${edits.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const Counts = ({ added, removed }: { added: number; removed: number }) => (
+  <span className="counts">
+    <span className="added">+{added}</span> <span className="removed">−{removed}</span>
+  </span>
+);
+
 /** The transcript as the CLI shows it, anchored at the bottom unless the user scrolled up to read. */
 export function Log({
   lines,
@@ -88,6 +129,7 @@ export function Log({
     >
       {shown.length === 0 && <p className="dim">No output for this filter.</p>}
       {shown.map((line) => {
+        if (line.edits) return <EditedFiles key={line.seq} title={line.text} edits={line.edits} />;
         const { glyph, kind } = kindOf(line);
         const sub = line.parent !== null;
         return (

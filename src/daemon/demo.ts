@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
   Query,
@@ -54,9 +54,33 @@ export function demoQuery(delayMs = 400): QueryFn {
         return yield toolResult(step.id, `Command running in background with ID: ${taskId}`);
       }
       if (step.type === "write") {
-        mkdirSync(dirname(join(options.cwd ?? ".", step.path)), { recursive: true });
-        writeFileSync(join(options.cwd ?? ".", step.path), step.content);
-        return;
+        // Like the CLI's Write: the call, then a result with the whole file as its patch.
+        const filePath = join(options.cwd ?? ".", step.path);
+        const before = existsSync(filePath) ? readFileSync(filePath, "utf8") : null;
+        const id = `${sessionId}-write-${step.path}`;
+        yield use(id, "Write", { file_path: filePath, content: step.content });
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, step.content);
+        const lines = (text: string, sign: string) =>
+          text
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => sign + line);
+        const patch =
+          before === null ? [] : [{ lines: [...lines(before, "-"), ...lines(step.content, "+")] }];
+        return yield msg({
+          type: "user",
+          parent_tool_use_id: null,
+          message: {
+            content: [{ type: "tool_result", tool_use_id: id, content: `Wrote ${step.path}` }],
+          },
+          tool_use_result: {
+            type: before === null ? "create" : "update",
+            filePath,
+            content: step.content,
+            structuredPatch: patch,
+          },
+        });
       }
       yield use(
         step.id,

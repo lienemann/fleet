@@ -56,6 +56,13 @@ export interface ContextCategory {
   kind: "used" | "free" | "buffer" | "deferred";
 }
 
+/** What one tool call changed in a file. */
+export interface FileEdit {
+  path: string;
+  added: number;
+  removed: number;
+}
+
 /** How a background task ended. */
 export type TaskEnd = "completed" | "failed" | "stopped";
 
@@ -212,6 +219,8 @@ export type EventBody =
       toolUseId?: string;
       /** For a tool call: what the agent said it is for, e.g. Bash's description. */
       title?: string;
+      /** For the result of an edit: the lines it changed. */
+      edit?: FileEdit;
     }
   | { kind: "todos"; todos: Todo[] }
   /** The live tasks as older versions logged them; superseded by the events below. */

@@ -1,5 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent, Todo } from "../shared/events.ts";
+import type { AgentEvent, FileEdit, Todo } from "../shared/events.ts";
 
 interface Block {
   type: string;
@@ -72,16 +72,21 @@ export function translate(message: SDKMessage): AgentEvent[] {
       return blocks(message.message.content).flatMap((block) =>
         assistantBlock(block, message.parent_tool_use_id),
       );
-    case "user":
-      return blocks(message.message.content)
-        .filter((block) => block.type === "tool_result")
-        .map((block) => ({
-          kind: "log" as const,
-          role: "tool_result" as const,
-          text: flatten(block.content),
-          toolUseId: block.tool_use_id,
-          parent: message.parent_tool_use_id,
-        }));
+    case "user": {
+      const results = blocks(message.message.content).filter(
+        (block) => block.type === "tool_result",
+      );
+      // The structured result belongs to the message's only tool result.
+      const edit = results.length === 1 ? fileEdit(message.tool_use_result) : undefined;
+      return results.map((block) => ({
+        kind: "log" as const,
+        role: "tool_result" as const,
+        text: flatten(block.content),
+        toolUseId: block.tool_use_id,
+        parent: message.parent_tool_use_id,
+        ...(edit && { edit }),
+      }));
+    }
     default:
       return [];
   }
@@ -124,6 +129,30 @@ function flatten(content: unknown): string {
   return blocks(content)
     .map((block) => block.text ?? "")
     .join("\n");
+}
+
+/** Lines an Edit or Write changed, from its structured result; undefined for other tools. */
+export function fileEdit(result: unknown): FileEdit | undefined {
+  if (typeof result !== "object" || result === null) return undefined;
+  const { filePath, structuredPatch, type, content, staged } = result as Record<string, unknown>;
+  if (typeof filePath !== "string" || !Array.isArray(structuredPatch) || staged === true) {
+    return undefined;
+  }
+  let added = 0;
+  let removed = 0;
+  for (const hunk of structuredPatch as Array<{ lines?: unknown }>) {
+    if (!Array.isArray(hunk.lines)) continue;
+    for (const line of hunk.lines) {
+      if (typeof line !== "string") continue;
+      if (line.startsWith("+")) added++;
+      else if (line.startsWith("-")) removed++;
+    }
+  }
+  // A new file comes without a patch.
+  if (type === "create" && structuredPatch.length === 0 && typeof content === "string") {
+    added = content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+  }
+  return { path: filePath, added, removed };
 }
 
 /** The purpose an agent gave for a tool call, if it gave one (Bash and Task take a description). */

@@ -1097,6 +1097,52 @@ button.link.accent {
 .line .sub-label {
   flex: none;
 }
+/* The files a turn edited, as a card under it. */
+.edited {
+  margin: 4px 0 6px;
+  padding: 6px 8px;
+  max-width: 560px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg2);
+}
+.edited-head,
+.edited-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.edited-head {
+  margin-bottom: 2px;
+  color: var(--fg);
+}
+.edited-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-type {
+  flex: none;
+  width: 3.2em;
+  font-size: 10px;
+  text-align: center;
+  border-radius: 3px;
+  background: var(--btn);
+  color: var(--muted);
+}
+.counts {
+  flex: none;
+  margin-left: auto;
+}
+.counts .added {
+  color: var(--addfg);
+}
+.counts .removed {
+  color: var(--delfg);
+}
 .line .text {
   min-width: 0;
   white-space: pre-wrap;

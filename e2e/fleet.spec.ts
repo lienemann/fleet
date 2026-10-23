@@ -134,6 +134,12 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await page.getByRole("button", { name: /^Messages/ }).click();
   await expect(page.locator(".drawer")).toContainText("Why 50 runs?");
   await page.getByRole("button", { name: "Live" }).click();
+  // Each turn that edited files ends with a card of them.
+  const edited = page.locator(".drawer .edited").first();
+  await expect(edited).toContainText("Edited 2 files");
+  await expect(edited.locator(".edited-file", { hasText: "lib.py" })).toContainText(/\+\d+ −\d+/);
+  await edited.scrollIntoViewIfNeeded();
+  await shot(page, "edited");
 
   await reviewed.getByRole("button", { name: "Accept" }).click();
   await expect(card(page, "Accepted", "Fix the flaky sweep test")).toBeVisible();
