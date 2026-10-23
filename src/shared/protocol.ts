@@ -80,6 +80,16 @@ export const CommandSchema = z.discriminatedUnion("type", [
     body: z.string().trim().min(1),
   }),
   z.object({ type: z.literal("comment_remove"), agent, commentId: z.string().min(1) }),
+  /**
+   * Makes an existing Claude Code session a task. It starts detached: the CLI may still have
+   * it open, and only one process may write a transcript.
+   */
+  z.object({
+    type: z.literal("import_session"),
+    sessionId: z.string().uuid(),
+    workspace: z.string().min(1),
+    title: z.string().trim().min(1),
+  }),
   /** Sends the draft comments and the user's edits as one message and moves the task to "changes requested". */
   z.object({ type: z.literal("request_changes"), agent, message: z.string().optional() }),
 ]);
@@ -93,6 +103,8 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review_load"), id, agent }),
   /** Paths of the agent's workspace, for @ mentions. */
   z.object({ type: z.literal("list_files"), id, agent }),
+  /** Claude Code sessions recorded for a workspace's directory, newest first. */
+  z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
   /** Files the agent keeps for the user under .fleet/<agent>/. */
   z.object({ type: z.literal("notes"), id, agent }),
   z.object({
@@ -120,10 +132,21 @@ export type ClientMessage = Command | Call;
 export interface CallResults {
   read_file: string;
   list_files: string[];
+  list_sessions: SessionSummary[];
   notes: Array<{ path: string; modified: number; size: number }>;
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;
+}
+
+/** A Claude Code session that could be imported. */
+export interface SessionSummary {
+  sessionId: string;
+  title: string;
+  lastModified: number;
+  branch?: string;
+  /** Already a task in fleet. */
+  imported: boolean;
 }
 
 export interface WorkspaceInfo {
@@ -139,6 +162,8 @@ export interface DaemonInfo {
   wip: { running: number; review: number };
   /** Daemons on other hosts this one relays at `/remote/<name>/ws`. */
   remotes: string[];
+  /** Directory of the director's workspace, "default", if there is a director. */
+  defaultWorkspace?: string;
 }
 
 export type ServerMessage =

@@ -21,7 +21,7 @@ import { Inbox } from "./views/Inbox.tsx";
 import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
 
-type Overlay = "new-task" | "shortcuts" | "palette";
+type Overlay = "new-task" | "import" | "shortcuts" | "palette";
 
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
@@ -72,6 +72,13 @@ export function App() {
       group: "Fleet",
       keys: ["n"],
       run: () => setOverlay("new-task"),
+    },
+    {
+      id: "task.import",
+      label: "Import a Claude Code session",
+      group: "Fleet",
+      keys: ["i"],
+      run: () => setOverlay("import"),
     },
     {
       id: "director.message",
@@ -326,7 +333,12 @@ export function App() {
       </div>
       <DirectorDock onOpen={select} />
       <ChordHint />
-      {overlay === "new-task" && <NewTask onClose={() => setOverlay(undefined)} />}
+      {(overlay === "new-task" || overlay === "import") && (
+        <NewTask
+          mode={overlay === "import" ? "import" : "new"}
+          onClose={() => setOverlay(undefined)}
+        />
+      )}
       {overlay === "shortcuts" && <Shortcuts onClose={() => setOverlay(undefined)} />}
       {overlay === "palette" && <Palette onClose={() => setOverlay(undefined)} />}
     </div>

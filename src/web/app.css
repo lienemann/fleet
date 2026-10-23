@@ -1318,3 +1318,12 @@ button.ln:hover {
   padding: 8px;
   border-radius: 6px;
 }
+
+/* Session import */
+.session-list {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.session-list .option small {
+  margin-left: auto;
+}

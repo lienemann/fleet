@@ -12,7 +12,7 @@ import {
   type TaskState,
   USER,
 } from "../shared/events.ts";
-import type { Answer, Call, CallResults, Command } from "../shared/protocol.ts";
+import type { Answer, Call, CallResults, Command, SessionSummary } from "../shared/protocol.ts";
 import { type AgentView, agentList, columnOf } from "../shared/reducer.ts";
 import type { ReviewModel } from "../shared/review.ts";
 import { changeRequest } from "./changeRequest.ts";
@@ -30,6 +30,7 @@ import type { Power } from "./power.ts";
 import { directorPrompt, workerPrompt } from "./prompts.ts";
 import { ReviewService } from "./review.ts";
 import { AgentSession, type QueryFn } from "./session.ts";
+import { type SessionSource, sdkSessions, sessionTitle, transcriptEvents } from "./sessions.ts";
 import {
   type DecisionAsk,
   fleetServer,
@@ -73,6 +74,9 @@ const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set(["running", "review", "c
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 const EDIT_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
+/** The director's workspace, the repo checkout the user works in too. */
+const DEFAULT_WORKSPACE = "default";
+
 const RESTART_NOTE =
   "The fleet daemon restarted while you were working. Continue where you left off; " +
   "requests you were waiting on were cancelled, so ask again if you still need them.";
@@ -82,6 +86,8 @@ export interface SupervisorOptions {
   queryFn: QueryFn;
   config: Pick<Config, "workspaces" | "wip" | "model" | "host" | "director">;
   power?: Pick<Power, "setLidMode">;
+  /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
+  sessions?: SessionSource;
 }
 
 /**
@@ -95,9 +101,12 @@ export class Supervisor implements ToolHost {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly reviews = new ReviewService();
   private readonly power: SupervisorOptions["power"];
+  private readonly sessionSource: SessionSource;
+  private readonly importing = new Set<string>();
 
-  constructor({ log, queryFn, config, power }: SupervisorOptions) {
+  constructor({ log, queryFn, config, power, sessions }: SupervisorOptions) {
     this.power = power;
+    this.sessionSource = sessions ?? sdkSessions;
     this.log = log;
     this.queryFn = queryFn;
     this.config = config;
@@ -122,7 +131,7 @@ export class Supervisor implements ToolHost {
         role: "director",
         title: "Director",
         color: DIRECTOR_COLOR,
-        workspace: "default",
+        workspace: DEFAULT_WORKSPACE,
         cwd: this.config.director,
         host: this.config.host,
       });
@@ -212,6 +221,9 @@ export class Supervisor implements ToolHost {
       case "request_changes":
         this.requestChanges(message.agent, message.message);
         return;
+      case "import_session":
+        this.background(this.importSession(message.sessionId, message.workspace, message.title));
+        return;
       case "set_lid_mode":
         this.background(
           this.power?.setLidMode(message.on, message.on ? "turned on by you" : "turned off by you"),
@@ -227,6 +239,7 @@ export class Supervisor implements ToolHost {
   }
 
   private async respond(call: Call): Promise<CallResults[Call["type"]]> {
+    if (call.type === "list_sessions") return this.listSessions(call.workspace);
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
@@ -254,15 +267,64 @@ export class Supervisor implements ToolHost {
     }
   }
 
+  /** Directory of a workspace; "default" is the director's, which the user shares. */
+  private workspaceDir(name: string): string | undefined {
+    return name === DEFAULT_WORKSPACE ? this.config.director : this.workspace(name)?.path;
+  }
+
+  private async listSessions(workspace: string): Promise<SessionSummary[]> {
+    const dir = this.workspaceDir(workspace);
+    if (!dir) throw new Error(`No workspace "${workspace}".`);
+    const known = new Set(this.agents.map((a) => a.sessionId));
+    const sessions = await this.sessionSource.list(dir);
+    return sessions
+      .map((info) => ({
+        sessionId: info.sessionId,
+        title: sessionTitle(info),
+        lastModified: info.lastModified,
+        branch: info.gitBranch,
+        imported: known.has(info.sessionId),
+      }))
+      .sort((a, b) => b.lastModified - a.lastModified);
+  }
+
+  /**
+   * Makes an existing session a task, with its transcript in the tile. It stays detached
+   * until the user takes it back: the CLI may still have it open.
+   */
+  private async importSession(sessionId: string, workspace: string, title: string): Promise<void> {
+    const dir = this.workspaceDir(workspace);
+    if (!dir || this.importing.has(sessionId) || this.agents.some((a) => a.sessionId === sessionId))
+      return;
+    // Reading the transcript takes a moment; a second click must not import the session twice.
+    this.importing.add(sessionId);
+    let transcript: AgentEvent[];
+    try {
+      transcript = transcriptEvents(await this.sessionSource.messages(sessionId, dir));
+    } finally {
+      this.importing.delete(sessionId);
+    }
+    const name = this.freshName();
+    this.append(name, {
+      kind: "agent_created",
+      role: "worker",
+      title,
+      color: this.freshColor(),
+      workspace,
+      cwd: dir,
+      host: this.config.host,
+    });
+    this.append(name, { kind: "session_started", sessionId });
+    for (const event of transcript) this.append(name, event);
+    this.append(name, { kind: "task_state", state: "running" });
+    this.append(name, { kind: "activity", activity: "detached" });
+  }
+
   createTask(title: string, prompt: string, workspace: string): string | undefined {
     const ws = this.workspace(workspace);
     if (!ws) return undefined;
     const name = this.freshName();
-    const used = new Set(this.agents.map((a) => a.color));
-    const color =
-      SWATCHES.find((c) => !used.has(c)) ??
-      SWATCHES[this.agents.length % SWATCHES.length] ??
-      SWATCHES[0];
+    const color = this.freshColor();
     this.append(name, {
       kind: "agent_created",
       role: "worker",
@@ -598,6 +660,16 @@ export class Supervisor implements ToolHost {
 
   private workspace(name: string): Workspace | undefined {
     return this.config.workspaces.find((ws) => ws.name === name);
+  }
+
+  /** The first swatch no agent has yet. */
+  private freshColor(): string {
+    const used = new Set(this.agents.map((a) => a.color));
+    return (
+      SWATCHES.find((c) => !used.has(c)) ??
+      SWATCHES[this.agents.length % SWATCHES.length] ??
+      SWATCHES[0]
+    );
   }
 
   private freshName(): string {

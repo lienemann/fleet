@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { DAEMON } from "../shared/events.ts";
 import { fleetHome, loadConfig } from "./config.ts";
-import { demoQuery } from "./demo.ts";
+import { demoQuery, demoSessions } from "./demo.ts";
 import { EventLog } from "./eventLog.ts";
 import { Orbit } from "./orbit.ts";
 import { Power } from "./power.ts";
@@ -30,7 +30,13 @@ if (power) {
   log.subscribe(() => power.update(log.state));
   setInterval(() => void power.check(), 60_000).unref();
 }
-const supervisor = new Supervisor({ log, queryFn, config, power });
+const supervisor = new Supervisor({
+  log,
+  queryFn,
+  config,
+  power,
+  sessions: process.env.FLEET_DEMO ? demoSessions : undefined,
+});
 
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
 const { server, close } = createFleetServer({
@@ -42,6 +48,7 @@ const { server, close } = createFleetServer({
     workspaces: config.workspaces.map(({ name, path }) => ({ name, path, host: config.host })),
     wip: config.wip,
     remotes: config.remotes.map((r) => r.name),
+    defaultWorkspace: config.director,
   },
   remotes: config.remotes,
   staticDir: fileURLToPath(new URL("../../dist/web", import.meta.url)),

@@ -101,6 +101,7 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       const { host, name } = locate(message.docId, remotes);
       return [{ host, message: { ...message, docId: name } }];
     }
+    case "import_session":
     case "create_task": {
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
@@ -112,10 +113,17 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
   }
 }
 
-export function routeCall<C extends Omit<Call, "id">>(
+/** Calls go to the daemon owning the agent, or, for workspace calls, the workspace. */
+export function routeCall<C extends DistributiveOmit<Call, "id">>(
   call: C,
   remotes: readonly string[],
 ): { host: string; call: C } {
+  if ("workspace" in call) {
+    const { host, name } = locate(call.workspace, remotes);
+    return { host, call: { ...call, workspace: name } };
+  }
   const { host, name } = locate(call.agent, remotes);
   return { host, call: { ...call, agent: name } };
 }
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

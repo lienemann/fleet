@@ -279,6 +279,33 @@ test("desktop notifications tell about agents that need you while fleet is in th
     .toContainEqual(expect.stringMatching(/needs you$/));
 });
 
+test("an existing Claude Code session can be imported and taken back", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".host")).toHaveText("test");
+  await page.keyboard.press("i");
+  const dialog = page.getByRole("dialog", { name: "Import a session" });
+  await dialog.getByLabel("Speed up the sweep loop").check();
+  await expect(dialog.getByLabel("Title on the board")).toHaveValue("Speed up the sweep loop");
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+
+  const card = page.locator(".card", { hasText: "Speed up the sweep loop" });
+  await card.locator(".card-main").click();
+  const drawer = page.locator(".drawer");
+  await expect(drawer.locator(".log")).toContainText("re-uploads the waveform");
+  await expect(drawer).toContainText("claude --resume 6f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11");
+
+  await drawer.getByRole("button", { name: "Take back" }).click();
+  await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
+
+  // Imported once, the session is marked in the list.
+  await page.locator(".drawer textarea[data-prompt]").focus();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("i");
+  await expect(page.getByRole("dialog", { name: "Import a session" })).toContainText(
+    "already a task",
+  );
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

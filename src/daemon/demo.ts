@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+  SessionMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFn } from "./session.ts";
+import type { SessionSource } from "./sessions.ts";
 import { SERVER, toolsOf } from "./tools.ts";
 
 /**
@@ -292,3 +298,39 @@ const toolResult = (id: string, content: string, parent: string | null = null): 
     parent_tool_use_id: parent,
     message: { content: [{ type: "tool_result", tool_use_id: id, content }] },
   });
+
+/** Two earlier CLI sessions per workspace, for trying the import. */
+export const demoSessions: SessionSource = {
+  list: async () => [
+    {
+      sessionId: "6f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11",
+      summary: "Speed up the sweep loop",
+      lastModified: Date.now() - 20 * 60_000,
+      gitBranch: "main",
+    },
+    {
+      sessionId: "8e2d3b5f-1c8e-4d2f-8b66-4d3e2f1a0b22",
+      summary: "Explain the scheduler",
+      lastModified: Date.now() - 3 * 60 * 60_000,
+    },
+  ],
+  messages: async (sessionId) => [
+    stored(sessionId, "user", "The sweep loop takes 4 s per point. Can you find out why?"),
+    stored(sessionId, "assistant", [
+      { type: "text", text: "It re-uploads the waveform on every point; caching it should help." },
+    ]),
+  ],
+};
+
+const stored = (
+  sessionId: string,
+  type: "user" | "assistant",
+  content: unknown,
+): SessionMessage => ({
+  type,
+  uuid: `${sessionId}-${type}`,
+  session_id: sessionId,
+  message: { role: type, content },
+  parent_tool_use_id: null,
+  parent_agent_id: null,
+});
