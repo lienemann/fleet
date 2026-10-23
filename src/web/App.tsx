@@ -51,6 +51,7 @@ export function App() {
   const show = (kind: Overlay): void => setOverlay({ kind, id: Date.now() + Math.random() });
   const agent = selected ? state.agents[selected] : undefined;
   const agents = agentList(state);
+  const cutOff = agents.filter((a) => a.offline).map((a) => a.name);
 
   const select = (name: string): void => setSelected(name);
   /** Opens the agent in the drawer and puts the cursor into its prompt, once the drawer shows it. */
@@ -417,6 +418,13 @@ export function App() {
       {offline.length > 0 && (
         <div className="banner">
           Cannot reach {offline.join(", ")}; retrying. Agents there keep working.
+        </div>
+      )}
+      {cutOff.length > 0 && (
+        <div className="banner" role="status">
+          <b>No connection to Claude.</b> {cutOff.join(", ")}{" "}
+          {cutOff.length === 1 ? "waits" : "wait"}; fleet tries again every few minutes and
+          continues {cutOff.length === 1 ? "it" : "them"} once requests go through.
         </div>
       )}
       <PowerBanner />

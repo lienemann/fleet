@@ -62,6 +62,13 @@ export function translate(message: SDKMessage): AgentEvent[] {
       }
       return [];
     case "assistant":
+      // A failed request comes as an assistant message; it is fleet's news, not Claude's words.
+      if (message.error) {
+        const text = flatten(message.message.content);
+        return text
+          ? [{ kind: "log", role: "system", text, parent: message.parent_tool_use_id }]
+          : [];
+      }
       return blocks(message.message.content).flatMap((block) =>
         assistantBlock(block, message.parent_tool_use_id),
       );

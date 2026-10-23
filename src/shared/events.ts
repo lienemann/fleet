@@ -261,7 +261,14 @@ export type EventBody =
       outcome: "allowed" | "denied" | "answered" | "stale";
       message?: string;
     }
-  | { kind: "turn_finished"; ok: boolean; costUsd: number; error?: string }
+  | {
+      kind: "turn_finished";
+      ok: boolean;
+      costUsd: number;
+      error?: string;
+      /** The turn failed because no request reached Claude, e.g. with the network down. */
+      offline?: boolean;
+    }
   | {
       kind: "context";
       tokens: number;

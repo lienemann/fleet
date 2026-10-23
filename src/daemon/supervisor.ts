@@ -129,6 +129,14 @@ export interface WorkspaceStatus {
 /** How often the daemon looks at which Claude Code processes hold its sessions. */
 export const HOLDER_POLL_MS = 3000;
 
+/** How often the daemon looks after agents that lost the connection to Claude. */
+export const CONNECTION_POLL_MS = 15_000;
+/** The wait before trying an offline agent again; it doubles up to the maximum. */
+const RETRY_FIRST_MS = 30_000;
+const RETRY_MAX_MS = 5 * 60_000;
+const CONNECTION_NOTE =
+  "Your last request did not reach Claude because the connection was down. Continue where you left off.";
+
 /** How long Attach waits for the other client to exit after SIGTERM. */
 export const ATTACH_TIMEOUT_MS = 5000;
 const ATTACH_POLL_MS = 200;
@@ -194,6 +202,10 @@ export class Supervisor implements ToolHost {
   private readonly configFile: string | undefined;
   private readonly onWorkspacesChanged: (() => void) | undefined;
   private stopWatchingForIdle: (() => void) | undefined;
+  /** The offline agent sent on ahead to find out whether requests go through again. */
+  private scout: string | undefined;
+  private retryAt = 0;
+  private retryMs = RETRY_FIRST_MS;
 
   constructor({
     log,
@@ -952,6 +964,32 @@ export class Supervisor implements ToolHost {
     this.stopWatchingForIdle();
     this.stopWatchingForIdle = undefined;
     this.append(DAEMON, { kind: "restart", pending: false });
+  }
+
+  /**
+   * Continues the agents whose turns failed for want of a connection. One of them goes first;
+   * once Claude answers it, the others follow. The CLI's own retries cover short outages, so
+   * this only runs after those gave up.
+   */
+  watchConnection(now = Date.now()): void {
+    const waiting = this.agents.filter((a) => a.offline && a.activity === "idle");
+    const scout = this.scout && this.agent(this.scout);
+    if (scout) {
+      if (scout.activity === "working") return;
+      this.scout = undefined;
+      if (scout.offline) {
+        this.retryAt = now + this.retryMs;
+        this.retryMs = Math.min(this.retryMs * 2, RETRY_MAX_MS);
+        return;
+      }
+      this.retryMs = RETRY_FIRST_MS;
+      for (const agent of waiting) this.prompt(agent.name, CONNECTION_NOTE);
+      return;
+    }
+    const first = waiting[0];
+    if (!first || now < this.retryAt) return;
+    this.scout = first.name;
+    this.prompt(first.name, CONNECTION_NOTE);
   }
 
   /** Ends all sessions without recording it, so the next start resumes them. */

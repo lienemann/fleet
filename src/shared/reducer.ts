@@ -149,6 +149,8 @@ export interface AgentView {
   /** Cost in USD per UTC day, keyed by `YYYY-MM-DD`. */
   costByDay: Record<string, number>;
   reconnecting: boolean;
+  /** Its last turn failed for want of a connection; fleet continues it once Claude answers. */
+  offline?: boolean;
   /** Outcome changed since the user last opened the agent. */
   unseen: boolean;
   createdSeq: number;
@@ -283,7 +285,8 @@ export function workspaceInUse({ tasks, queued, claim }: WorkspaceUse): string |
 }
 
 export function columnOf(agent: AgentView): Column {
-  const waiting = agent.pending > 0 || agent.activity === "idle";
+  // An agent cut off by the network waits for fleet to continue it, not for the user.
+  const waiting = agent.pending > 0 || (agent.activity === "idle" && !agent.offline);
   return ACTIVE.has(agent.task) && waiting ? "needs_you" : agent.task;
 }
 
@@ -485,6 +488,9 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     }
     case "log":
       return patch({
+        // An answer from Claude means requests go through again.
+        ...(agent.offline &&
+          (event.role === "assistant" || event.role === "tool_use") && { offline: undefined }),
         log: appendLine(agent.log, event, event.role, event.text, event.toolName),
         subagents: trackSubagents(agent.subagents, event),
         outputs: trackOutputs(agent.outputs, event),
@@ -527,6 +533,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     case "turn_finished": {
       const day = dayOf(event.ts);
       return patch({
+        offline: event.offline || undefined,
         costUsd: agent.costUsd + event.costUsd,
         costByDay: { ...agent.costByDay, [day]: (agent.costByDay[day] ?? 0) + event.costUsd },
       });

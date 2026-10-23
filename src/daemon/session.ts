@@ -119,6 +119,8 @@ export class AgentSession {
   private turnSignals = false;
   private activity: Activity | undefined;
   private reconnecting = false;
+  /** A request of the current turn got no response at all, not even an HTTP error. */
+  private noResponse = false;
   private lastCost = 0;
   /** Text the agent wrote since its last tool result; explains the next tool call. */
   private explanation = "";
@@ -340,6 +342,13 @@ export class AgentSession {
 
   private handle(message: SDKMessage): void {
     if (this.reconnecting && message.type !== "system") this.setReconnecting(false);
+    if (
+      message.type === "system" &&
+      message.subtype === "api_retry" &&
+      message.error_status === null
+    ) {
+      this.noResponse = true;
+    }
 
     // More reliable than results when the CLI sends it: a prompt queued during a turn keeps
     // the session running.
@@ -368,11 +377,14 @@ export class AgentSession {
       // total_cost_usd accumulates over the query() call.
       const costUsd = message.total_cost_usd - this.lastCost;
       this.lastCost = message.total_cost_usd;
+      const offline = this.noResponse && message.terminal_reason === "api_error";
+      this.noResponse = false;
       this.options.emit({
         kind: "turn_finished",
         ok: !message.is_error,
         costUsd,
         error: message.is_error ? message.subtype : undefined,
+        ...(offline && { offline }),
       });
       if (!this.turnSignals && this.pending.size === 0) this.setActivity("idle");
       // Not awaited: the answer arrives through the stream this loop is reading.
