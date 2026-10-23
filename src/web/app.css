@@ -1752,20 +1752,25 @@ button.link.accent {
   min-height: 1.5em;
 }
 .rows.split .row {
-  grid-template-columns: 0 3.5em 1.4em 1fr;
+  grid-template-columns: 0 3.5em 1.4em minmax(0, 1fr);
 }
 .rows.split .row > span.ln:first-child {
   display: none;
 }
+/* Both halves keep their width; a long line wraps in its half, and the row grows to fit. */
 .split-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .split-row > .row:first-child {
   border-right: 1px solid var(--line2);
 }
 .code-line {
   white-space: pre;
+}
+.rows.split .code-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .row.added {
   background: var(--addbg);

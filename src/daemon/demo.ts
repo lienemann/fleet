@@ -233,7 +233,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
       type: "write",
       path: "lib.py",
       content:
-        "def tolerance():\n    # CI runners jitter more than 1 ms\n    return max(1e-3, 4 * jitter())\n\n\ndef runs():\n    return 50\n",
+        "def tolerance():\n    # CI runners jitter more than 1 ms, so the bound follows the jitter this runner measured over its last sweeps instead of a fixed value\n    return max(1e-3, 4 * jitter())\n\n\ndef runs():\n    return 50\n",
     },
     {
       type: "write",

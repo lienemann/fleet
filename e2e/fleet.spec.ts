@@ -81,6 +81,12 @@ test("a task asks for permission and a decision, hands in open points, and is re
   // The report's walkthrough links the tolerance change but not the run count.
   await expect(diff.locator(".hunk").first()).toContainText("Walkthrough: Tolerance");
   await expect(diff.locator(".hunk").last()).toContainText("not in the walkthrough");
+  // Side by side, a long line wraps in its half instead of widening the hunk.
+  await page.getByRole("button", { name: /^Side by side/ }).click();
+  const split = diff.locator(".rows.split").first();
+  await expect(split).toBeVisible();
+  expect(await split.evaluate((rows) => rows.scrollWidth <= rows.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: /^Inline/ }).click();
   await page.locator(".diff-bar").click();
   await page.keyboard.press("a");
   await expect(diff.locator(".progress")).toContainText("1/");
