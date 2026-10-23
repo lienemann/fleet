@@ -14,6 +14,8 @@ export type Activity = "stopped" | "working" | "idle" | "detached";
 /** The permission modes the CLI cycles through with Shift+Tab. */
 export const PERMISSION_MODES = ["default", "plan", "acceptEdits", "auto"] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
+/** Agents start in auto mode: Claude decides what is safe to run and asks about the rest. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
 
 /** Moves the user can make on the board; the daemon owns every other transition. */
 export const USER_MOVES = ["running", "review", "changes_requested", "accepted"] as const;

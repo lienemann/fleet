@@ -8,13 +8,14 @@ import type {
   query,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  Activity,
-  AgentEvent,
-  EventBody,
-  PermissionMode,
-  PromptAttachment,
-  Question,
+import {
+  type Activity,
+  type AgentEvent,
+  DEFAULT_PERMISSION_MODE,
+  type EventBody,
+  type PermissionMode,
+  type PromptAttachment,
+  type Question,
 } from "../shared/events.ts";
 import type { Answer } from "../shared/protocol.ts";
 import { InputQueue } from "./inputQueue.ts";
@@ -105,7 +106,7 @@ export class AgentSession {
     this.options = options;
     this.sessionId = options.resume;
     this.model = options.model;
-    this.permissionMode = options.permissionMode ?? "default";
+    this.permissionMode = options.permissionMode ?? DEFAULT_PERMISSION_MODE;
     this.sleep = options.sleep ?? defaultSleep;
   }
 

@@ -54,6 +54,14 @@ describe("Supervisor", () => {
     expect(log.state.agents.alpha?.unseen).toBe(true);
   });
 
+  it("starts agents in auto mode", async () => {
+    const { log, supervisor, calls } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => calls.length === 1);
+    expect(calls[0]?.options?.permissionMode).toBe("auto");
+    expect(log.state.agents.alpha?.permissionMode).toBe("auto");
+  });
+
   it("starts a new task straight into work, without a moment in Needs you", () => {
     const { log, supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");

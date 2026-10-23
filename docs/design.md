@@ -230,7 +230,7 @@ The daemon can make agents run commands, so it is reachable only through `127.0.
 
 **Claude login.** Personal use on the Team/Max subscription. The SDK sessions run under my own Claude Code login, and the support article on the Agent SDK confirms subscription limits apply to it. Six parallel agents drain limits fast; the monthly API credits included with Max and Team plans are the overflow.
 
-**Permissions.** Workers start in default mode with a per-workspace allow list (tests, jj, build). Anything outside goes to the inbox. The director has no write tools outside `.fleet/`.
+**Permissions.** Agents start in auto mode, with a per-workspace allow list (tests, jj, build). Anything outside goes to the inbox. The director has no write tools outside `.fleet/`.
 
 **Sleep on the Mac.**
 - While any agent is busy, the daemon holds `caffeinate -i`.
