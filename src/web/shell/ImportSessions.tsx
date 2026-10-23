@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { SessionSummary } from "../../shared/protocol.ts";
 import { useFleet } from "../fleet.tsx";
 import { duration } from "../labels.ts";
+import { closeOnBackdrop } from "../ui/backdrop.ts";
 import { useNow } from "../useNow.ts";
 
 /**
@@ -64,7 +65,13 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <dialog ref={dialog} className="dialog" onClose={onClose} aria-label="Import sessions">
+    <dialog
+      ref={dialog}
+      className="dialog"
+      onClose={onClose}
+      aria-label="Import sessions"
+      {...closeOnBackdrop}
+    >
       <form onSubmit={submit}>
         <h2>Import Claude Code sessions</h2>
         <label>

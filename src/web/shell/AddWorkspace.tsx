@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { DirectoryInfo } from "../../shared/protocol.ts";
 import { useFleet } from "../fleet.tsx";
+import { closeOnBackdrop } from "../ui/backdrop.ts";
 
 type Offer = { name: string; path: string; added: boolean };
 
@@ -24,7 +25,13 @@ export function AddWorkspace({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <dialog ref={dialog} className="dialog" onClose={onClose} aria-label="Add a workspace">
+    <dialog
+      ref={dialog}
+      className="dialog"
+      onClose={onClose}
+      aria-label="Add a workspace"
+      {...closeOnBackdrop}
+    >
       <header className="dialog-head">
         <h2>Add an existing workspace</h2>
         <button

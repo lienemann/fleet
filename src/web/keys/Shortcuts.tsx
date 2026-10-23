@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { closeOnBackdrop } from "../ui/backdrop.ts";
 import { keyLabel, useKeymap } from "./keymap.tsx";
 
 /** Every command with its keys, grouped; opened with `?`. */
@@ -19,6 +20,7 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
       ref={dialog}
       className="dialog shortcuts"
       onClose={onClose}
+      {...closeOnBackdrop}
       onKeyDown={(event) => {
         // The key that opened the help closes it again; stopped here, so it does not reopen it.
         if (event.key !== "?" || !dialog.current?.open) return;

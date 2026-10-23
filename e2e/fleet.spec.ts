@@ -217,6 +217,18 @@ test("everything works from the keyboard", async ({ page }) => {
     .getByRole("button", { name: "Close" })
     .click();
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeHidden();
+  // A click outside a dialog closes it; one inside does not.
+  for (const [open, name] of [
+    ["?", "Keyboard shortcuts"],
+    ["ControlOrMeta+k", "Command palette"],
+  ] as const) {
+    await page.keyboard.press(open);
+    const dialog = page.getByRole("dialog", { name });
+    await dialog.click({ position: { x: 20, y: 20 } });
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(4, 4);
+    await expect(dialog).toBeHidden();
+  }
   await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText(
     "Request changes",

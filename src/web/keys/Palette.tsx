@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { closeOnBackdrop } from "../ui/backdrop.ts";
 import { keyLabel, useKeymap } from "./keymap.tsx";
 
 /** Fuzzy match: all query characters appear in order. */
@@ -45,7 +46,13 @@ export function Palette({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <dialog ref={dialog} className="dialog palette" onClose={onClose} aria-label="Command palette">
+    <dialog
+      ref={dialog}
+      className="dialog palette"
+      onClose={onClose}
+      aria-label="Command palette"
+      {...closeOnBackdrop}
+    >
       <input
         autoFocus
         value={query}

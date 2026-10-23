@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useFleet } from "../fleet.tsx";
+import { closeOnBackdrop } from "../ui/backdrop.ts";
 
 /**
  * Starts a worker in a workspace. The task queues if its workspace is busy or the limit of
@@ -28,7 +29,13 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <dialog ref={dialog} className="dialog" onClose={onClose} aria-label="New task">
+    <dialog
+      ref={dialog}
+      className="dialog"
+      onClose={onClose}
+      aria-label="New task"
+      {...closeOnBackdrop}
+    >
       <form onSubmit={submit}>
         <h2>New task</h2>
         <label>
