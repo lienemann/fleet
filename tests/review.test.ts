@@ -176,6 +176,17 @@ describe("ReviewService", () => {
     expect(model.files[0]?.hunks).toHaveLength(1);
   });
 
+  it("shows an added file as its lines, and a lost final line break as a change of its own", async () => {
+    write("new.py", ["x = 1", "y = 2"]);
+    writeFileSync(join(repo, "lib.py"), BASE.join("\n"));
+    const model = await service().load("alpha", repo);
+    const added = model.files.find((f) => f.path === "new.py")?.hunks;
+    expect(added).toMatchObject([{ removed: [], added: ["x = 1", "y = 2"] }]);
+    const [last] = model.files.find((f) => f.path === "lib.py")?.hunks ?? [];
+    expect(last).toMatchObject({ added: ["    return 3"], addedNoFinalNewline: true });
+    expect(last?.removedNoFinalNewline).toBeUndefined();
+  });
+
   it("asks for a load before anything else", async () => {
     await expect(service().approve("nobody", [], true)).rejects.toThrow(ReviewError);
   });

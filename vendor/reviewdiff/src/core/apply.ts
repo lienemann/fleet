@@ -19,11 +19,22 @@ export interface PendingHunk extends LineRange {
 	removedAt: number;
 }
 
+/** Whether the last line of each side of a file ends with a line break. */
+export interface FinalNewlines {
+	base: boolean;
+	head: boolean;
+}
+
 export interface AppliedLines {
 	/** Base lines with the selected hunks applied. */
 	lines: string[];
 	/** Where each hunk that was not fully applied sits in `lines`. */
 	pending: Map<HunkId, PendingHunk>;
+	/**
+	 * Whether the last of `lines` ends with a line break: as in the head if the hunk at the end of
+	 * the file is applied there (its last line is), otherwise as in the base.
+	 */
+	finalNewline: boolean;
 }
 
 /**
@@ -38,11 +49,18 @@ export interface AppliedLines {
  *
  * @param hunks hunks of one base/head pair, sorted and non-overlapping (as `computeHunks` returns them)
  * @param select how much of each hunk to apply
+ * @param finalNewlines whether the lines of each side end with a line break, see {@link AppliedLines.finalNewline}
  */
-export function applyHunks(baseLines: readonly string[], hunks: readonly Hunk[], select: (hunk: Hunk) => HunkSelection): AppliedLines {
+export function applyHunks(
+	baseLines: readonly string[],
+	hunks: readonly Hunk[],
+	select: (hunk: Hunk) => HunkSelection,
+	finalNewlines: FinalNewlines = { base: true, head: true },
+): AppliedLines {
 	const lines: string[] = [];
 	const pending = new Map<HunkId, PendingHunk>();
 	let next = 1; // next base line to copy
+	let endApplied = false;
 	for (const hunk of hunks) {
 		const { start, endExclusive } = hunk.base;
 		if (start < next || endExclusive < start || endExclusive > baseLines.length + 1) {
@@ -50,6 +68,9 @@ export function applyHunks(baseLines: readonly string[], hunks: readonly Hunk[],
 		}
 		lines.push(...baseLines.slice(next - 1, start - 1));
 		const selection = select(hunk);
+		if (endExclusive === baseLines.length + 1) {
+			endApplied = appliesLastLine(hunk, selection);
+		}
 		if (selection === 'all') {
 			lines.push(...hunk.added);
 		} else {
@@ -67,7 +88,19 @@ export function applyHunks(baseLines: readonly string[], hunks: readonly Hunk[],
 		next = endExclusive;
 	}
 	lines.push(...baseLines.slice(next - 1));
-	return { lines, pending };
+	return { lines, pending, finalNewline: lines.length === 0 || (endApplied ? finalNewlines.head : finalNewlines.base) };
+}
+
+/**
+ * Whether `selection` applies the last line of a hunk at the end of the file, on either side: the
+ * file then ends as in the head.
+ */
+function appliesLastLine(hunk: Hunk, selection: HunkSelection): boolean {
+	if (typeof selection === 'string') {
+		return selection === 'all';
+	}
+	const removed = hunk.base.endExclusive - hunk.base.start;
+	return (hunk.added.length > 0 && selection.added.has(hunk.added.length - 1)) || (removed > 0 && selection.removed.has(removed - 1));
 }
 
 /**

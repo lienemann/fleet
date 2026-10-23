@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import type { AgentView } from "../../shared/reducer.ts";
-import type { FileView, HunkView } from "../../shared/review.ts";
+import type { FileView, HunkView, LineRange } from "../../shared/review.ts";
 import { useFleet } from "../fleet.tsx";
 import type { Layout } from "./DiffView.tsx";
 import { highlightLine } from "./highlight.ts";
@@ -64,14 +64,14 @@ export function Hunk(props: Props) {
     >
       <header>
         <span className="dim">
-          {hunk.base.start}–{Math.max(hunk.base.start, hunk.base.endExclusive - 1)} →{" "}
-          {hunk.head.start}–{Math.max(hunk.head.start, hunk.head.endExclusive - 1)}
+          {lines(hunk.base)} → {lines(hunk.head)}
         </span>
         {hunk.auto && <span className="tag">{AUTO_LABELS[hunk.auto]}</span>}
         {hunk.move && <span className="tag">moved</span>}
         {hunk.previous && <span className="tag warn">changed since you approved it</span>}
         {hunk.walkthrough && <span className="tag">Walkthrough: {hunk.walkthrough}</span>}
         {hunk.uncovered && <span className="tag warn">not in the walkthrough</span>}
+        {finalNewline(hunk) && <span className="tag">{finalNewline(hunk)}</span>}
         <span className="spacer" />
         {collapsed ? (
           <button type="button" className="small" onClick={() => setOpen(true)}>
@@ -168,6 +168,20 @@ export function Hunk(props: Props) {
       )}
     </article>
   );
+}
+
+/** "12–18", or a dash for a side without lines, e.g. the base of an added file. */
+const lines = ({ start, endExclusive }: LineRange): string =>
+  endExclusive > start ? `${start}–${endExclusive - 1}` : "—";
+
+/** What the hunk does to the line break at the end of the file, which no row shows. */
+function finalNewline(hunk: HunkView): string | undefined {
+  const before = hunk.removedNoFinalNewline;
+  const after = hunk.addedNoFinalNewline;
+  if (before && after) return "no line break at end of file";
+  if (before) return "adds the line break at end of file";
+  if (after) return "removes the line break at end of file";
+  return undefined;
 }
 
 function hunkRows(hunk: HunkView): Row[] {

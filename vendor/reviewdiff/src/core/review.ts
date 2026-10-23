@@ -1,6 +1,6 @@
 import { applyHunks, type AppliedLines, type HunkSelection } from './apply';
 import { formattingCheck } from './formatting';
-import { computeHunks, isWhitespaceOnly, splitLines } from './hunks';
+import { computeHunks, endsWithNewline, isWhitespaceOnly, splitLines } from './hunks';
 import { resolveRangeSpec, type RangeSpec } from './range';
 import type { ApprovalRecord, FileChange, Hunk, HunkId, RevRange, VcsAdapter } from './types';
 import { isIndentationSensitive as defaultIsIndentationSensitive } from './whitespace';
@@ -13,8 +13,12 @@ export interface FileReview {
 	/** File contents; an absent side (added or deleted file) is the empty text. */
 	baseText: string;
 	headText: string;
+	/** The lines of each side, see `splitLines`; none for an absent or empty side. */
 	baseLines: string[];
 	headLines: string[];
+	/** Whether the last line of each side ends with a line break; true for a side without lines. */
+	baseFinalNewline: boolean;
+	headFinalNewline: boolean;
 	/** Contains NUL bytes on either side; such files have no hunks. */
 	binary: boolean;
 	indentationSensitive: boolean;
@@ -98,7 +102,11 @@ async function loadFileReview(
 			autoApproved.set(hunk.id, reason);
 		}
 	}
-	return { change, basePath, baseText, headText, baseLines, headLines, binary, indentationSensitive, hunks, autoApproved };
+	return {
+		change, basePath, baseText, headText, baseLines, headLines,
+		baseFinalNewline: endsWithNewline(baseText), headFinalNewline: endsWithNewline(headText),
+		binary, indentationSensitive, hunks, autoApproved,
+	};
 }
 
 /**
@@ -117,7 +125,7 @@ export function isAutoApproved(file: FileReview, id: HunkId, approval: (recordId
  * not fully applied.
  */
 export function approvedBase(file: FileReview, select: (hunk: Hunk) => HunkSelection): AppliedLines {
-	return applyHunks(file.baseLines, file.hunks, select);
+	return applyHunks(file.baseLines, file.hunks, select, { base: file.baseFinalNewline, head: file.headFinalNewline });
 }
 
 export interface Progress {

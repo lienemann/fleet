@@ -276,6 +276,8 @@ export class ReviewService {
             head: hunk.head,
             removed: hunk.removed,
             added: hunk.added,
+            removedNoFinalNewline: hunk.removedNoFinalNewline,
+            addedNoFinalNewline: hunk.addedNoFinalNewline,
             ...context(file, hunk),
             approved: isApproved(file, hunk),
             auto: file.autoApproved.get(hunk.id),

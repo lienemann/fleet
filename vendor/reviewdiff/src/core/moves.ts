@@ -20,8 +20,8 @@ import { normalizeLine } from './whitespace';
 export interface MoveSource {
 	path: string;                    // head path (base path for deletions)
 	oldPath?: string;                // base path for renames
-	baseLines: readonly string[];    // none, or one empty line as `splitLines` gives it, for added files
-	headLines: readonly string[];    // none, or one empty line, for deleted files
+	baseLines: readonly string[];    // as `splitLines` gives them: none for added files
+	headLines: readonly string[];    // none for deleted files
 	hunks: readonly Hunk[];
 	indentationSensitive: boolean;
 }
@@ -244,19 +244,27 @@ const SEPARATOR = Array<string>(3).fill('\0');
  */
 class VirtualDocument {
 	readonly lines: string[] = [];
-	private readonly files: Array<{ offset: number; length: number }> = [];
+	private readonly files: Array<{ offset: number; length: number; empty: boolean }> = [];
 
+	/**
+	 * A file without lines (the absent side of an added or deleted file) gets one empty line, as
+	 * VS Code's text model has for an empty text, and its hunk replaces that line. The hunk is then
+	 * not a plain insertion or deletion, which `computeMovedLines` would offer a whole file as
+	 * to the similarity comparison of deleted and inserted blocks, matching a function together
+	 * with unrelated lines around it.
+	 */
 	constructor(files: ReadonlyArray<readonly string[]>) {
 		for (const fileLines of files) {
+			const empty = fileLines.length === 0;
 			this.lines.push(...SEPARATOR);
-			this.files.push({ offset: this.lines.length, length: fileLines.length });
-			this.lines.push(...fileLines.map(l => l.trim()));
+			this.files.push({ offset: this.lines.length, length: fileLines.length, empty });
+			this.lines.push(...(empty ? [''] : fileLines.map(l => l.trim())));
 		}
 	}
 
 	toVirtual(file: number, range: LineRange): VsLineRange {
-		const { offset } = this.files[file];
-		return new VsLineRange(range.start + offset, range.endExclusive + offset);
+		const { offset, empty } = this.files[file];
+		return new VsLineRange(range.start + offset, range.endExclusive + offset + (empty ? 1 : 0));
 	}
 
 	/** Maps a non-empty virtual range back to its file; undefined if it is not inside one. */

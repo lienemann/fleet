@@ -46,8 +46,9 @@ const computer = new DefaultLinesDiffComputer();
  * Line-level diff exactly as VS Code's diff editor computes it
  * (advanced algorithm, `computeMoves: false`, `extendToSubwords: false`).
  *
- * Both inputs are lines without terminators, split with VS Code's rule
- * `/\r\n|\r|\n/`: an empty text is `['']` and `"a\n"` is `['a', '']`.
+ * Both inputs are lines without terminators. VS Code's text model splits at `/\r\n|\r|\n/`, so
+ * an empty text is `['']` and `"a\n"` is `['a', '']`; callers decide whether the empty last
+ * line is part of what they compare (`splitLines` in `hunks.ts` leaves it out).
  */
 export function computeLineDiff(
 	baseLines: readonly string[],

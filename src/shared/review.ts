@@ -26,6 +26,9 @@ export interface HunkView {
   walkthrough?: string;
   /** There is a walkthrough, and it does not mention this hunk. */
   uncovered?: boolean;
+  /** The removed or added lines end the file without a final line break. */
+  removedNoFinalNewline?: boolean;
+  addedNoFinalNewline?: boolean;
 }
 
 export interface FileView {

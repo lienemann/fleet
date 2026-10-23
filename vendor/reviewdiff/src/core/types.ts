@@ -25,6 +25,9 @@ export interface Hunk {
   head: LineRange;
   removed: string[];  // raw lines
   added: string[];    // raw lines
+  /** Set if the last removed (added) line is the last line of its file, which has no final line break. */
+  removedNoFinalNewline?: true;
+  addedNoFinalNewline?: true;
 }
 
 export interface Move {

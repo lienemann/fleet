@@ -125,10 +125,10 @@ async function resolveTarget(
 		return { kind: 'unavailable' };
 	}
 	const source = await lines(reference.sha, reference.path);
-	if (!source || reference.lines.start > lineCount(source)) {
+	if (!source || reference.lines.start > source.length) {
 		return { kind: 'invalidLines' };
 	}
-	const range = { start: reference.lines.start, endExclusive: Math.min(reference.lines.end, lineCount(source)) + 1 };
+	const range = { start: reference.lines.start, endExclusive: Math.min(reference.lines.end, source.length) + 1 };
 	const reviewed = side === 'head' ? context.range.head : context.range.base;
 	if (reference.sha === reviewed) {
 		return { kind: 'lines', side, path: reference.path, range, shifted: false };
@@ -158,7 +158,3 @@ function reviewedPath(path: string, side: ReviewSide, files: readonly FileReview
 	return renamed && !files.some(f => f.change.path === path) ? renamed.change.path : path;
 }
 
-/** Lines of a file split with `splitLines`; a final line break doesn't start another line. */
-function lineCount(lines: readonly string[]): number {
-	return lines.length > 1 && lines.at(-1) === '' ? lines.length - 1 : lines.length;
-}
