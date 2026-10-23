@@ -94,7 +94,9 @@ function ReportView({ agent }: { agent: AgentView }) {
           <h2>Changes</h2>
           <p>
             {report.changes.map((id) => (
-              <code key={id}>{id} </code>
+              <code key={id} className="name">
+                {id}{" "}
+              </code>
             ))}
           </p>
         </>

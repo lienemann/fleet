@@ -209,7 +209,7 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
   await expect(page.locator(".lane").first()).toBeVisible();
   await expect(page.locator(".timeline")).toContainText("waited on you");
   await page.keyboard.press("w");
-  await expect(page.getByRole("button", { name: "2 h" })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "2 h" })).toHaveAttribute("aria-pressed", "true");
   await shot(page, "timeline");
 
   await page.keyboard.press("g");

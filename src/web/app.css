@@ -36,14 +36,21 @@ select {
 }
 button,
 select {
+  min-height: 30px;
+  padding: 4px 11px;
   background: var(--btn);
   border: 1px solid var(--btnline);
   border-radius: 6px;
-  padding: 3px 10px;
+  font-size: 12.5px;
   cursor: pointer;
 }
-button:hover:not(:disabled) {
-  border-color: var(--accent);
+/* Inline links, line numbers and color swatches are not buttons to the eye. */
+button.link,
+button.ln,
+button.icon,
+.swatch,
+.color-dot {
+  min-height: 0;
 }
 button:disabled {
   opacity: 0.45;
@@ -66,8 +73,9 @@ button.link {
 }
 button.small,
 select.small {
-  font-size: 11px;
-  padding: 1px 8px;
+  min-height: 28px;
+  padding: 3px 9px;
+  font-size: 12px;
 }
 button.icon {
   padding: 0 6px;
@@ -79,6 +87,9 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
+}
+input:not([type="checkbox"], [type="radio"]) {
+  min-height: 32px;
 }
 code,
 kbd,
@@ -94,11 +105,36 @@ button.primary kbd {
   opacity: 0.7;
 }
 h2 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
   margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Every view opens with its name and a sentence on what it shows. */
+.view-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.view-head h1 {
+  margin: 0;
+  font: 600 16px var(--title);
+  color: var(--strong);
+}
+.view-head .lede {
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Agents, workspaces, paths and change ids */
+.name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.view-head .vcs {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
 }
 .empty,
 .dim {
@@ -292,8 +328,14 @@ h2 {
 .main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   padding: 16px;
+}
+/* Below its head, a view fills the rest of the main area. */
+.main > :not(.view-head) {
+  flex: 1 0 auto;
 }
 
 /* Rail */
@@ -335,8 +377,13 @@ h2 {
   background: var(--selrow);
   border-color: var(--line);
 }
-.rail-name {
+/* Rail sections get small uppercase labels, like the bus ticker; headings elsewhere do not. */
+.rail h2 {
+  color: var(--dim);
+  font-size: 10.5px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .rail-state {
   margin-left: auto;
@@ -583,7 +630,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  height: 100%;
+  min-height: 0;
 }
 .strip {
   display: flex;
@@ -1054,10 +1101,6 @@ h2 {
   gap: 8px;
   min-width: 0;
 }
-.ticker-item .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-}
 .ticker-body {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1110,9 +1153,6 @@ h2 {
   background: var(--bg1);
   border-top: 1px solid var(--line);
 }
-.dock-name {
-  font-weight: 700;
-}
 .dock-reply {
   flex: 1;
   min-width: 0;
@@ -1147,9 +1187,6 @@ h2 {
   white-space: pre-wrap;
   font: 12px / 1.5 var(--font-mono);
   color: var(--fg2);
-}
-.agent-name {
-  font-weight: 600;
 }
 .drawer-scroll {
   flex: 1;
@@ -1230,7 +1267,6 @@ h2 {
 }
 .flow-graph .node text {
   font-size: 11px;
-  font-weight: 600;
   text-anchor: middle;
 }
 .flow-messages h2 {
@@ -1349,10 +1385,6 @@ h2 {
 .diff-scope {
   font-size: 12px;
   border-bottom: 1px solid var(--line2);
-}
-.diff-scope .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
 }
 .diff-scope .path {
   min-width: 0;
@@ -1539,9 +1571,6 @@ button.ln:hover {
   align-items: center;
   margin-bottom: 12px;
 }
-.timeline-title {
-  margin: 0 8px 0 0;
-}
 .lane {
   display: grid;
   grid-template-columns: 110px 1fr 70px;
@@ -1550,7 +1579,6 @@ button.ln:hover {
   margin-bottom: 6px;
 }
 .lane-name {
-  font-weight: 600;
   text-align: left;
 }
 .track {
@@ -1617,11 +1645,10 @@ button.ln:hover {
 
 /* History */
 .history {
-  height: 100%;
+  display: flex;
 }
 .history iframe {
   width: 100%;
-  height: 100%;
   min-height: 70vh;
   border: 1px solid var(--line);
   border-radius: 8px;

@@ -21,7 +21,7 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
     <form className="dock" onSubmit={submit}>
       <button
         type="button"
-        className="link dock-name"
+        className="link name"
         style={{ color: color(director.color) }}
         onClick={() => onOpen(DIRECTOR)}
       >

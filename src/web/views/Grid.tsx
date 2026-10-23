@@ -25,7 +25,7 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
             <button
               key={agent.name}
               type="button"
-              className={agent.name === big.name ? "active" : ""}
+              className={`name ${agent.name === big.name ? "active" : ""}`}
               style={{ color: color(agent.color) }}
               onClick={() => onEnlarge(agent.name === big.name ? undefined : agent.name)}
             >

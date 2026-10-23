@@ -60,17 +60,18 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
   return (
     <section className="timeline">
       <header>
-        <h2 className="timeline-title">Timeline</h2>
-        {WINDOWS.map((w, i) => (
-          <button
-            key={w.label}
-            type="button"
-            className={`small ${i === windowIndex ? "active" : ""}`}
-            onClick={() => setWindowIndex(i)}
-          >
-            {w.label}
-          </button>
-        ))}
+        <fieldset className="segmented" aria-label="Time window">
+          {WINDOWS.map((w, i) => (
+            <button
+              key={w.label}
+              type="button"
+              aria-pressed={i === windowIndex}
+              onClick={() => setWindowIndex(i)}
+            >
+              {w.label}
+            </button>
+          ))}
+        </fieldset>
         <span className="dim">
           <kbd>w</kbd> switches · agents waited on you {duration(total)} in this window
         </span>
@@ -80,7 +81,7 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
           <div key={agent.name} className="lane">
             <button
               type="button"
-              className="link lane-name"
+              className="link name lane-name"
               style={{ color: color(agent.color) }}
               onClick={() => onOpen(agent.name)}
             >

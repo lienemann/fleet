@@ -105,10 +105,13 @@ function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
   return (
     <article className="decision points">
       <header>
-        <strong style={{ color: color(state.agents[doc.agent]?.color ?? "#888888") }}>
+        <strong
+          className="name"
+          style={{ color: color(state.agents[doc.agent]?.color ?? "#888888") }}
+        >
           {doc.agent}
         </strong>
-        <code>{doc.path}</code>
+        <code className="name">{doc.path}</code>
         <span className="dim">
           {doc.points.length - open.length}/{doc.points.length} answered; the answers go back
           together

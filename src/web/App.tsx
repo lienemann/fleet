@@ -14,6 +14,7 @@ import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
 import { canHandOver } from "./tile/CliBar.tsx";
+import { ViewHead } from "./ui/ViewHead.tsx";
 import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
 import { useNotifications } from "./useNotifications.ts";
 import { Board } from "./views/Board.tsx";
@@ -383,6 +384,7 @@ export function App() {
           onAddWorkspace={() => show("workspaces")}
         />
         <main className="main">
+          <ViewHead view={view} />
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
           {view === "inbox" && <Inbox onOpen={open} />}
           {view === "grid" && (

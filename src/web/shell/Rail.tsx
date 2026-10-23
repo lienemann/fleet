@@ -55,9 +55,10 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
           <ul className="workspaces">
             {info.workspaces.map((ws) => {
               const claim = state.claims[ws.name];
+              const task = holder(ws.name);
               return (
                 <li key={ws.name} title={ws.path}>
-                  <span>{ws.name}</span>
+                  <span className="name">{ws.name}</span>
                   {claim ? (
                     <span className="dim" title={claim.note}>
                       {claim.holder}{" "}
@@ -70,8 +71,10 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
                         release
                       </button>
                     </span>
+                  ) : task ? (
+                    <span className="dim name">{task.name}</span>
                   ) : (
-                    <span className="dim">{holder(ws.name)?.name ?? "free"}</span>
+                    <span className="dim">free</span>
                   )}
                 </li>
               );
@@ -108,7 +111,7 @@ function AgentRow({
       onClick={() => onSelect(agent.name)}
     >
       <span className={`dot col-${column} act-${agent.activity}`} />
-      <span className="rail-name" style={{ color: color(agent.color) }}>
+      <span className="name" style={{ color: color(agent.color) }}>
         {agent.name}
       </span>
       <span className="rail-state">{status}</span>

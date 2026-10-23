@@ -121,7 +121,7 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
             onKeyDown={(e) => e.key === "Enter" && state.agents[name] && onOpen(name)}
           >
             <circle r={name === "director" ? 26 : 20} stroke={tint(name)} />
-            <text y={4} fill={tint(name)}>
+            <text y={4} className="name" fill={tint(name)}>
               {name}
             </text>
           </g>

@@ -14,7 +14,7 @@ export function MessageItem({
   const name = (agent: string) => (
     <button
       type="button"
-      className="link agent-name"
+      className="link name"
       style={{ color: color(state.agents[agent]?.color ?? "#888888") }}
       disabled={!state.agents[agent] || !onOpen}
       onClick={() => onOpen?.(agent)}

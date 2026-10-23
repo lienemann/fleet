@@ -110,7 +110,7 @@ function Card({
     >
       <button type="button" className="card-main" onClick={() => onSelect(agent.name)}>
         <span className="card-head">
-          <strong>{agent.name}</strong>
+          <strong className="name">{agent.name}</strong>
           {agent.unseen && <span className="new">new</span>}
           <span className="since">{duration(now - agent.columnSince)}</span>
         </span>
