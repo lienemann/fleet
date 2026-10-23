@@ -112,7 +112,6 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
           onAnswer={(answer) => send({ type: "answer", requestId: decision.requestId, answer })}
         />
       ))}
-      <CliBar agent={agent} />
       <Prompt
         name={agent.name}
         commands={agent.slashCommands}
@@ -136,6 +135,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
           return true;
         }}
       />
+      <CliBar agent={agent} />
     </section>
   );
 }

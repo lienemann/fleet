@@ -12,7 +12,12 @@ const FALLBACK_MODELS: ModelChoice[] = ["opus", "sonnet", "haiku"].map((value) =
   efforts: [],
 }));
 
-/** The CLI's status line: permission mode, model, effort, context, and session controls. */
+const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * The status line under the prompt, quiet like the Claude desktop app's: permission mode and
+ * context on the left, model, effort and session controls on the right.
+ */
 export function CliBar({ agent }: { agent: AgentView }) {
   const { send, state } = useFleet();
   const name = agent.name;
@@ -40,8 +45,22 @@ export function CliBar({ agent }: { agent: AgentView }) {
           title="Permission mode (click to cycle)"
           onClick={() => nextMode && send({ type: "set_mode", agent: name, mode: nextMode })}
         >
-          mode: {MODE_LABELS[agent.permissionMode]}
+          {capitalized(MODE_LABELS[agent.permissionMode])}
         </button>
+        {percent !== undefined && (
+          <span
+            className="context"
+            title={`${agent.context?.tokens} of ${agent.context?.window} tokens`}
+          >
+            ctx
+            <span className="meter">
+              <span style={{ width: `${percent}%` }} className={percent >= 70 ? "high" : ""} />
+            </span>
+            {percent}%
+          </span>
+        )}
+      </div>
+      <div className="cli-actions">
         <select
           className="cli-pill"
           aria-label="Model"
@@ -68,27 +87,13 @@ export function CliBar({ agent }: { agent: AgentView }) {
             })
           }
         >
-          <option value="">effort: default</option>
+          <option value="">Default effort</option>
           {effortsOf(state.models, agent.model).map((level) => (
             <option key={level} value={level}>
-              effort: {level}
+              {capitalized(level)}
             </option>
           ))}
         </select>
-        {percent !== undefined && (
-          <span
-            className="context"
-            title={`${agent.context?.tokens} of ${agent.context?.window} tokens`}
-          >
-            ctx
-            <span className="meter">
-              <span style={{ width: `${percent}%` }} className={percent >= 70 ? "high" : ""} />
-            </span>
-            {percent}%
-          </span>
-        )}
-      </div>
-      <div className="cli-actions">
         {live ? (
           <button
             type="button"
