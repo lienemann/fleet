@@ -36,7 +36,12 @@ install: develop
     mkdir -p ~/.local/bin
     ln -sf "{{justfile_directory()}}/src/cli.ts" ~/.local/bin/fleet
 
-# Take the README's screenshots again from a demo daemon
+# Take the screenshots for the README and the homepage again from a demo daemon
 screenshots: develop
     npm run build:web
     node scripts/screenshots.ts
+
+# Put the homepage together in dist/site and serve it on http://127.0.0.1:7850
+site: develop
+    node scripts/site.ts
+    python3 -m http.server -d dist/site 7850 --bind 127.0.0.1

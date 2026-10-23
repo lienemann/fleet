@@ -16,6 +16,10 @@ fleet should do; `docs/mockup/` shows how it should look, but runs only in the C
 - `tests/`: vitest; sessions run against a fake `query`, never the real SDK; review tests use real jj repos.
 - `e2e/`: Playwright in three browsers against demo daemons (`FLEET_DEMO=1`, scripted agents in `demo.ts`).
 - `vendor/`: byte-identical upstream copies; never edit or format them (see their READMEs).
+- `site/`: the homepage, plain HTML, CSS and JS outside the app bundle. `scripts/site.ts` adds the screenshots
+  from `docs/screenshots/` and the fonts into `dist/site`, and `.github/workflows/pages.yml` publishes it on every
+  change. Keep it loading nothing from other servers (no CDN fonts, no analytics; a test checks), because the
+  privacy page promises that.
 
 ## Conventions
 
@@ -36,5 +40,5 @@ fleet should do; `docs/mockup/` shows how it should look, but runs only in the C
 
 ## Commands
 
-`just develop | format | lint | test | e2e | run | demo`. Version control is jujutsu; `.fleet/` and `~/.fleet/`
+`just develop | format | lint | test | e2e | run | demo | screenshots | site`. Version control is jujutsu; `.fleet/` and `~/.fleet/`
 are runtime state.

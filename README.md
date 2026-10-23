@@ -2,8 +2,9 @@
 
 fleet is a daemon and a web UI for running several Claude Code agents in parallel. A director agent takes the
 work from you, splits it into tasks and hands each one to a worker agent in its own jj workspace. You watch them
-all in one browser tab and answer what they ask. The design is in [docs/design.md](docs/design.md), and
-[docs/mockup/](docs/mockup/) has the clickable mockup it was built from.
+all in one browser tab and answer what they ask. The homepage is
+[lienemann.github.io/fleet](https://lienemann.github.io/fleet/). The design is in [docs/design.md](docs/design.md),
+and [docs/mockup/](docs/mockup/) has the clickable mockup it was built from.
 
 ![The board: one column per task state, with two workers waiting for a permission](docs/screenshots/board.png)
 
@@ -29,7 +30,7 @@ messages to whom, and the history view embeds jj orbit with the op log as checkp
 | ![The diff of a task in review, in the order of its walkthrough](docs/screenshots/diff.png) | ![The flow view with the director, three workers and two running subagents](docs/screenshots/flow.png) |
 | ![The timeline with time spent waiting on you](docs/screenshots/timeline.png) | ![The history view: jj orbit with the branches and workspaces of a repo](docs/screenshots/history.png) |
 
-The screenshots come from the demo; `just screenshots` takes them again.
+The screenshots come from the demo; `just screenshots` takes them again, for this README and the homepage.
 
 Selecting an agent opens its drawer. Besides the diff, report and messages, the Session tab shows where the agent
 runs, what fills its context window (split up the way `/context` does it) and which files it wrote. The Activity
