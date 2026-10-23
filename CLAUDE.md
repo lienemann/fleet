@@ -25,6 +25,15 @@ fleet should do; `docs/mockup/` shows how it should look, but runs only in the C
   `*_LIMIT` constants), because every new browser tab receives all of it.
 - Node runs the TypeScript directly: only erasable syntax, imports with `.ts` extensions.
 
+## Releases
+
+- The version lives in `package.json`, and the header, `fleet --version` and the MCP server show it. Jan bumps it.
+  Pushing a tag `v<version>` makes `.github/workflows/release.yml` run lint and the unit tests, then publish a
+  GitHub release with the built UI. The release notes are the commit subjects since the previous tag.
+- Before a bump, re-cut the commits since the last tag: one commit per concept a reader of the release notes
+  cares about, not the order in which things were built, fixed and fixed again. Then the bump goes in a commit of
+  its own, and the tag goes on that commit. Rewriting pushed commits means force-pushing `main`, so ask first.
+
 ## Commands
 
 `just develop | format | lint | test | e2e | run | demo`. Version control is jujutsu; `.fleet/` and `~/.fleet/`

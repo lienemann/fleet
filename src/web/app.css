@@ -342,12 +342,21 @@ h2 {
 
 /* Rail */
 .rail {
+  display: flex;
+  flex-direction: column;
   width: 250px;
   flex-shrink: 0;
   padding: 12px 8px;
   background: var(--bg2);
   border-right: 1px solid var(--line);
   overflow-y: auto;
+}
+/* The version sits at the bottom of the rail, below whatever the lists need. */
+.rail-foot {
+  margin-top: auto;
+  padding: 8px 4px 0;
+  color: var(--dim);
+  font: 11px var(--font-mono);
 }
 .tree,
 .tree ul,

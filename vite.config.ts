@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { VERSION } from "./src/shared/version.ts";
 
 const daemon = "127.0.0.1:7777";
 
@@ -18,7 +19,7 @@ const versionFile: Plugin = {
 export default defineConfig({
   root: "src/web",
   plugins: [react(), versionFile],
-  define: { __FLEET_BUILD__: JSON.stringify(build) },
+  define: { __FLEET_BUILD__: JSON.stringify(build), __FLEET_VERSION__: JSON.stringify(VERSION) },
   build: {
     outDir: "../../dist/web",
     emptyOutDir: true,

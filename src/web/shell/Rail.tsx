@@ -91,6 +91,9 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
           </ul>
         </>
       )}
+      <footer className="rail-foot" title={`Built ${new Date(__FLEET_BUILD__).toLocaleString()}`}>
+        fleet {__FLEET_VERSION__}
+      </footer>
     </aside>
   );
 }

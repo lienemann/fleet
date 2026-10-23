@@ -96,6 +96,9 @@ just e2e          # end-to-end tests in Chromium, Firefox and WebKit against dem
 
 For work on the UI, run `npm run dev:demo` (or `dev:daemon`) and `npm run dev:web` side by side.
 
+The header and `fleet --version` show the version from `package.json`. To release, bump it, tag the commit
+`v<version>` and push the tag: CI runs the checks and publishes a GitHub release with the built UI.
+
 ```toml
 port = 7777
 model = "opus"                          # default model, optional

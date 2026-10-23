@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { VERSION } from "../shared/version.ts";
 import type { Supervisor, WorkspaceStatus } from "./supervisor.ts";
 import { REMOVE_TASK, run, TASK_CHANGES, UPDATE_TASK } from "./tools.ts";
 
@@ -31,7 +32,7 @@ const holder = z
  * `claude mcp add --transport http fleet http://127.0.0.1:7777/mcp`.
  */
 function mcpServer(host: McpHost): McpServer {
-  const server = new McpServer({ name: "fleet", version: "0.1.0" });
+  const server = new McpServer({ name: "fleet", version: VERSION });
   server.registerTool(
     "list_workspaces",
     {

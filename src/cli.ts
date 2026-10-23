@@ -8,11 +8,13 @@ import { WebSocket } from "ws";
 import { fleetHome, loadConfig } from "./daemon/config.ts";
 import { init } from "./daemon/init.ts";
 import { RESTART_EXIT_CODE } from "./daemon/restart.ts";
+import { VERSION } from "./shared/version.ts";
 
 const USAGE = `Usage:
   fleet                            run the daemon (config in ~/.fleet, or FLEET_HOME)
   fleet init [-n 4] [--into DIR]   in a jj repo: create workspaces ws1..wsN and write the config
   fleet restart                    restart the running daemon once no agent is mid-turn
+  fleet --version                  print the version
 `;
 
 /** A daemon that dies this soon after starting is not started again, so a broken build cannot loop. */
@@ -24,6 +26,7 @@ const { positionals, values } = parseArgs({
     workspaces: { type: "string", short: "n", default: "4" },
     into: { type: "string" },
     help: { type: "boolean", short: "h" },
+    version: { type: "boolean", short: "V" },
   },
 });
 
@@ -75,6 +78,8 @@ function restart(): void {
 
 if (values.help) {
   process.stdout.write(USAGE);
+} else if (values.version) {
+  console.log(`fleet ${VERSION}`);
 } else if (positionals[0] === "init") {
   try {
     const result = init({
