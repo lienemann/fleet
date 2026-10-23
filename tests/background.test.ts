@@ -94,7 +94,7 @@ describe("Background tasks", () => {
     await session.stop();
   });
 
-  it("notes when a shell's output last grew, sampling it while nobody looks", async () => {
+  it("tells how long a shell has been quiet, sampling it while nobody looks", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const { queryFn, queries } = fakeQuery(echoing(...devServer, result()));
     const { session, agent } = newSession(queryFn);
@@ -112,10 +112,16 @@ describe("Background tasks", () => {
     await vi.advanceTimersByTimeAsync(OUTPUT_SAMPLE_MS * 10);
     const quiet = await session.taskOutput("t1");
     expect(quiet.totalBytes).toBe(10);
-    expect(quiet.lastOutputAt).toBeLessThanOrEqual(Date.now() - OUTPUT_SAMPLE_MS * 10);
+    expect(quiet.quietMs).toBeGreaterThanOrEqual(OUTPUT_SAMPLE_MS * 10);
 
     read.mockResolvedValue(output(20));
-    await expect(session.taskOutput("t1")).resolves.toMatchObject({ lastOutputAt: Date.now() });
+    await expect(session.taskOutput("t1")).resolves.toMatchObject({ quietMs: 0 });
+
+    // A CLI that does not answer gets one sample at a time.
+    read.mockReturnValue(new Promise(() => undefined));
+    const before = read.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(OUTPUT_SAMPLE_MS * 3);
+    expect(read.mock.calls.length).toBe(before + 1);
     await session.stop();
   });
 

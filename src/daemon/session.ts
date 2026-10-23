@@ -85,7 +85,12 @@ interface LiveTask {
   toolUseId?: string;
   bytes?: number;
   lastOutputAt?: number;
+  /** A sample is on its way; a CLI that does not answer gets no pile of them. */
+  sampling?: boolean;
 }
+
+/** A side question the CLI does not answer must not leave the browser waiting. */
+const SIDE_QUESTION_TIMEOUT_MS = 120_000;
 
 /** Resolves when `promise` settles or after `ms`, whichever comes first; never rejects. */
 const settleWithin = (promise: Promise<unknown> | undefined, ms: number): Promise<void> =>
@@ -202,9 +207,10 @@ export class AgentSession {
     this.query = undefined;
     this.queue.close();
     this.wake?.();
+    // Before awaiting, so that a start meanwhile keeps the tasks of its own run.
+    this.endTasks();
     if (interrupt) await settleWithin(query?.interrupt(), INTERRUPT_TIMEOUT_MS);
     query?.close();
-    this.endTasks();
     await done;
   }
 
@@ -218,14 +224,26 @@ export class AgentSession {
       task.bytes = total_bytes;
       task.lastOutputAt = Date.now();
     }
-    return { output, totalBytes: total_bytes, truncated, lastOutputAt: task?.lastOutputAt };
+    const quietMs = task?.lastOutputAt === undefined ? undefined : Date.now() - task.lastOutputAt;
+    return { output, totalBytes: total_bytes, truncated, quietMs };
   }
 
   /** Asks about the session without adding to it, like /btw in the CLI. */
   async askSideQuestion(question: string): Promise<string | null> {
     const query = this.query as SideQuery | undefined;
     if (!query?.askSideQuestion) throw new Error("The session is not running.");
-    return (await query.askSideQuestion(question))?.response ?? null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("No answer within two minutes.")),
+        SIDE_QUESTION_TIMEOUT_MS,
+      );
+    });
+    try {
+      return (await Promise.race([query.askSideQuestion(question), timeout]))?.response ?? null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async stopTask(taskId: string): Promise<void> {
@@ -322,6 +340,7 @@ export class AgentSession {
         attempt++;
         this.resolveAllStale();
         this.endTasks();
+        this.noResponse = false;
         this.setReconnecting(true, error instanceof Error ? error.message : String(error));
         await Promise.race([
           this.sleep(backoff(attempt)),
@@ -354,12 +373,11 @@ export class AgentSession {
 
   private handle(message: SDKMessage): void {
     if (this.reconnecting && message.type !== "system") this.setReconnecting(false);
-    if (
-      message.type === "system" &&
-      message.subtype === "api_retry" &&
-      message.error_status === null
-    ) {
-      this.noResponse = true;
+    // Whether the latest request got no response at all; an answer from Claude settles it.
+    if (message.type === "system" && message.subtype === "api_retry") {
+      this.noResponse = message.error_status === null;
+    } else if (message.type === "user" || (message.type === "assistant" && !message.error)) {
+      this.noResponse = false;
     }
 
     // More reliable than results when the CLI sends it: a prompt queued during a turn keeps
@@ -417,7 +435,13 @@ export class AgentSession {
 
   private sampleOutputs(): void {
     for (const [taskId, task] of this.tasks) {
-      if (writesOutput(task.type)) void this.taskOutput(taskId).catch(() => undefined);
+      if (!writesOutput(task.type) || task.sampling) continue;
+      task.sampling = true;
+      void this.taskOutput(taskId)
+        .catch(() => undefined)
+        .finally(() => {
+          task.sampling = false;
+        });
     }
   }
 

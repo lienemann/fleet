@@ -462,11 +462,17 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         openPoints: keep(state.openPoints),
       };
     }
-    case "activity":
+    case "activity": {
+      // A session that ends takes its unfinished turn along: no edits to list, nothing to continue.
+      const ended =
+        event.activity === "stopped" || event.activity === "detached"
+          ? { turnEdits: [], offline: undefined }
+          : {};
       // A session that runs in fleet again has no other holder.
       return event.activity === "detached"
-        ? patch({ activity: event.activity })
-        : patch({ activity: event.activity, holder: undefined, holderNote: undefined });
+        ? patch({ activity: event.activity, ...ended })
+        : patch({ activity: event.activity, holder: undefined, holderNote: undefined, ...ended });
+    }
     case "holder":
       return patch({ holder: event.holder, holderNote: event.note });
     case "briefed":
@@ -544,16 +550,9 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       const edited = agent.turnEdits.length;
       return patch({
         ...(edited > 0 && {
-          log: appendLine(
-            agent.log,
-            event,
-            "system",
-            `Edited ${edited} ${edited === 1 ? "file" : "files"}`,
-            undefined,
-            {
-              edits: agent.turnEdits.slice(0, EDITS_LIMIT),
-            },
-          ),
+          log: appendLine(agent.log, event, "system", editedText(edited), undefined, {
+            edits: agent.turnEdits,
+          }),
           turnEdits: [],
         }),
         offline: event.offline || undefined,
@@ -688,11 +687,16 @@ function appendLine(
   return [...kept, line];
 }
 
+const editedText = (files: number): string =>
+  files >= EDITS_LIMIT
+    ? `Edited ${EDITS_LIMIT} files or more`
+    : `Edited ${files} ${files === 1 ? "file" : "files"}`;
+
 /** Adds an edit to the turn's, one entry per file; the path is shown relative to the workspace. */
 function addEdit(edits: FileEdit[], edit: FileEdit, cwd: string): FileEdit[] {
   const path = edit.path.startsWith(`${cwd}/`) ? edit.path.slice(cwd.length + 1) : edit.path;
   const before = edits.find((e) => e.path === path);
-  if (!before) return [...edits, { ...edit, path }];
+  if (!before) return edits.length < EDITS_LIMIT ? [...edits, { ...edit, path }] : edits;
   const merged = { path, added: before.added + edit.added, removed: before.removed + edit.removed };
   return edits.map((e) => (e === before ? merged : e));
 }
@@ -716,7 +720,8 @@ function trackBackground(agent: AgentView, event: FleetEvent): BackgroundTask[] 
       const call =
         event.type === "local_agent"
           ? undefined
-          : agent.log.findLast((l) => l.role === "tool_use" && l.toolUseId === event.toolUseId);
+          : event.toolUseId &&
+            agent.log.findLast((l) => l.role === "tool_use" && l.toolUseId === event.toolUseId);
       const task: BackgroundTask = {
         id: event.taskId,
         type: event.type,

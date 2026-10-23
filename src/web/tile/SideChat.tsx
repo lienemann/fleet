@@ -28,8 +28,8 @@ export function useSideChat(agent: string) {
       const settle = (done: Entry) => setEntries((all) => all.map((e) => (e === entry ? done : e)));
       setEntries((all) => [...all, entry]);
       call({ type: "side_question", agent, question }).then(
-        (answer) => settle({ question, answer: answer ?? "No answer." }),
-        (error: Error) => settle({ question, error: error.message }),
+        (answer) => settle({ question, answer: answer || "No answer." }),
+        (error: Error) => settle({ question, error: error.message || "The question failed." }),
       );
       return true;
     },
@@ -54,7 +54,7 @@ export function SideChat({ entries, onClose }: { entries: Entry[]; onClose: () =
         // biome-ignore lint/suspicious/noArrayIndexKey: see above
         <div key={i} className="side-entry">
           <p className="side-question">› {entry.question}</p>
-          {entry.error ? (
+          {entry.error !== undefined ? (
             <p className="dim">{entry.error}</p>
           ) : entry.answer === undefined ? (
             <p className="dim">Thinking…</p>

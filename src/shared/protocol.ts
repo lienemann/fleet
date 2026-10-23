@@ -219,8 +219,11 @@ export interface TaskOutput {
   totalBytes: number;
   /** `output` is only the end of it. */
   truncated: boolean;
-  /** When the output last grew, as far as the daemon saw; absent once the task ended. */
-  lastOutputAt?: number;
+  /**
+   * How long the output has not grown, as far as the daemon saw; absent once the task ended.
+   * A duration, since the browser's clock may differ from the daemon's.
+   */
+  quietMs?: number;
 }
 
 /** A directory that could become a workspace. */

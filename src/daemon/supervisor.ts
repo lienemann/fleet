@@ -993,7 +993,11 @@ export class Supervisor implements ToolHost {
       return;
     }
     const first = waiting[0];
-    if (!first || now < this.retryAt) return;
+    if (!first) {
+      this.retryMs = RETRY_FIRST_MS;
+      return;
+    }
+    if (now < this.retryAt) return;
     this.scout = first.name;
     this.prompt(first.name, CONNECTION_NOTE);
   }

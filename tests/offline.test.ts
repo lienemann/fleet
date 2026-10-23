@@ -33,6 +33,31 @@ describe("Agents cut off from Claude", () => {
       role: "system",
       text: "API Error: Connection error.",
     });
+    // Stopped, it waits for nobody; Start makes it a session like any other.
+    await session.stop();
+    expect(agent()?.offline).toBeUndefined();
+  });
+
+  it("are not offline when a request went through after an earlier one got no response", async () => {
+    const { queryFn } = fakeQuery(
+      echoing(
+        cutOff[0] as SDKMessage,
+        assistantText("Working on it."),
+        sdk({
+          type: "system",
+          subtype: "api_retry",
+          attempt: 1,
+          max_retries: 10,
+          error_status: 529,
+        }),
+        result({ is_error: true, terminal_reason: "api_error" }),
+      ),
+    );
+    const { session, agent } = newSession(queryFn);
+    session.start();
+    session.prompt("go");
+    await until(() => agent()?.activity === "idle");
+    expect(agent()?.offline).toBeUndefined();
     await session.stop();
   });
 

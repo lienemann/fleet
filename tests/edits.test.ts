@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { EventLog } from "../src/daemon/eventLog.ts";
 import { fileEdit } from "../src/daemon/translate.ts";
-import { echoing, fakeQuery, newSession, result, sdk, toolUse, until } from "./helpers.ts";
+import { echoing, fakeQuery, newSession, result, sdk, toolUse, until, worker } from "./helpers.ts";
 
 const patch = (...lines: string[]) => [
   { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines },
@@ -54,5 +55,15 @@ describe("Edited files", () => {
     });
     expect(agent()?.turnEdits).toEqual([]);
     await session.stop();
+  });
+
+  it("drops the edits of a turn that ended with its session", () => {
+    const log = new EventLog(":memory:");
+    log.append(worker("a1"));
+    const edit = { path: "/ws/a.ts", added: 1, removed: 0 };
+    log.append({ agent: "a1", kind: "log", role: "tool_result", text: "ok", edit });
+    expect(log.state.agents.a1?.turnEdits).toHaveLength(1);
+    log.append({ agent: "a1", kind: "activity", activity: "stopped" });
+    expect(log.state.agents.a1?.turnEdits).toEqual([]);
   });
 });

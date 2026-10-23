@@ -11,6 +11,9 @@ const POLL_MS = 3000;
 /** A shell without new output for this long may be stuck. */
 const QUIET_MS = 2 * 60_000;
 
+/** A task's output, with when this browser got it. */
+type Sample = TaskOutput & { receivedAt: number };
+
 const ENDINGS = { completed: "completed", failed: "failed", stopped: "stopped" } as const;
 
 const ago = (ms: number): string => (ms < 60_000 ? `${Math.floor(ms / 1000)}s` : duration(ms));
@@ -93,8 +96,12 @@ function TaskRow({ agent, task, onStop, onBackground }: RowProps) {
   const [open, setOpen] = useState(false);
   const output = useTaskOutput(agent, task, open);
   const live = !task.end;
-  const sampled = output instanceof Error ? undefined : output?.lastOutputAt;
-  const quiet = live && sampled !== undefined ? now - sampled : undefined;
+  const sampled = output instanceof Error ? undefined : output;
+  // The daemon tells how long it has been quiet; the time since its answer is added here.
+  const quiet =
+    live && sampled?.quietMs !== undefined
+      ? sampled.quietMs + (now - sampled.receivedAt)
+      : undefined;
   const end = task.end;
 
   return (
@@ -207,9 +214,9 @@ function useTaskOutput(
   agent: string,
   task: BackgroundTask,
   open: boolean,
-): TaskOutput | Error | undefined {
+): Sample | Error | undefined {
   const { call } = useFleet();
-  const [output, setOutput] = useState<TaskOutput | Error>();
+  const [output, setOutput] = useState<Sample | Error>();
   const live = !task.end;
   const wanted = writesOutput(task.type) && (live || open);
 
@@ -218,7 +225,7 @@ function useTaskOutput(
     let cancelled = false;
     const read = () =>
       call({ type: "task_output", agent, taskId: task.id }).then(
-        (value) => !cancelled && setOutput(value),
+        (value) => !cancelled && setOutput({ ...value, receivedAt: Date.now() }),
         (error: Error) => !cancelled && setOutput(error),
       );
     void read();
