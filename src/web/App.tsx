@@ -26,9 +26,10 @@ import { canHandOver } from "./tile/CliBar.tsx";
 import { ViewHead } from "./ui/ViewHead.tsx";
 import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
 import { useNotifications } from "./useNotifications.ts";
+import { useTilesPerRow } from "./useTilesPerRow.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
-import { Grid } from "./views/Grid.tsx";
+import { Grid, TileZoom } from "./views/Grid.tsx";
 import { History } from "./views/History.tsx";
 import { Inbox } from "./views/Inbox.tsx";
 import { Timeline } from "./views/Timeline.tsx";
@@ -58,6 +59,7 @@ export function App() {
     requestAnimationFrame(() => focus(`[data-prompt="${name}"]`));
   };
   const { font, setFont, cycleFont } = useFont();
+  const tiles = useTilesPerRow();
   const notifications = useNotifications(state, (name) => setSelected(name));
   const open = (name: string): void => {
     setSelected(name);
@@ -433,7 +435,7 @@ export function App() {
           onAddWorkspace={() => show("workspaces")}
         />
         <main className="main">
-          <ViewHead view={view} />
+          <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
           {view === "inbox" && <Inbox onOpen={open} />}
           {view === "grid" && (
@@ -442,6 +444,7 @@ export function App() {
               onSelect={select}
               enlarged={enlarged}
               onEnlarge={setEnlarged}
+              tiles={tiles}
             />
           )}
           {view === "flow" && <Flow onOpen={select} />}

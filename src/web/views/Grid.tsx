@@ -3,16 +3,20 @@ import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { agentStatus } from "../labels.ts";
 import { Tile } from "../tile/Tile.tsx";
+import type { useTilesPerRow } from "../useTilesPerRow.ts";
+
+type Tiles = ReturnType<typeof useTilesPerRow>;
 
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
   enlarged: string | undefined;
   onEnlarge: (name: string | undefined) => void;
+  tiles: Tiles;
 }
 
 /** A live tile per agent; enlarging one shrinks the rest to a strip of names. */
-export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
+export function Grid({ selected, onSelect, enlarged, onEnlarge, tiles }: Props) {
   const { state, color } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.activity !== "stopped");
   const big = enlarged ? state.agents[enlarged] : undefined;
@@ -28,7 +32,29 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
             run: () => onEnlarge(undefined),
           },
         ]
-      : [],
+      : [
+          {
+            id: "grid.bigger",
+            label: "Bigger tiles, fewer per row",
+            group: "Grid",
+            keys: ["="],
+            run: () => tiles.zoom("bigger"),
+          },
+          {
+            id: "grid.smaller",
+            label: "Smaller tiles, more per row",
+            group: "Grid",
+            keys: ["-"],
+            run: () => tiles.zoom("smaller"),
+          },
+          {
+            id: "grid.fit",
+            label: "Fit the tiles to the window",
+            group: "Grid",
+            keys: ["0"],
+            run: tiles.fit,
+          },
+        ],
   );
   if (agents.length === 0)
     return <p className="empty">No agents yet. Start one with New task (n).</p>;
@@ -67,7 +93,14 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
   }
 
   return (
-    <div className="grid">
+    <div
+      className="grid"
+      style={
+        tiles.perRow === "auto"
+          ? undefined
+          : { gridTemplateColumns: `repeat(${tiles.perRow}, minmax(0, 1fr))` }
+      }
+    >
       {agents.map((agent) => (
         <Tile
           key={agent.name}
@@ -78,5 +111,38 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
         />
       ))}
     </div>
+  );
+}
+
+/** Zoom for the grid: fewer and bigger tiles per row, more and smaller, or fit to the window. */
+export function TileZoom({ perRow, zoom, fit }: Tiles) {
+  return (
+    <span className="tile-zoom">
+      <button
+        type="button"
+        className="small"
+        title="Smaller tiles, more per row (-)"
+        onClick={() => zoom("smaller")}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        className="small"
+        title="Fit the tiles to the window (0)"
+        aria-pressed={perRow === "auto"}
+        onClick={fit}
+      >
+        {perRow === "auto" ? "Auto" : `${perRow} per row`}
+      </button>
+      <button
+        type="button"
+        className="small"
+        title="Bigger tiles, fewer per row (=)"
+        onClick={() => zoom("bigger")}
+      >
+        +
+      </button>
+    </span>
   );
 }

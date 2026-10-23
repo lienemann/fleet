@@ -253,6 +253,23 @@ test("everything works from the keyboard", async ({ page }) => {
   expect(await main.evaluate((m) => m.scrollHeight <= m.clientHeight)).toBe(true);
   await page.keyboard.press("x");
   await expect(page.locator(".grid .tile").first()).toBeVisible();
+
+  // Zoom like a browser: fewer, bigger tiles per row, more, or back to fit.
+  const zoom = page.locator(".tile-zoom");
+  const columns = () =>
+    page
+      .locator(".grid")
+      .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
+  await expect(zoom).toContainText("Auto");
+  const fitted = await columns();
+  await page.keyboard.press("-");
+  await expect(zoom).toContainText(`${fitted + 1} per row`);
+  expect(await columns()).toBe(fitted + 1);
+  await page.keyboard.press("=");
+  await page.keyboard.press("=");
+  await expect(zoom).toContainText(`${Math.max(1, fitted - 1)} per row`);
+  await page.keyboard.press("0");
+  await expect(zoom).toContainText("Auto");
 });
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {

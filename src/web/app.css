@@ -863,11 +863,19 @@ button.link.accent {
 }
 
 /* Grid and tiles */
+/* Auto: as many tiles as fit at 440px or more; empty tracks keep a few tiles from stretching. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
   gap: 12px;
   align-items: start;
+}
+.tile-zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+.tile-zoom [aria-pressed="true"] {
+  color: var(--muted);
 }
 .grid-enlarged {
   display: flex;
