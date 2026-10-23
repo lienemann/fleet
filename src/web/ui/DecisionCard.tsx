@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
 import type { Decision } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
@@ -7,67 +8,124 @@ import { Markdown } from "./Markdown.tsx";
 
 interface Props {
   decision: Decision;
-  /** Shown in the inbox; the tile already says whose decision it is. */
+  /**
+   * "strip" sits above a tile's CLI bar and puts the command into its first line; "card" stands
+   * alone in the inbox and names the agent.
+   */
+  variant?: "strip" | "card";
+  /** Shown on cards; the tile already says whose decision it is. */
   agentColor?: string;
   focused?: boolean;
   onAnswer: (answer: Answer) => void;
 }
 
+const KIND_LABELS: Record<DecisionKind, string> = {
+  permission: "Permission",
+  question: "Question",
+  review: "Review",
+};
+
 /** A permission prompt, a question or a review request, with the agent's explanation and risk tags. */
-export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props) {
+export function DecisionCard({ decision, variant = "card", agentColor, focused, onAnswer }: Props) {
+  const strip = variant === "strip";
+  const subject = subjectOf(decision);
   return (
-    <article className={`decision ${focused ? "focused" : ""}`} data-request={decision.requestId}>
+    <article
+      className={`decision ${variant} ${focused ? "focused" : ""}`}
+      data-request={decision.requestId}
+    >
       <header>
-        {agentColor && <strong style={{ color: agentColor }}>{decision.agent}</strong>}
-        <span className="tool">{decision.toolName}</span>
-        {decision.risk.map((tag) => (
-          <span key={tag} className={`risk risk-${tag}`}>
-            {RISK_LABELS[tag]}
-          </span>
-        ))}
+        <span className={`kind kind-${decision.decision}`}>{KIND_LABELS[decision.decision]}</span>
+        {agentColor && (
+          <strong className="name" style={{ color: agentColor }}>
+            {decision.agent}
+          </strong>
+        )}
+        {strip ? (
+          <code className="subject">
+            {decision.decision === "permission" && decision.toolName !== "ExitPlanMode"
+              ? `${decision.toolName}(${subject})`
+              : subject}
+          </code>
+        ) : (
+          <span className="tool">{decision.toolName}</span>
+        )}
       </header>
+      {!strip && decision.decision === "permission" && <pre className="input">{subject}</pre>}
       {decision.explanation && <Markdown text={decision.explanation} className="explanation" />}
-      {decision.decision === "question" && <Questions decision={decision} onAnswer={onAnswer} />}
+      {decision.risk.length > 0 && (
+        <div className="risks">
+          {decision.risk.map((tag) => (
+            <span key={tag} className={`risk risk-${tag}`}>
+              {RISK_LABELS[tag]}
+            </span>
+          ))}
+        </div>
+      )}
+      {decision.decision === "question" && (
+        <Questions decision={decision} inline={strip} onAnswer={onAnswer} />
+      )}
       {decision.decision === "review" && <Review decision={decision} onAnswer={onAnswer} />}
-      {decision.decision === "permission" && <Permission decision={decision} onAnswer={onAnswer} />}
+      {decision.decision === "permission" && <Permission onAnswer={onAnswer} />}
     </article>
   );
 }
 
-type BodyProps = Pick<Props, "decision" | "onAnswer">;
-
-function Permission({ decision, onAnswer }: BodyProps) {
+/** What the decision is about, in one line where possible: the command, the question, the file. */
+function subjectOf(decision: Decision): string {
+  if (decision.decision === "review") return decision.path ?? "";
+  if (decision.decision === "question") {
+    const questions = decision.questions ?? [];
+    return questions.length === 1
+      ? (questions[0]?.question ?? "")
+      : `${questions.length} questions`;
+  }
   // Leaving plan mode is approving the plan written just above.
-  const plan = decision.toolName === "ExitPlanMode";
+  if (decision.toolName === "ExitPlanMode") return "Approve the plan above and start working";
+  const command = decision.input.command ?? decision.input.file_path ?? decision.input.url;
+  return typeof command === "string" ? command : JSON.stringify(decision.input, null, 2);
+}
+
+function Permission({ onAnswer }: Pick<Props, "onAnswer">) {
   return (
-    <>
-      <pre className="input">
-        {plan ? "Approve the plan above and start working" : describeInput(decision.input)}
-      </pre>
-      <footer>
-        <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
-          Approve <kbd>a</kbd>
-        </button>
-        <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
-          Always allow
-        </button>
-        <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-          Reject <kbd>r</kbd>
-        </button>
-      </footer>
-    </>
+    <footer>
+      <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
+        Approve <kbd>a</kbd>
+      </button>
+      <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
+        Always allow
+      </button>
+      <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
+        Reject <kbd>r</kbd>
+      </button>
+    </footer>
   );
 }
 
-function Questions({ decision, onAnswer }: BodyProps) {
+/**
+ * Options as buttons. A single question with a single choice is answered by its button; several
+ * questions or several choices are picked first and sent with Answer.
+ */
+function Questions({
+  decision,
+  inline,
+  onAnswer,
+}: Pick<Props, "decision" | "onAnswer"> & { inline: boolean }) {
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
   const [other, setOther] = useState<Record<string, string>>({});
   const questions = decision.questions ?? [];
   const answerTo = (question: string): string =>
     other[question]?.trim() || (chosen[question] ?? []).join(", ");
   const complete = questions.every((q) => answerTo(q.question) !== "");
+  const oneClick = questions.length === 1 && !questions[0]?.multiSelect;
 
-  const toggle = (question: string, label: string, multi: boolean): void =>
+  const send = (answers: Record<string, string>): void =>
+    onAnswer({ behavior: "answers", answers });
+  const pick = (question: string, label: string, multi: boolean): void => {
+    if (oneClick && !other[question]?.trim()) {
+      send({ [question]: label });
+      return;
+    }
     setChosen((prev) => {
       const current = prev[question] ?? [];
       const next = !multi
@@ -77,27 +135,32 @@ function Questions({ decision, onAnswer }: BodyProps) {
           : [...current, label];
       return { ...prev, [question]: next };
     });
+  };
 
   return (
     <>
       {questions.map((q) => (
         <fieldset key={q.question}>
-          <legend>{q.question}</legend>
-          {q.options.map((option) => (
-            <label key={option.label} className="option">
-              <input
-                type={q.multiSelect ? "checkbox" : "radio"}
-                // The same decision can be on screen twice (inbox and drawer).
-                name={`${decision.requestId}:${q.question}`}
-                checked={chosen[q.question]?.includes(option.label) ?? false}
-                onChange={() => toggle(q.question, option.label, q.multiSelect ?? false)}
-              />
-              <span>{option.label}</span>
-              {option.description && <small>{option.description}</small>}
-            </label>
-          ))}
+          {/* The strip's first line already asks a single question. */}
+          {!(inline && questions.length === 1) && <legend>{q.question}</legend>}
+          <div className="options">
+            {q.options.map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                className="option"
+                aria-pressed={chosen[q.question]?.includes(option.label) ?? false}
+                title={option.description}
+                onClick={() => pick(q.question, option.label, q.multiSelect ?? false)}
+              >
+                {option.label}
+                {!inline && option.description && <small>{option.description}</small>}
+              </button>
+            ))}
+          </div>
           <input
             className="other"
+            aria-label={`Other answer to: ${q.question}`}
             placeholder="Other answer…"
             value={other[q.question] ?? ""}
             onChange={(e) => setOther({ ...other, [q.question]: e.target.value })}
@@ -110,10 +173,7 @@ function Questions({ decision, onAnswer }: BodyProps) {
           className="primary"
           disabled={!complete}
           onClick={() =>
-            onAnswer({
-              behavior: "answers",
-              answers: Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])),
-            })
+            send(Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])))
           }
         >
           Answer
@@ -126,7 +186,7 @@ function Questions({ decision, onAnswer }: BodyProps) {
   );
 }
 
-function Review({ decision, onAnswer }: BodyProps) {
+function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
   const { call } = useFleet();
   const [content, setContent] = useState<string>();
   const [error, setError] = useState<string>();
@@ -174,9 +234,4 @@ function Review({ decision, onAnswer }: BodyProps) {
       </footer>
     </>
   );
-}
-
-function describeInput(input: Record<string, unknown>): string {
-  const command = input.command ?? input.file_path ?? input.url;
-  return typeof command === "string" ? command : JSON.stringify(input, null, 2);
 }

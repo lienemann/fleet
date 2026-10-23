@@ -34,7 +34,7 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge }: Props) {
             </button>
           ))}
         </nav>
-        <Tile agent={big} selected onEnlarge={() => onEnlarge(undefined)} />
+        <Tile agent={big} selected enlarged onEnlarge={() => onEnlarge(undefined)} />
       </div>
     );
   }

@@ -42,8 +42,8 @@ test("a task asks for permission and a decision, hands in open points, and is re
   const decision = page.locator(".decision", { hasText: "How should I fix the flaky assertion?" });
   await expect(decision).toContainText("CI runners jitter more");
   await shot(page, "inbox");
-  await decision.getByLabel("Scale the tolerance with measured jitter").check();
-  await decision.getByRole("button", { name: "Answer" }).click();
+  // A single question with a single choice is answered by its option's button.
+  await decision.getByRole("button", { name: "Scale the tolerance with measured jitter" }).click();
 
   const points = page.locator(".points");
   await expect(points).toContainText("Apply the same fix to the two similar tests?", {

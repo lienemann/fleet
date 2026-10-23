@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { PromptAttachment } from "../../shared/events.ts";
+import { Icon } from "../ui/Icon.tsx";
 
 interface Props {
   name: string;
@@ -179,13 +180,27 @@ export function Prompt({ name, commands, loadFiles, onSend, hint, disabled }: Pr
         </div>
       )}
       <div className="prompt-row">
+        <button
+          type="button"
+          className="attach"
+          aria-label="Attach files"
+          title="Attach files, or paste or drop them here"
+          disabled={disabled}
+          onClick={() => picker.current?.click()}
+        >
+          <Icon name="paperclip" />
+        </button>
+        <span className="caret" aria-hidden="true">
+          ›
+        </span>
         <textarea
           ref={textarea}
           data-prompt={name}
+          aria-label={`Message ${name}`}
           value={draft}
-          placeholder={hint ?? `Message ${name}… (/ commands, @ files, paste or drop files)`}
+          placeholder={hint ?? `Message ${name}: Enter to send, / for commands, @ to mention`}
           disabled={disabled}
-          rows={2}
+          rows={1}
           onChange={(event) => {
             setDraft(event.target.value);
             setCaret(event.target.selectionStart);
@@ -207,15 +222,7 @@ export function Prompt({ name, commands, loadFiles, onSend, hint, disabled }: Pr
         />
         <button
           type="button"
-          title="Attach files"
-          disabled={disabled}
-          onClick={() => picker.current?.click()}
-        >
-          Attach
-        </button>
-        <button
-          type="button"
-          className="primary"
+          className="send"
           onClick={submit}
           disabled={disabled || !draft.trim()}
         >

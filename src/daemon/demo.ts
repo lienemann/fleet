@@ -75,7 +75,7 @@ export function demoQuery(delayMs = 400): QueryFn {
         interrupted = false;
         turn++;
         const text = typeof prompt.message.content === "string" ? prompt.message.content : "";
-        const steps = director ? directorScript(turn, text) : workerScript(turn, text);
+        const steps = director ? directorScript(turn, text) : workerScript(turn, text, sessionId);
         for (const step of steps) {
           if (closed) return;
           if (interrupted) break;
@@ -145,8 +145,9 @@ type Step =
       parent?: undefined;
     };
 
-function workerScript(turn: number, prompt: string): Step[] {
-  const id = (n: number) => `demo-${turn}-${n}`;
+/** `session` keeps tool and request ids apart between workers that run the same script. */
+function workerScript(turn: number, prompt: string, session: string): Step[] {
+  const id = (n: number) => `${session}-${turn}-${n}`;
   if (prompt.startsWith("Message from") || turn > 1) {
     return [
       { type: "say", text: "Thanks, taking that into account." },

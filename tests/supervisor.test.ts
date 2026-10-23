@@ -83,6 +83,18 @@ describe("Supervisor", () => {
     expect(log.state.agents.bravo?.task).toBe("queued");
   });
 
+  it("starts a queued task on request past the WIP limit, but not in a held workspace", () => {
+    const { log, supervisor } = setup(undefined, undefined, 1);
+    supervisor.createTask("first", "one", "ws1");
+    supervisor.createTask("second", "two", "ws1");
+    supervisor.createTask("third", "three", "ws2");
+
+    supervisor.handle({ type: "start", agent: "bravo" });
+    expect(log.state.agents.bravo?.task).toBe("queued");
+    supervisor.handle({ type: "start", agent: "charlie" });
+    expect(log.state.agents.charlie?.task).toBe("running");
+  });
+
   it("rejects tasks for unknown workspaces", () => {
     const { supervisor } = setup();
     expect(supervisor.createTask("x", "y", "nope")).toBeUndefined();

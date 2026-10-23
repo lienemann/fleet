@@ -184,6 +184,25 @@ export const HISTORY_LIMIT = 400;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
+/** Tasks in these states hold their workspace: the agent's changes live there until accepted. */
+export const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set([
+  "running",
+  "review",
+  "changes_requested",
+]);
+
+/** Who keeps a task other than `except` from starting in a workspace: a task there, or a claim. */
+export function workspaceHolder(
+  state: FleetState,
+  workspace: string,
+  except?: string,
+): string | undefined {
+  const task = Object.values(state.agents).find(
+    (a) => a.name !== except && a.workspace === workspace && HOLDS_WORKSPACE.has(a.task),
+  );
+  return task?.name ?? state.claims[workspace]?.holder;
+}
+
 export function columnOf(agent: AgentView): Column {
   const waiting = agent.pending > 0 || agent.activity === "idle";
   return ACTIVE.has(agent.task) && waiting ? "needs_you" : agent.task;

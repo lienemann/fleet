@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { LogLine } from "../../shared/reducer.ts";
+import type { LogLine, Subagent } from "../../shared/reducer.ts";
 import { Markdown } from "../ui/Markdown.tsx";
 
 export type LogFilter = "all" | "main" | "subagents";
@@ -9,12 +9,67 @@ export const LOG_FILTERS: LogFilter[] = ["all", "main", "subagents"];
 const visible = (line: LogLine, filter: LogFilter): boolean =>
   filter === "all" || (filter === "main") === (line.parent === null);
 
-/** The transcript, anchored at the bottom unless the user scrolled up to read. */
-export function Log({ lines, filter }: { lines: LogLine[]; filter: LogFilter }) {
+/** Messages from other agents reach a session as prompts that start like this. */
+const MESSAGE = /^Message from /;
+
+/** The CLI's glyph for a line, and the class that colors it. */
+function kindOf(line: LogLine): { glyph: string; kind: string } {
+  if (line.role === "user")
+    return MESSAGE.test(line.text) ? { glyph: "✉", kind: "message" } : { glyph: "›", kind: "user" };
+  if (line.role === "tool_use") return { glyph: "●", kind: "tool" };
+  if (line.role === "tool_result") return { glyph: "⎿", kind: "output" };
+  if (line.role === "system") return { glyph: "!", kind: "system" };
+  return { glyph: "●", kind: "assistant" };
+}
+
+/** fleet's own tools by their name, other MCP tools as server:tool. */
+function toolLabel(name = "tool"): string {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+  if (!mcp) return name;
+  return mcp[1] === "fleet" ? (mcp[2] ?? name) : `${mcp[1]}:${mcp[2]}`;
+}
+
+/** The call's argument in one line; an input that only summarizes as JSON shows its first text. */
+function argumentOf(text: string): string {
+  let shown = text;
+  if (text.startsWith("{")) {
+    try {
+      const first = Object.values(JSON.parse(text) as object).find((v) => typeof v === "string");
+      if (typeof first === "string") shown = first;
+    } catch {
+      // not JSON after all
+    }
+  }
+  const [line = "", ...more] = shown.split("\n");
+  return more.length > 0 ? `${line} …` : line;
+}
+
+/** "Bash(uv run pytest -x) · Run the tests once": the call, then what the agent said it is for. */
+function ToolCall({ line }: { line: LogLine }) {
+  const argument = argumentOf(line.text);
+  return (
+    <span className="text">
+      {toolLabel(line.toolName)}({argument})
+      {line.title && line.title !== argument && <span className="purpose"> · {line.title}</span>}
+    </span>
+  );
+}
+
+/** The transcript as the CLI shows it, anchored at the bottom unless the user scrolled up to read. */
+export function Log({
+  lines,
+  subagents,
+  filter,
+}: {
+  lines: LogLine[];
+  subagents: Subagent[];
+  filter: LogFilter;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const shown = lines.filter((line) => visible(line, filter));
   const last = shown.at(-1)?.seq;
+  const subNumber = new Map(subagents.map((s, i) => [s.toolUseId, i + 1]));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new last line is the trigger
   useEffect(() => {
@@ -31,17 +86,27 @@ export function Log({ lines, filter }: { lines: LogLine[]; filter: LogFilter }) 
         stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
       }}
     >
-      {shown.map((line) => (
-        <div key={line.seq} className={`line ${line.role} ${line.parent ? "sub" : ""}`}>
-          {line.toolName && <span className="toolname">{line.toolName}</span>}
-          {line.role === "assistant" ? (
-            <Markdown text={line.text} className="text" />
-          ) : (
-            <span className="text">{line.text}</span>
-          )}
-          {line.truncated && <span className="truncated"> …</span>}
-        </div>
-      ))}
+      {shown.length === 0 && <p className="dim">No output for this filter.</p>}
+      {shown.map((line) => {
+        const { glyph, kind } = kindOf(line);
+        const sub = line.parent !== null;
+        return (
+          <div key={line.seq} className={`line ${kind} ${sub ? "sub" : ""}`}>
+            <span className="glyph">{sub ? "↳" : glyph}</span>
+            {sub && (
+              <span className="sub-label">[sub#{subNumber.get(line.parent ?? "") ?? "?"}]</span>
+            )}
+            {line.role === "tool_use" ? (
+              <ToolCall line={line} />
+            ) : line.role === "assistant" || kind === "message" ? (
+              <Markdown text={line.text} className="text" />
+            ) : (
+              <span className="text">{line.text}</span>
+            )}
+            {line.truncated && <span className="truncated"> …</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }

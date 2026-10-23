@@ -23,14 +23,14 @@ export function CliBar({ agent }: { agent: AgentView }) {
     <div className="cli-bar">
       <button
         type="button"
-        className={`small pill mode-${agent.permissionMode}`}
+        className={`cli-pill mode-${agent.permissionMode}`}
         title="Permission mode (click to cycle)"
         onClick={() => nextMode && send({ type: "set_mode", agent: name, mode: nextMode })}
       >
-        {MODE_LABELS[agent.permissionMode]}
+        mode: {MODE_LABELS[agent.permissionMode]}
       </button>
       <select
-        className="small pill"
+        className="cli-pill"
         title="Model"
         value={agent.model ?? ""}
         onChange={(event) => send({ type: "set_model", agent: name, model: event.target.value })}
@@ -47,8 +47,9 @@ export function CliBar({ agent }: { agent: AgentView }) {
           className="context"
           title={`${agent.context?.tokens} of ${agent.context?.window} tokens`}
         >
+          ctx
           <span className="meter">
-            <span style={{ width: `${percent}%` }} className={percent > 80 ? "high" : ""} />
+            <span style={{ width: `${percent}%` }} className={percent >= 70 ? "high" : ""} />
           </span>
           {percent}%
         </span>
@@ -56,7 +57,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
       <span className="spacer" />
       <button
         type="button"
-        className="small"
+        className="outline"
         disabled={!live}
         onClick={() => send({ type: "prompt", agent: name, text: "/compact" })}
       >
@@ -64,7 +65,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
       </button>
       <button
         type="button"
-        className="small"
+        className="outline"
         disabled={!canHandOver(agent)}
         title="Continue in a fresh session: this one writes a handover, a new one reads it (Shift+H)"
         onClick={() => send({ type: "handover", agent: name })}
@@ -73,7 +74,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
       </button>
       <button
         type="button"
-        className="small"
+        className="outline"
         disabled={agent.activity !== "working"}
         onClick={() => send({ type: "interrupt", agent: name })}
         title="Interrupt (Esc)"
@@ -81,13 +82,17 @@ export function CliBar({ agent }: { agent: AgentView }) {
         Interrupt
       </button>
       {live ? (
-        <button type="button" className="small" onClick={() => send({ type: "stop", agent: name })}>
+        <button
+          type="button"
+          className="outline"
+          onClick={() => send({ type: "stop", agent: name })}
+        >
           Stop
         </button>
       ) : (
         <button
           type="button"
-          className="small"
+          className="outline"
           disabled={agent.task === "queued"}
           onClick={() => send({ type: "start", agent: name })}
         >
@@ -97,7 +102,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
       {live && agent.sessionId && (
         <button
           type="button"
-          className="small"
+          className="outline"
           title="Release the session to continue it in a terminal"
           onClick={() => send({ type: "detach", agent: name })}
         >

@@ -16,7 +16,13 @@ import {
   USER,
 } from "../shared/events.ts";
 import type { Answer, Call, CallResults, Command, SessionSummary } from "../shared/protocol.ts";
-import { type AgentView, agentList, type Claim, columnOf } from "../shared/reducer.ts";
+import {
+  type AgentView,
+  agentList,
+  type Claim,
+  columnOf,
+  HOLDS_WORKSPACE,
+} from "../shared/reducer.ts";
 import type { ReviewModel } from "../shared/review.ts";
 import { changeRequest } from "./changeRequest.ts";
 import type { Config, Workspace } from "./config.ts";
@@ -73,8 +79,6 @@ const NAMES = [
   "zulu",
 ];
 
-/** Tasks in these states hold their workspace: the agent's changes live there until accepted. */
-const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set(["running", "review", "changes_requested"]);
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 const EDIT_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
@@ -218,9 +222,13 @@ export class Supervisor implements ToolHost {
       case "create_task":
         this.createTask(message.title, message.prompt, message.workspace);
         return;
-      case "start":
-        this.session(message.agent)?.start();
+      case "start": {
+        // A queued task starts past the WIP limit, but never in a workspace someone else holds.
+        const agent = this.agent(message.agent);
+        if (agent?.task !== "queued") this.session(message.agent)?.start();
+        else if (this.workspaceFree(agent.workspace, agent.name)) this.begin(agent);
         return;
+      }
       case "stop":
         this.background(this.sessions.get(message.agent)?.stop());
         return;
@@ -808,14 +816,17 @@ export class Supervisor implements ToolHost {
     for (const agent of this.agents) {
       if (agent.task !== "queued") continue;
       if (this.activeCount() >= this.config.wip.running) return;
-      if (!this.workspaceFree(agent.workspace, agent.name)) continue;
-      const session = this.session(agent.name);
-      // A reopened task already has its conversation and waits for the user's next prompt.
-      // A new task's prompt is queued before the start, so the session starts working.
-      if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
-      this.append(agent.name, { kind: "task_state", state: "running" });
-      session?.start();
+      if (this.workspaceFree(agent.workspace, agent.name)) this.begin(agent);
     }
+  }
+
+  private begin(agent: AgentView): void {
+    const session = this.session(agent.name);
+    // A reopened task already has its conversation and waits for the user's next prompt.
+    // A new task's prompt is queued before the start, so the session starts working.
+    if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
+    this.append(agent.name, { kind: "task_state", state: "running" });
+    session?.start();
   }
 
   private workspaceFree(workspace: string, except?: string): boolean {
