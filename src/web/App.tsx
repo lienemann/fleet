@@ -11,6 +11,7 @@ import { AddWorkspace } from "./shell/AddWorkspace.tsx";
 import { DirectorDock } from "./shell/DirectorDock.tsx";
 import { DRAWER_TABS, Drawer, type DrawerTab } from "./shell/Drawer.tsx";
 import { Header } from "./shell/Header.tsx";
+import { ImportSessions } from "./shell/ImportSessions.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
@@ -95,7 +96,7 @@ export function App() {
     },
     {
       id: "task.import",
-      label: "Import a Claude Code session",
+      label: "Import Claude Code sessions",
       group: "Fleet",
       keys: ["i"],
       run: () => show("import"),
@@ -348,7 +349,6 @@ export function App() {
         view={view}
         onView={setView}
         onNewTask={() => show("new-task")}
-        onImport={() => show("import")}
         onPalette={() => show("palette")}
         onHelp={() => show("shortcuts")}
         notifications={notifications}
@@ -392,6 +392,7 @@ export function App() {
         <Rail
           selected={selected}
           onSelect={view === "grid" ? open : select}
+          onImport={() => show("import")}
           onAddWorkspace={() => show("workspaces")}
         />
         <main className="main">
@@ -422,12 +423,11 @@ export function App() {
       </div>
       <DirectorDock onOpen={select} />
       <ChordHint />
-      {(overlay?.kind === "new-task" || overlay?.kind === "import") && (
-        <NewTask
-          key={overlay.id}
-          mode={overlay.kind === "import" ? "import" : "new"}
-          onClose={() => setOverlay(undefined)}
-        />
+      {overlay?.kind === "new-task" && (
+        <NewTask key={overlay.id} onClose={() => setOverlay(undefined)} />
+      )}
+      {overlay?.kind === "import" && (
+        <ImportSessions key={overlay.id} onClose={() => setOverlay(undefined)} />
       )}
       {overlay?.kind === "shortcuts" && (
         <Shortcuts key={overlay.id} onClose={() => setOverlay(undefined)} />

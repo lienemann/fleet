@@ -16,7 +16,6 @@ interface Props {
   view: View;
   onView: (view: View) => void;
   onNewTask: () => void;
-  onImport: () => void;
   onPalette: () => void;
   onHelp: () => void;
   notifications: Notifications;
@@ -35,7 +34,6 @@ export function Header({
   view,
   onView,
   onNewTask,
-  onImport,
   onPalette,
   onHelp,
   notifications,
@@ -120,9 +118,6 @@ export function Header({
       </div>
       <button type="button" className="primary" onClick={onNewTask}>
         + New task <kbd>n</kbd>
-      </button>
-      <button type="button" onClick={onImport} title="Import a Claude Code session">
-        Import <kbd>i</kbd>
       </button>
       <button
         type="button"

@@ -82,10 +82,10 @@ config and event log in `~/.fleet/`, or wherever `FLEET_HOME` points; without a 
 only workspace.
 
 In the browser, `n` starts a new task: give it a title and a brief, pick a workspace, and a worker starts on it
-there. Or tell the director what you want in the box at the bottom, and it splits the work into tasks itself. `i`
-imports a session you started in the CLI: pick the workspace (`default` is the repo itself), pick the session, and
-it becomes a task with its transcript. It starts detached, because the CLI may still have it open; close it there,
-then send it a message and it continues in fleet. The Import button in the header does the same.
+there. Or tell the director what you want in the box at the bottom, and it splits the work into tasks itself. `i`,
+or "+ Add" next to the agent list, imports sessions you started in the CLI: pick the workspace (`default` is the repo
+itself), tick one or more sessions, and each becomes a task with its transcript. It starts detached, because the CLI
+may still have it open; close it there, then send it a message and it continues in fleet.
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). To work in a
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it
@@ -215,7 +215,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `g b`, `g i`, `g g`, `g t`, `g f`, `g h` (or `1` to `6`) | go to board, inbox, grid, timeline, flow, history |
 | `g d` | select the director |
 | `j`, `k`, then `o` or Enter | next or previous agent (in the inbox: decision), open it in the grid |
-| `n`, `i`, `d` | new task, import a CLI session, message the director |
+| `n`, `i`, `d` | new task, import CLI sessions, message the director |
 | `p` | write to the selected agent; Esc leaves the field |
 | `a`, Shift+A, `r` | approve, always allow, or reject its permission request |
 | `m r`, `m c`, `m a`, `m o` | move to review, request changes, accept, reopen |

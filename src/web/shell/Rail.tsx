@@ -6,11 +6,12 @@ import { agentStatus } from "../labels.ts";
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
+  onImport: () => void;
   onAddWorkspace: () => void;
 }
 
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
-export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
+export function Rail({ selected, onSelect, onImport, onAddWorkspace }: Props) {
   const { state, info, send } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const holder = (workspace: string) =>
@@ -20,7 +21,17 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
 
   return (
     <aside className="rail">
-      <h2>Agents</h2>
+      <h2 className="rail-head">
+        Agents
+        <button
+          type="button"
+          className="link"
+          title="Import Claude Code sessions (i)"
+          onClick={onImport}
+        >
+          + Add
+        </button>
+      </h2>
       {agents.length === 0 && <p className="empty">None yet.</p>}
       <ul className="tree">
         {agents.map((agent) => (

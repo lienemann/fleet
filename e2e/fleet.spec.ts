@@ -360,15 +360,24 @@ test("desktop notifications tell about agents that need you while fleet is in th
     .toContainEqual(expect.stringMatching(/needs you$/));
 });
 
-test("an existing Claude Code session can be imported and taken back", async ({ page }) => {
+test("existing Claude Code sessions can be imported and taken back", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("test + 1 pod");
-  await page.keyboard.press("i");
-  const dialog = page.getByRole("dialog", { name: "Import a session" });
-  await dialog.getByLabel("Speed up the sweep loop").check();
-  await expect(dialog.getByLabel("Title on the board")).toHaveValue("Speed up the sweep loop");
-  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await page.locator(".rail").getByTitle("Import Claude Code sessions (i)").click();
+  const dialog = page.getByRole("dialog", { name: "Import sessions" });
+  const search = dialog.getByLabel("Search sessions");
+  await search.fill("sched");
+  await expect(dialog.getByLabel("Speed up the sweep loop")).toBeHidden();
+  await dialog.getByLabel("Explain the scheduler").check();
+  await expect(dialog.getByLabel("Title on the board")).toHaveValue("Explain the scheduler");
 
+  // A second pick keeps both titles; only a single session can be renamed.
+  await search.clear();
+  await dialog.getByLabel("Speed up the sweep loop").check();
+  await expect(dialog.getByLabel("Title on the board")).toBeHidden();
+  await dialog.getByRole("button", { name: "Import 2", exact: true }).click();
+
+  await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeVisible();
   const card = page.locator(".card", { hasText: "Speed up the sweep loop" });
   await card.locator(".card-main").click();
   const drawer = page.locator(".drawer");
@@ -382,7 +391,7 @@ test("an existing Claude Code session can be imported and taken back", async ({ 
   await page.locator(".drawer textarea[data-prompt]").focus();
   await page.keyboard.press("Escape");
   await page.keyboard.press("i");
-  await expect(page.getByRole("dialog", { name: "Import a session" })).toContainText(
+  await expect(page.getByRole("dialog", { name: "Import sessions" })).toContainText(
     "already a task",
   );
 });

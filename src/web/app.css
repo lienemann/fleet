@@ -1981,10 +1981,25 @@ button.ln:hover {
 /* Session import */
 .session-list {
   max-height: 40vh;
+  margin: 0;
   overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.session-list legend {
+  color: var(--muted);
+}
+.dialog .session-list .option {
+  flex-direction: row;
+  align-items: baseline;
+  color: var(--fg);
+}
+.dialog .session-list .option.dim {
+  color: var(--muted);
 }
 .session-list .option small {
   margin-left: auto;
+  white-space: nowrap;
 }
 
 .dialog-head {
