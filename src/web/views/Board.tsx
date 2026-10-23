@@ -1,6 +1,7 @@
-import { type CSSProperties, type DragEvent, useState } from "react";
+import { type DragEvent, useState } from "react";
 import { USER_MOVES, type UserMove } from "../../shared/events.ts";
 import { type AgentView, agentList, type Column, columnOf } from "../../shared/reducer.ts";
+import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { COLUMNS, duration } from "../labels.ts";
 import { useNow } from "../useNow.ts";
@@ -8,13 +9,15 @@ import { useNow } from "../useNow.ts";
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
+  /** Opens the agent and puts the cursor into its prompt. */
+  onMessage: (name: string) => void;
 }
 
 const isMove = (column: Column): column is UserMove =>
   (USER_MOVES as readonly string[]).includes(column);
 
 /** One column per task state. Cards can be dragged between columns or moved with their buttons. */
-export function Board({ selected, onSelect }: Props) {
+export function Board({ selected, onSelect, onMessage }: Props) {
   const { state, info, send } = useFleet();
   const [dropTarget, setDropTarget] = useState<Column>();
   const workers = agentList(state).filter((a) => a.role === "worker");
@@ -64,6 +67,7 @@ export function Board({ selected, onSelect }: Props) {
                 agent={agent}
                 selected={agent.name === selected}
                 onSelect={onSelect}
+                onMessage={onMessage}
               />
             ))}
           </section>
@@ -77,10 +81,12 @@ function Card({
   agent,
   selected,
   onSelect,
+  onMessage,
 }: {
   agent: AgentView;
   selected: boolean;
   onSelect: (n: string) => void;
+  onMessage: (n: string) => void;
 }) {
   const { send, color } = useFleet();
   const now = useNow();
@@ -98,7 +104,7 @@ function Card({
   return (
     <article
       className={`card ${selected ? "selected" : ""}`}
-      style={{ "--agent": color(agent.color) } as CSSProperties}
+      style={agentStyle(agent, color)}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("text/fleet-agent", agent.name)}
     >
@@ -118,6 +124,16 @@ function Card({
         <span className="card-status">{subtitle}</span>
       </button>
       <footer>
+        {column !== "queued" && (
+          <button
+            type="button"
+            className="small"
+            title="Write to this agent (p)"
+            onClick={() => onMessage(agent.name)}
+          >
+            Message
+          </button>
+        )}
         {column === "review" && (
           <>
             <button type="button" className="small primary" onClick={() => move("accepted")}>

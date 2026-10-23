@@ -6,12 +6,15 @@ import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, useCommands } from "./keys/keymap.tsx";
 import { Palette } from "./keys/Palette.tsx";
 import { Shortcuts } from "./keys/Shortcuts.tsx";
+import { AddWorkspace } from "./shell/AddWorkspace.tsx";
 import { DirectorDock } from "./shell/DirectorDock.tsx";
 import { DRAWER_TABS, Drawer, type DrawerTab } from "./shell/Drawer.tsx";
 import { Header } from "./shell/Header.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
+import { canHandOver } from "./tile/CliBar.tsx";
+import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
 import { useNotifications } from "./useNotifications.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
@@ -21,7 +24,7 @@ import { Inbox } from "./views/Inbox.tsx";
 import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
 
-type Overlay = "new-task" | "import" | "shortcuts" | "palette";
+type Overlay = "new-task" | "import" | "workspaces" | "shortcuts" | "palette";
 
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
@@ -38,6 +41,13 @@ export function App() {
   const agents = agentList(state);
 
   const select = (name: string): void => setSelected(name);
+  /** Opens the agent in the drawer and puts the cursor into its prompt, once the drawer shows it. */
+  const message = (name: string): void => {
+    setSelected(name);
+    setTab("live");
+    requestAnimationFrame(() => focus(`[data-prompt="${name}"]`));
+  };
+  const { font, setFont, cycleFont } = useFont();
   const notifications = useNotifications(state, (name) => setSelected(name));
   const open = (name: string): void => {
     setSelected(name);
@@ -76,6 +86,12 @@ export function App() {
       run: () => show("new-task"),
     },
     {
+      id: "workspace.add",
+      label: "Add an existing jj workspace",
+      group: "Fleet",
+      run: () => show("workspaces"),
+    },
+    {
       id: "task.import",
       label: "Import a Claude Code session",
       group: "Fleet",
@@ -97,6 +113,30 @@ export function App() {
       run: () => send({ type: "mark_all_seen" }),
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    {
+      id: "font.next",
+      label: "Next text font",
+      group: "Fleet",
+      keys: ["shift+f"],
+      paletteHidden: true,
+      run: cycleFont,
+    },
+    ...FONTS.map(
+      (f): Command => ({
+        id: `font.${f}`,
+        label: `Text font: ${FONT_LABELS[f]}${f === font ? " (current)" : ""}`,
+        group: "Fleet",
+        run: () => setFont(f),
+      }),
+    ),
+    {
+      id: "restart",
+      label: state.restartPending
+        ? "Cancel the restart"
+        : "Restart fleet once no agent is mid-turn",
+      group: "Fleet",
+      run: () => send({ type: "restart", cancel: state.restartPending }),
+    },
     ...(notifications.supported
       ? [
           {
@@ -207,6 +247,13 @@ export function App() {
         run: () => send({ type: live ? "stop" : "start", agent: name }),
       },
       {
+        id: "agent.handover",
+        label: "Hand over to a fresh session",
+        group: "Selected agent",
+        keys: ["shift+h"],
+        run: () => current && canHandOver(current) && send({ type: "handover", agent: name }),
+      },
+      {
         id: "agent.mode",
         label: "Next permission mode",
         group: "Selected agent",
@@ -295,8 +342,11 @@ export function App() {
         view={view}
         onView={setView}
         onNewTask={() => show("new-task")}
+        onImport={() => show("import")}
         onHelp={() => show("shortcuts")}
         notifications={notifications}
+        font={font}
+        onCycleFont={cycleFont}
       />
       <Ticker />
       {!connected && <div className="banner">Reconnecting to the daemon…</div>}
@@ -307,15 +357,32 @@ export function App() {
         </div>
       )}
       <PowerBanner />
+      {state.restartPending && (
+        <div className="banner">
+          fleet restarts as soon as no agent is in the middle of a turn
+          {` (${agents.filter((a) => a.activity === "working" && a.pending === 0).length} still working). `}
+          <button
+            type="button"
+            className="link"
+            onClick={() => send({ type: "restart", cancel: true })}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       {notifications.blocked && (
         <div className="banner">
           The browser blocks notifications from fleet; allow them in its site settings.
         </div>
       )}
       <div className="body">
-        <Rail selected={selected} onSelect={view === "grid" ? open : select} />
+        <Rail
+          selected={selected}
+          onSelect={view === "grid" ? open : select}
+          onAddWorkspace={() => show("workspaces")}
+        />
         <main className="main">
-          {view === "board" && <Board selected={selected} onSelect={select} />}
+          {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
           {view === "inbox" && <Inbox onOpen={open} />}
           {view === "grid" && (
             <Grid
@@ -344,6 +411,9 @@ export function App() {
       )}
       {overlay?.kind === "shortcuts" && (
         <Shortcuts key={overlay.id} onClose={() => setOverlay(undefined)} />
+      )}
+      {overlay?.kind === "workspaces" && (
+        <AddWorkspace key={overlay.id} onClose={() => setOverlay(undefined)} />
       )}
       {overlay?.kind === "palette" && (
         <Palette key={overlay.id} onClose={() => setOverlay(undefined)} />

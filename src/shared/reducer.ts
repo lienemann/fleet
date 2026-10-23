@@ -1,6 +1,7 @@
 import type {
   Activity,
   BackgroundTask,
+  ContextCategory,
   DecisionKind,
   FleetEvent,
   LogRole,
@@ -12,6 +13,7 @@ import type {
   RiskTag,
   Role,
   TaskState,
+  Tint,
   Todo,
 } from "./events.ts";
 import type { ReviewComment, ReviewEdit } from "./review.ts";
@@ -35,6 +37,10 @@ export interface LogLine {
   toolName?: string;
   /** Set when the line comes from a subagent. */
   parent: string | null;
+  /** Pairs a tool call with its result. */
+  toolUseId?: string;
+  /** What the agent said a tool call is for. */
+  title?: string;
   /** The state keeps only the start of long output; the event log has all of it. */
   truncated?: boolean;
 }
@@ -84,6 +90,7 @@ export interface AgentView {
   title: string;
   prompt?: string;
   color: string;
+  tint: Tint;
   workspace: string;
   cwd: string;
   host: string;
@@ -99,7 +106,18 @@ export interface AgentView {
   todos: Todo[];
   subagents: Subagent[];
   backgroundTasks: BackgroundTask[];
-  context?: { tokens: number; window: number };
+  context?: {
+    tokens: number;
+    window: number;
+    categories: ContextCategory[];
+    autoCompactAt?: number;
+  };
+  /** Files the session wrote or edited, newest first. */
+  outputs: string[];
+  /** The latest handover to a fresh session, while it runs or if it failed. */
+  handover?: { state: "writing" | "done" | "failed"; path: string; note?: string };
+  /** Handovers so far; numbers the handover files. */
+  handovers: number;
   costUsd: number;
   /** Cost in USD per UTC day, keyed by `YYYY-MM-DD`. */
   costByDay: Record<string, number>;
@@ -133,6 +151,8 @@ export interface FleetState {
   /** Open-point documents with unanswered points, by doc id. */
   openPoints: Record<string, OpenPointsDoc>;
   power: PowerState;
+  /** The daemon restarts as soon as no agent is mid-turn. */
+  restartPending: boolean;
 }
 
 export interface PowerState {
@@ -191,6 +211,7 @@ export const emptyState = (): FleetState => ({
   messages: [],
   openPoints: {},
   power: { caffeinated: false, lidMode: false },
+  restartPending: false,
 });
 
 /**
@@ -234,6 +255,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     };
     return { ...state, messages: [...state.messages.slice(-(MESSAGE_LIMIT - 1)), message] };
   }
+  if (event.kind === "restart") return { ...state, restartPending: event.pending };
   if (event.kind === "power") {
     const { caffeinated, lidMode, since, note } = event;
     return { ...state, power: { caffeinated, lidMode, since, note } };
@@ -245,6 +267,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       title: event.title,
       prompt: event.prompt,
       color: event.color,
+      tint: "soft",
       workspace: event.workspace,
       cwd: event.cwd,
       host: event.host,
@@ -257,6 +280,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       todos: [],
       subagents: [],
       backgroundTasks: [],
+      outputs: [],
+      handovers: 0,
       comments: [],
       edits: [],
       history: [{ lane: event.role === "director" ? "idle" : "queued", from: event.ts }],
@@ -294,15 +319,17 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         model: event.model ?? agent.model,
         permissionMode: event.permissionMode ?? agent.permissionMode,
         color: event.color ?? agent.color,
+        tint: event.tint ?? agent.tint,
       });
     case "user_prompt": {
-      const images = event.images ? ` [${event.images} image${event.images > 1 ? "s" : ""}]` : "";
-      return patch({ log: appendLine(agent.log, event, "user", event.text + images) });
+      const attached = event.attachments?.length ? ` [${event.attachments.join(", ")}]` : "";
+      return patch({ log: appendLine(agent.log, event, "user", event.text + attached) });
     }
     case "log":
       return patch({
         log: appendLine(agent.log, event, event.role, event.text, event.toolName),
         subagents: trackSubagents(agent.subagents, event),
+        outputs: trackOutputs(agent.outputs, event),
       });
     case "todos":
       return patch({ todos: event.todos });
@@ -342,7 +369,14 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     }
     case "context":
-      return patch({ context: { tokens: event.tokens, window: event.window } });
+      return patch({
+        context: {
+          tokens: event.tokens,
+          window: event.window,
+          categories: event.categories ?? [],
+          autoCompactAt: event.autoCompactAt,
+        },
+      });
     case "connection":
       return patch({ reconnecting: event.reconnecting });
     case "agent_opened":
@@ -353,6 +387,17 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ status: event.text });
     case "note":
       return patch({ note: event.text });
+    case "handover":
+      if (event.state !== "done")
+        return patch({ handover: { state: event.state, path: event.path, note: event.note } });
+      // The next start is a new session; the transcript gets a divider where the old one ended.
+      return patch({
+        handover: undefined,
+        handovers: agent.handovers + 1,
+        sessionId: undefined,
+        context: undefined,
+        log: appendLine(agent.log, event, "system", `New session, continuing from ${event.path}`),
+      });
     case "review_progress":
       return patch({ reviewProgress: { approved: event.approved, total: event.total } });
     case "comment_added":
@@ -440,10 +485,23 @@ function appendLine(
     text: truncated ? text.slice(0, TEXT_LIMIT) : text,
     toolName,
     parent: event.parent,
+    ...(event.kind === "log" && event.toolUseId && { toolUseId: event.toolUseId }),
+    ...(event.kind === "log" && event.title && { title: event.title }),
     ...(truncated && { truncated }),
   };
   const kept = log.length >= LOG_LIMIT ? log.slice(log.length - LOG_LIMIT + 1) : log;
   return [...kept, line];
+}
+
+/** Files kept in a session's outputs list. */
+const OUTPUT_LIMIT = 50;
+const WRITING_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+function trackOutputs(outputs: string[], event: FleetEvent & { kind: "log" }): string[] {
+  if (event.role !== "tool_use" || !event.toolName || !WRITING_TOOLS.has(event.toolName))
+    return outputs;
+  const path = event.text;
+  return [path, ...outputs.filter((p) => p !== path)].slice(0, OUTPUT_LIMIT);
 }
 
 // The CLI spawns subagents through a tool call; its result ends them.

@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
@@ -22,7 +22,8 @@ import type { Supervisor } from "./supervisor.ts";
 export interface ServerOptions {
   log: EventLog;
   supervisor: Pick<Supervisor, "handle" | "call">;
-  info: DaemonInfo;
+  /** Read on every connect, so changes (an added workspace) reach new pages. */
+  info: () => DaemonInfo;
   /** Directory with the built web UI. */
   staticDir: string;
   allowedOrigins: string[];
@@ -75,7 +76,12 @@ function parseHost(value: string | undefined): URL | undefined {
   }
 }
 
-export function createFleetServer(options: ServerOptions): { server: Server; close: () => void } {
+export function createFleetServer(options: ServerOptions): {
+  server: Server;
+  close: () => void;
+  /** Sends the current daemon info to every page connected to this daemon. */
+  broadcastInfo: () => void;
+} {
   const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit } = options;
   const remotes = options.remotes ?? [];
   const allowed = (req: IncomingMessage): boolean =>
@@ -104,9 +110,16 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
     wss.handleUpgrade(req, socket, head, (ws) => (remote ? relay(ws, remote.url) : attach(ws)));
   });
 
+  // Pages talking to this daemon; relayed sockets to remote daemons are not among them.
+  const pages = new Set<WebSocket>();
+
   const attach = (ws: WebSocket): void => {
     let unsubscribe: (() => void) | undefined;
-    ws.on("close", () => unsubscribe?.());
+    pages.add(ws);
+    ws.on("close", () => {
+      pages.delete(ws);
+      unsubscribe?.();
+    });
     ws.on("message", (data) => {
       const parsed = parseJson(data.toString());
       const call = CallSchema.safeParse(parsed);
@@ -151,7 +164,7 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
       send(ws, { type: "events", events: fresh });
     };
     const off = log.subscribe((event) => forward([event]));
-    send(ws, { type: "info", info });
+    send(ws, { type: "info", info: { ...info(), build: servedBuild(staticDir) } });
 
     // A client ahead of the log saw a database that no longer exists.
     if (since === 0 || since > log.lastSeq || log.lastSeq - since > REPLAY_LIMIT) {
@@ -167,6 +180,10 @@ export function createFleetServer(options: ServerOptions): { server: Server; clo
 
   return {
     server,
+    broadcastInfo: () => {
+      for (const page of pages)
+        send(page, { type: "info", info: { ...info(), build: servedBuild(staticDir) } });
+    },
     close: () => {
       for (const client of wss.clients) client.close();
       wss.close();
@@ -280,4 +297,16 @@ function relay(browser: WebSocket, url: string): void {
   remote.on("close", closeBoth);
   remote.on("error", closeBoth);
   browser.on("close", closeBoth);
+}
+
+/** The build number of the web UI on disk, read on every connect, so a rebuild shows at once. */
+function servedBuild(staticDir: string): number | undefined {
+  try {
+    const { build } = JSON.parse(readFileSync(join(staticDir, "version.json"), "utf8")) as {
+      build?: unknown;
+    };
+    return typeof build === "number" ? build : undefined;
+  } catch {
+    return undefined;
+  }
 }

@@ -13,7 +13,7 @@ import type {
   AgentEvent,
   EventBody,
   PermissionMode,
-  PromptImage,
+  PromptAttachment,
   Question,
 } from "../shared/events.ts";
 import type { Answer } from "../shared/protocol.ts";
@@ -125,15 +125,16 @@ export class AgentSession {
     this.done = this.run(generation);
   }
 
-  prompt(text: string, images: readonly PromptImage[] = []): void {
+  prompt(text: string, attachments: readonly PromptAttachment[] = []): void {
+    const names = attachments.map((file) => file.name);
     this.options.emit({
       kind: "user_prompt",
       text,
-      ...(images.length > 0 && { images: images.length }),
+      ...(names.length > 0 && { attachments: names }),
     });
     this.explanation = "";
     this.setActivity("working");
-    this.queue.push(text, images);
+    this.queue.push(text, attachments);
   }
 
   async interrupt(): Promise<void> {
@@ -313,8 +314,19 @@ export class AgentSession {
   private async reportContext(): Promise<void> {
     try {
       const usage = await this.query?.getContextUsage();
-      if (usage)
-        this.options.emit({ kind: "context", tokens: usage.totalTokens, window: usage.maxTokens });
+      if (!usage) return;
+      this.options.emit({
+        kind: "context",
+        tokens: usage.totalTokens,
+        window: usage.maxTokens,
+        categories: usage.categories?.map(({ id, name, tokens, kind }) => ({
+          id,
+          name,
+          tokens,
+          kind,
+        })),
+        autoCompactAt: usage.isAutoCompactEnabled ? usage.autoCompactThreshold : undefined,
+      });
     } catch {
       // Context usage is optional; an older CLI may not answer it.
     }

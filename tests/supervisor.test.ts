@@ -117,3 +117,50 @@ describe("Supervisor", () => {
     );
   });
 });
+
+describe("restart", () => {
+  it("waits until no agent is mid-turn, and is settled after the restart", async () => {
+    const log = new EventLog(":memory:");
+    let restarted = 0;
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: { workspaces, wip: { running: 4, review: 2 }, host: "mac" },
+      restart: () => restarted++,
+    });
+    log.append(worker("alpha"));
+    log.append({ kind: "activity", agent: "alpha", activity: "working" });
+    supervisor.handle({ type: "restart" });
+    expect(log.state.restartPending).toBe(true);
+    expect(restarted).toBe(0);
+
+    log.append({ kind: "activity", agent: "alpha", activity: "idle" });
+    expect(restarted).toBe(1);
+
+    // The next daemon finds the request in the log and clears it.
+    new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: { workspaces, wip: { running: 4, review: 2 }, host: "mac" },
+    }).init();
+    expect(log.state.restartPending).toBe(false);
+  });
+
+  it("can be cancelled while it waits", () => {
+    const log = new EventLog(":memory:");
+    let restarted = 0;
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: { workspaces, wip: { running: 4, review: 2 }, host: "mac" },
+      restart: () => restarted++,
+    });
+    log.append(worker("alpha"));
+    log.append({ kind: "activity", agent: "alpha", activity: "working" });
+    supervisor.handle({ type: "restart" });
+    supervisor.handle({ type: "restart", cancel: true });
+    log.append({ kind: "activity", agent: "alpha", activity: "idle" });
+    expect(restarted).toBe(0);
+    expect(log.state.restartPending).toBe(false);
+  });
+});

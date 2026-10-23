@@ -19,6 +19,10 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const USER_MOVES = ["running", "review", "changes_requested", "accepted"] as const;
 export type UserMove = (typeof USER_MOVES)[number];
 
+/** How strongly an agent's color tints its tile and card. */
+export const TINTS = ["none", "soft", "medium", "strong"] as const;
+export type Tint = (typeof TINTS)[number];
+
 export type RiskTag = "network" | "outside-workspace" | "runtime";
 
 export type LogRole = "assistant" | "user" | "tool_use" | "tool_result" | "system";
@@ -29,11 +33,25 @@ export interface Todo {
   activeForm?: string;
 }
 
-/** An image sent along with a prompt, e.g. a pasted screenshot. */
-export interface PromptImage {
-  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+/** A file sent along with a prompt: a pasted screenshot, a PDF, a log file. */
+export interface PromptAttachment {
+  name: string;
+  mediaType: string;
   /** Base64, without a data: prefix. */
   data: string;
+}
+
+/** Attachments Claude reads directly; any other file is saved into the workspace. */
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+export const PDF_TYPE = "application/pdf";
+
+export interface ContextCategory {
+  /** Stable id from the CLI, e.g. "messages" or "free_space"; absent on older CLIs. */
+  id?: string;
+  name: string;
+  tokens: number;
+  /** "used" fills the window, "free" is left, "buffer" is kept for compaction, "deferred" is outside it. */
+  kind: "used" | "free" | "buffer" | "deferred";
 }
 
 export interface BackgroundTask {
@@ -107,10 +125,24 @@ export type EventBody =
       permissionMode?: string;
       slashCommands?: string[];
     }
-  | { kind: "settings"; model?: string; permissionMode?: PermissionMode; color?: string }
-  /** `images` counts the images sent along; the pictures themselves go only to the agent. */
-  | { kind: "user_prompt"; text: string; images?: number }
-  | { kind: "log"; role: LogRole; text: string; toolName?: string; toolUseId?: string }
+  | {
+      kind: "settings";
+      model?: string;
+      permissionMode?: PermissionMode;
+      color?: string;
+      tint?: Tint;
+    }
+  /** `attachments` names what was sent along; the content goes only to the agent. */
+  | { kind: "user_prompt"; text: string; attachments?: string[] }
+  | {
+      kind: "log";
+      role: LogRole;
+      text: string;
+      toolName?: string;
+      toolUseId?: string;
+      /** For a tool call: what the agent said it is for, e.g. Bash's description. */
+      title?: string;
+    }
   | { kind: "todos"; todos: Todo[] }
   /** Live background tasks (shells, watchers, background agents); replaces the previous list. */
   | { kind: "background_tasks"; tasks: BackgroundTask[] }
@@ -135,7 +167,15 @@ export type EventBody =
       message?: string;
     }
   | { kind: "turn_finished"; ok: boolean; costUsd: number; error?: string }
-  | { kind: "context"; tokens: number; window: number }
+  | {
+      kind: "context";
+      tokens: number;
+      window: number;
+      /** What fills the window, as the CLI's /context shows it. */
+      categories?: ContextCategory[];
+      /** Token count at which the CLI compacts on its own, if it does. */
+      autoCompactAt?: number;
+    }
   | { kind: "connection"; reconnecting: boolean; detail?: string }
   | { kind: "agent_opened" }
   | { kind: "report"; report: Report }
@@ -153,6 +193,10 @@ export type EventBody =
   | { kind: "review_edited"; edit: ReviewEdit }
   /** Draft comments and edits went to the agent with a change request. */
   | { kind: "review_sent" }
+  /** Moving a task to a fresh session: the old one writes a handover file, a new one reads it. */
+  | { kind: "handover"; state: "writing" | "done" | "failed"; path: string; note?: string }
+  /** A restart was asked for, and waits until no agent is mid-turn; logged by the daemon itself. */
+  | { kind: "restart"; pending: boolean }
   /** The Mac's sleep settings; logged by the daemon itself. */
   | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string };
 

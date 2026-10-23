@@ -92,7 +92,10 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const open = useCallback((host: string, path: string) => {
     const connection = new Connection(path, () => latest.current[host]?.state.lastSeq ?? 0, {
-      info: (info) => dispatch({ host, type: "info", info }),
+      info: (info) => {
+        if (host === LOCAL) reloadIfOutdated(info.build);
+        dispatch({ host, type: "info", info });
+      },
       snapshot: (state) => dispatch({ host, type: "snapshot", state }),
       events: (events) => dispatch({ host, type: "events", events }),
       error: (message) => setError(host === LOCAL ? message : `${host}: ${message}`),
@@ -176,4 +179,19 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     error,
   };
   return <FleetContext.Provider value={value}>{children}</FleetContext.Provider>;
+}
+
+/**
+ * Reloads a page older than the web UI the daemon now serves, e.g. after an update; the old
+ * page might not speak the new protocol. Once per build, so a mismatch cannot loop.
+ */
+function reloadIfOutdated(served: number | undefined): void {
+  if (!served || served <= __FLEET_BUILD__) return;
+  try {
+    if (sessionStorage.getItem("fleet.reloadedFor") === String(served)) return;
+    sessionStorage.setItem("fleet.reloadedFor", String(served));
+  } catch {
+    // Without storage the guard is gone; reloading once more is still better than a stale page.
+  }
+  location.reload();
 }

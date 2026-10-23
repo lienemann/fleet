@@ -49,12 +49,46 @@ export function transcriptEvents(messages: readonly SessionMessage[]): AgentEven
                 .map((b) => b.text ?? "")
                 .join("\n")
             : "";
-      const prompt: AgentEvent[] = text.trim() && !parent ? [{ kind: "user_prompt", text }] : [];
-      return [...prompt, ...translate(asSdk(stored))];
+      const said: AgentEvent[] = text.trim() && !parent ? [userLine(stored, text)] : [];
+      return [...said, ...translate(asSdk(stored))];
     }
     return stored.type === "assistant" ? translate(asSdk(stored)) : [];
   });
   return events.slice(-IMPORTED_LINES);
+}
+
+/**
+ * Claude Code stores more than the user's typing as user messages: task notifications,
+ * reports from subagents, slash commands. The stored `origin` says which; files from older
+ * CLIs lack it, so the XML-like wrappers are the fallback.
+ */
+function userLine(stored: SessionMessage, text: string): AgentEvent {
+  const origin = (stored as { origin?: { kind?: string; name?: string; from?: string } }).origin;
+  const command =
+    /<command-name>\s*([^<]*?)\s*<\/command-name>(?:[\s\S]*?<command-args>([^<]*)<\/command-args>)?/.exec(
+      text,
+    );
+  if (command)
+    return {
+      kind: "user_prompt",
+      text: [command[1], command[2]?.trim()].filter(Boolean).join(" "),
+    };
+
+  const injected = origin ? origin.kind !== "human" : /^\s*<[a-z-]+[\s>]/.test(text);
+  if (!injected) {
+    // Reminders the harness appends to a prompt are not part of what the user wrote.
+    return {
+      kind: "user_prompt",
+      text: text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim(),
+    };
+  }
+  const label =
+    origin?.kind === "peer" || /^\s*<agent-message/.test(text)
+      ? `Message from ${origin?.name ?? origin?.from ?? "another agent"}`
+      : origin?.kind === "task-notification" || /^\s*<task-notification/.test(text)
+        ? "Background task finished"
+        : "Note from Claude Code";
+  return { kind: "log", role: "system", text: label };
 }
 
 const asSdk = (stored: SessionMessage): SDKMessage =>

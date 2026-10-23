@@ -8,7 +8,7 @@ import { directorPolicy, Supervisor } from "../src/daemon/supervisor.ts";
 import { ToolError } from "../src/daemon/tools.ts";
 import { DIRECTOR } from "../src/shared/events.ts";
 import { pendingDecisions } from "../src/shared/reducer.ts";
-import { echoing, fakeQuery, result, until } from "./helpers.ts";
+import { echoing, fakeQuery, init, result, until } from "./helpers.ts";
 
 function setup(review = 2) {
   const root = mkdtempSync(join(tmpdir(), "fleet-tools-"));
@@ -270,5 +270,112 @@ describe("scheduling and policy", () => {
       hookSpecificOutput: { permissionDecision: "deny" },
     });
     await expect(run(".fleet/director/plan.md")).resolves.toEqual({});
+  });
+});
+
+describe("attachments", () => {
+  it("sends images and PDFs to Claude and saves other files into the workspace", async () => {
+    const root = mkdtempSync(join(tmpdir(), "fleet-attach-"));
+    const log = new EventLog(":memory:");
+    const fake = fakeQuery(echoing(result()));
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fake.queryFn,
+      config: {
+        workspaces: [{ name: "ws1", path: root, allowedTools: [] }],
+        wip: { running: 4, review: 2 },
+        host: "mac",
+      },
+    });
+    supervisor.createTask("t", "go", "ws1");
+    const text = (s: string) => Buffer.from(s).toString("base64");
+    supervisor.handle({
+      type: "prompt",
+      agent: "alpha",
+      text: "Look at these",
+      attachments: [
+        { name: "shot.png", mediaType: "image/png", data: "iVBORw0KGgo=" },
+        { name: "run log.txt", mediaType: "text/plain", data: text("line 1\n") },
+      ],
+    });
+    expect(readFileSync(join(root, ".fleet/alpha/attachments/run_log.txt"), "utf8")).toBe(
+      "line 1\n",
+    );
+    const line = log.state.agents.alpha?.log.at(-1)?.text ?? "";
+    expect(line).toContain("Attached: @.fleet/alpha/attachments/run_log.txt");
+    expect(line).toContain("[shot.png]");
+  });
+});
+
+describe("handover", () => {
+  function setup(writes: boolean) {
+    const root = mkdtempSync(join(tmpdir(), "fleet-handover-"));
+    const log = new EventLog(":memory:");
+    const prompts: string[] = [];
+    const { queryFn, calls } = fakeQuery(async function* (params) {
+      yield init(`session-${calls.length}`);
+      for await (const message of params.prompt as AsyncIterable<{
+        message: { content: string };
+      }>) {
+        prompts.push(message.message.content);
+        const path = /handover to\n?\s*(\S+handover-\d+\.md)/.exec(message.message.content)?.[1];
+        if (path && writes) {
+          mkdirSync(join(root, ".fleet", "alpha"), { recursive: true });
+          writeFileSync(join(root, path), "# Handover\nAll done but the tests.");
+        }
+        yield result();
+      }
+    });
+    const supervisor = new Supervisor({
+      log,
+      queryFn,
+      config: {
+        workspaces: [{ name: "ws1", path: root, allowedTools: [] }],
+        wip: { running: 4, review: 2 },
+        host: "mac",
+        director: join(root, "repo"),
+      },
+    });
+    supervisor.init();
+    supervisor.createTask("Fix it", "go", "ws1");
+    // The worker's sessions, not the director's.
+    const workerCalls = () => calls.filter((c) => c.options?.cwd === root);
+    return { log, supervisor, workerCalls, prompts };
+  }
+
+  it("moves the task to a fresh session under the same name", async () => {
+    const { log, supervisor, workerCalls, prompts } = setup(true);
+    await until(
+      () =>
+        log.state.agents.alpha?.activity === "idle" &&
+        log.state.agents.alpha.sessionId === "session-1",
+    );
+    supervisor.handle({ type: "handover", agent: "alpha" });
+
+    await until(
+      () =>
+        log.state.agents.alpha?.handovers === 1 && log.state.agents.alpha.sessionId === "session-2",
+    );
+    expect(workerCalls()).toHaveLength(2);
+    expect(workerCalls()[1]?.options?.resume).toBeUndefined();
+    expect(prompts.some((p) => p.includes("Read .fleet/alpha/handover-1.md first"))).toBe(true);
+    expect(
+      log.state.agents.alpha?.log.some(
+        (l) => l.text === "New session, continuing from .fleet/alpha/handover-1.md",
+      ),
+    ).toBe(true);
+    expect(log.state.messages.at(-1)).toMatchObject({ from: "alpha", to: "director" });
+  });
+
+  it("keeps the old session when no handover was written", async () => {
+    const { log, supervisor } = setup(false);
+    await until(
+      () =>
+        log.state.agents.alpha?.activity === "idle" &&
+        log.state.agents.alpha.sessionId === "session-1",
+    );
+    supervisor.handle({ type: "handover", agent: "alpha" });
+    await until(() => log.state.agents.alpha?.handover?.state === "failed");
+    expect(log.state.agents.alpha?.sessionId).toBe("session-1");
   });
 });

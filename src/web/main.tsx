@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import { FleetProvider } from "./fleet.tsx";
 import { KeymapProvider } from "./keys/keymap.tsx";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/source-serif-4";
+import "@fontsource-variable/jetbrains-mono";
 import "./tokens.css";
 import "./app.css";
 

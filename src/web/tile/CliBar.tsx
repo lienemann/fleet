@@ -65,6 +65,15 @@ export function CliBar({ agent }: { agent: AgentView }) {
       <button
         type="button"
         className="small"
+        disabled={!canHandOver(agent)}
+        title="Continue in a fresh session: this one writes a handover, a new one reads it (Shift+H)"
+        onClick={() => send({ type: "handover", agent: name })}
+      >
+        Hand over
+      </button>
+      <button
+        type="button"
+        className="small"
         disabled={agent.activity !== "working"}
         onClick={() => send({ type: "interrupt", agent: name })}
         title="Interrupt (Esc)"
@@ -98,3 +107,10 @@ export function CliBar({ agent }: { agent: AgentView }) {
     </div>
   );
 }
+
+/** A handover needs a session that has run, is not mid-turn and is not held by a terminal. */
+export const canHandOver = (agent: AgentView): boolean =>
+  agent.sessionId !== undefined &&
+  agent.activity !== "working" &&
+  agent.activity !== "detached" &&
+  agent.handover?.state !== "writing";

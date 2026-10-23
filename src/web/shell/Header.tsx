@@ -1,5 +1,6 @@
 import { agentList, costOn, needsUser, pendingDecisions } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { FONT_LABELS, type Font } from "../useFont.ts";
 import type { Notifications } from "../useNotifications.ts";
 import { VIEWS, type View } from "../views.ts";
 
@@ -7,11 +8,23 @@ interface Props {
   view: View;
   onView: (view: View) => void;
   onNewTask: () => void;
+  onImport: () => void;
   onHelp: () => void;
   notifications: Notifications;
+  font: Font;
+  onCycleFont: () => void;
 }
 
-export function Header({ view, onView, onNewTask, onHelp, notifications }: Props) {
+export function Header({
+  view,
+  onView,
+  onNewTask,
+  onImport,
+  onHelp,
+  notifications,
+  font,
+  onCycleFont,
+}: Props) {
   const { state, info, send, theme, toggleTheme } = useFleet();
   const agents = agentList(state);
   const counts = {
@@ -64,6 +77,9 @@ export function Header({ view, onView, onNewTask, onHelp, notifications }: Props
       <button type="button" className="primary" onClick={onNewTask}>
         New task <kbd>n</kbd>
       </button>
+      <button type="button" onClick={onImport} title="Import a Claude Code session (i)">
+        Import <kbd>i</kbd>
+      </button>
       {state.power.caffeinated && (
         <span className="dim" title="caffeinate keeps the Mac awake while agents work">
           awake
@@ -86,6 +102,14 @@ export function Header({ view, onView, onNewTask, onHelp, notifications }: Props
         onClick={() => send({ type: "set_lid_mode", on: !state.power.lidMode })}
       >
         Lid closed
+      </button>
+      <button
+        type="button"
+        onClick={onCycleFont}
+        title={`Text font: ${FONT_LABELS[font]} (Shift+F)`}
+        aria-label="Text font"
+      >
+        Aa
       </button>
       <button type="button" onClick={toggleTheme} title="Toggle theme">
         {theme === "dark" ? "Dark" : "Light"}

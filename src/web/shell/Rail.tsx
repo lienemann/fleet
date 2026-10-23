@@ -5,10 +5,11 @@ import { ACTIVITY_LABELS, columnLabel } from "../labels.ts";
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
+  onAddWorkspace: () => void;
 }
 
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
-export function Rail({ selected, onSelect }: Props) {
+export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
   const { state, info } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const holder = (workspace: string) =>
@@ -40,7 +41,17 @@ export function Rail({ selected, onSelect }: Props) {
       </ul>
       {info && (
         <>
-          <h2>Workspaces · {info.host}</h2>
+          <h2 className="rail-head">
+            Workspaces · {info.host}
+            <button
+              type="button"
+              className="link"
+              title="Add an existing jj workspace"
+              onClick={onAddWorkspace}
+            >
+              + Add
+            </button>
+          </h2>
           <ul className="workspaces">
             {info.workspaces.map((ws) => (
               <li key={ws.name} title={ws.path}>

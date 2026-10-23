@@ -46,3 +46,20 @@ delegate and follow up, but you never implement. Do not edit code; your own note
 - Permission prompts belong to the user; never answer them on the user's behalf.
 `.trim();
 }
+
+/** What the old session is asked when its task moves to a fresh session. */
+export function handoverRequest(path: string): string {
+  return `
+Your task continues in a fresh session, which knows nothing but what you write now. Write a handover to
+${path}: the goal, what is done and what is left, decisions and why, the files that matter, how to build
+and test, and open questions. Write it for a capable colleague taking over, then stop.
+`.trim();
+}
+
+/** The first prompt of the session that takes over. */
+export function handoverStart(path: string, title: string): string {
+  return `
+You continue the task "${title}" from an earlier session of yours. Read ${path} first; it is that session's
+handover. Then carry on where it left off.
+`.trim();
+}

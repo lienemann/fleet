@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { duration } from "../labels.ts";
+import { Markdown } from "../ui/Markdown.tsx";
 import { useNow } from "../useNow.ts";
 
 type Note = { path: string; modified: number; size: number };
@@ -50,7 +51,12 @@ export function FilesView({ agent }: { agent: AgentView }) {
           </li>
         ))}
       </ul>
-      {open && <pre className="file-content">{content ?? "Loading…"}</pre>}
+      {open &&
+        (content !== undefined && open.endsWith(".md") ? (
+          <Markdown text={content} className="file-content" />
+        ) : (
+          <pre className="file-content">{content ?? "Loading…"}</pre>
+        ))}
     </div>
   );
 }

@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
   type AgentEvent,
+  DAEMON,
   DIRECTOR,
-  type PromptImage,
+  IMAGE_TYPES,
+  PDF_TYPE,
+  type PromptAttachment,
   type Report,
   type ReviewKind,
   type TaskState,
@@ -27,7 +30,7 @@ import {
   resolveInside,
 } from "./files.ts";
 import type { Power } from "./power.ts";
-import { directorPrompt, workerPrompt } from "./prompts.ts";
+import { directorPrompt, handoverRequest, handoverStart, workerPrompt } from "./prompts.ts";
 import { ReviewService } from "./review.ts";
 import { AgentSession, type QueryFn } from "./session.ts";
 import { type SessionSource, sdkSessions, sessionTitle, transcriptEvents } from "./sessions.ts";
@@ -39,6 +42,7 @@ import {
   ToolError,
   type ToolHost,
 } from "./tools.ts";
+import { listJjWorkspaces, persistWorkspace } from "./workspaces.ts";
 
 const NAMES = [
   "alpha",
@@ -88,6 +92,12 @@ export interface SupervisorOptions {
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
   sessions?: SessionSource;
+  /** Where added workspaces are written; without it they last until the daemon stops. */
+  configFile?: string;
+  /** Called when the workspace list changed, so pages can be told. */
+  onWorkspacesChanged?: () => void;
+  /** Ends the daemon so that it starts again; without it, restart requests are ignored. */
+  restart?: () => void;
 }
 
 /**
@@ -103,9 +113,25 @@ export class Supervisor implements ToolHost {
   private readonly power: SupervisorOptions["power"];
   private readonly sessionSource: SessionSource;
   private readonly importing = new Set<string>();
+  private readonly restart: (() => void) | undefined;
+  private readonly configFile: string | undefined;
+  private readonly onWorkspacesChanged: (() => void) | undefined;
+  private stopWatchingForIdle: (() => void) | undefined;
 
-  constructor({ log, queryFn, config, power, sessions }: SupervisorOptions) {
+  constructor({
+    log,
+    queryFn,
+    config,
+    power,
+    sessions,
+    restart,
+    configFile,
+    onWorkspacesChanged,
+  }: SupervisorOptions) {
+    this.configFile = configFile;
+    this.onWorkspacesChanged = onWorkspacesChanged;
     this.power = power;
+    this.restart = restart;
     this.sessionSource = sessions ?? sdkSessions;
     this.log = log;
     this.queryFn = queryFn;
@@ -125,6 +151,8 @@ export class Supervisor implements ToolHost {
    * sessions that were live. Those resume; one that was mid-turn is told to continue.
    */
   init(): void {
+    // A restart that was waiting has happened now.
+    if (this.log.state.restartPending) this.append(DAEMON, { kind: "restart", pending: false });
     if (this.config.director && !this.agent(DIRECTOR)) {
       this.append(DIRECTOR, {
         kind: "agent_created",
@@ -159,7 +187,7 @@ export class Supervisor implements ToolHost {
       case "subscribe":
         return; // the server's business
       case "prompt":
-        this.prompt(message.agent, message.text, message.images);
+        this.prompt(message.agent, message.text, message.attachments);
         return;
       case "interrupt":
         this.background(this.sessions.get(message.agent)?.interrupt());
@@ -202,6 +230,13 @@ export class Supervisor implements ToolHost {
         if (this.agent(message.agent))
           this.append(message.agent, { kind: "settings", color: message.color });
         return;
+      case "handover":
+        this.background(this.handover(message.agent));
+        return;
+      case "set_tint":
+        if (this.agent(message.agent))
+          this.append(message.agent, { kind: "settings", tint: message.tint });
+        return;
       case "comment_add":
         if (this.agent(message.agent)) {
           const comment = { ...message.comment, id: randomUUID() };
@@ -224,6 +259,13 @@ export class Supervisor implements ToolHost {
       case "import_session":
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
         return;
+      case "add_workspace":
+        this.addWorkspace(message.name, message.path);
+        return;
+      case "restart":
+        if (message.cancel) this.cancelRestart();
+        else this.restartWhenIdle();
+        return;
       case "set_lid_mode":
         this.background(
           this.power?.setLidMode(message.on, message.on ? "turned on by you" : "turned off by you"),
@@ -240,6 +282,7 @@ export class Supervisor implements ToolHost {
 
   private async respond(call: Call): Promise<CallResults[Call["type"]]> {
     if (call.type === "list_sessions") return this.listSessions(call.workspace);
+    if (call.type === "list_jj_workspaces") return this.listJjWorkspaces();
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
@@ -265,6 +308,32 @@ export class Supervisor implements ToolHost {
         return this.trackProgress(model);
       }
     }
+  }
+
+  /** The repo's jj workspaces; the default one belongs to the director and is left out. */
+  private listJjWorkspaces(): Array<{ name: string; path: string; added: boolean }> {
+    const repo = this.config.director ?? this.config.workspaces[0]?.path;
+    if (!repo) return [];
+    const known = new Set(this.config.workspaces.map((ws) => ws.path));
+    return listJjWorkspaces(repo)
+      .filter((ws) => ws.path !== this.config.director)
+      .map((ws) => ({ ...ws, added: known.has(ws.path) }));
+  }
+
+  private addWorkspace(name: string, path: string): void {
+    if (this.config.workspaces.some((ws) => ws.name === name || ws.path === path)) return;
+    const before = this.config.workspaces.map(({ name, path }) => ({ name, path }));
+    const allowedTools = this.config.workspaces[0]?.allowedTools ?? [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(jj:*)",
+      "Bash(just:*)",
+    ];
+    this.config.workspaces.push({ name, path, allowedTools });
+    if (this.configFile) persistWorkspace(this.configFile, { name, path }, before);
+    this.onWorkspacesChanged?.();
+    this.schedule();
   }
 
   /** Directory of a workspace; "default" is the director's, which the user shares. */
@@ -337,6 +406,87 @@ export class Supervisor implements ToolHost {
     });
     this.schedule();
     return name;
+  }
+
+  /**
+   * Moves a task to a fresh session under the same name: the old session writes a handover
+   * file, then a new one starts with it. The name stays, so the board, messages and other
+   * agents need not change; the director hears about it.
+   */
+  private async handover(name: string): Promise<void> {
+    const agent = this.agent(name);
+    if (!agent?.sessionId || agent.activity === "working" || agent.activity === "detached") return;
+    if (agent.handover?.state === "writing") return;
+    const path = join(".fleet", name, `handover-${agent.handovers + 1}.md`);
+    this.append(name, { kind: "handover", state: "writing", path });
+
+    const old = this.session(name);
+    old?.prompt(handoverRequest(path));
+    old?.start();
+    await this.until(() => {
+      const now = this.agent(name);
+      return now?.activity !== "working" && now?.pending === 0;
+    });
+    if (!existsSync(join(agent.cwd, path))) {
+      this.append(name, {
+        kind: "handover",
+        state: "failed",
+        path,
+        note: "The session did not write the handover.",
+      });
+      return;
+    }
+
+    await old?.stop();
+    this.sessions.delete(name);
+    this.append(name, { kind: "handover", state: "done", path });
+    const fresh = this.session(name);
+    fresh?.prompt(handoverStart(path, agent.title));
+    fresh?.start();
+    if (name !== DIRECTOR && this.agent(DIRECTOR)) {
+      this.message(
+        name,
+        DIRECTOR,
+        `I continue "${agent.title}" in a fresh session; the handover is in ${path}.`,
+      );
+    }
+  }
+
+  /** Resolves once `ready` holds, checked after every event. */
+  private until(ready: () => boolean): Promise<void> {
+    return new Promise((resolve) => {
+      if (ready()) return resolve();
+      const off = this.log.subscribe(() => {
+        if (!ready()) return;
+        off();
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Restarts the daemon as soon as no agent is in the middle of a turn. Agents waiting on
+   * the user do not hold it up: their requests are asked again after the restart anyway.
+   */
+  private restartWhenIdle(): void {
+    if (!this.restart || this.stopWatchingForIdle) return;
+    this.append(DAEMON, { kind: "restart", pending: true });
+    const check = (): void => {
+      const busy = this.agents.some((a) => a.activity === "working" && a.pending === 0);
+      if (busy || !this.stopWatchingForIdle) return;
+      this.stopWatchingForIdle();
+      this.stopWatchingForIdle = undefined;
+      this.restart?.();
+    };
+    this.stopWatchingForIdle = this.log.subscribe(check);
+    check();
+  }
+
+  private cancelRestart(): void {
+    if (!this.stopWatchingForIdle) return;
+    this.stopWatchingForIdle();
+    this.stopWatchingForIdle = undefined;
+    this.append(DAEMON, { kind: "restart", pending: false });
   }
 
   /** Ends all sessions without recording it, so the next start resumes them. */
@@ -522,12 +672,20 @@ export class Supervisor implements ToolHost {
     this.deliver(doc.agent, USER, body);
   }
 
-  private prompt(name: string, text: string, images?: PromptImage[]): void {
+  private prompt(name: string, text: string, attachments: PromptAttachment[] = []): void {
     const agent = this.agent(name);
     if (!agent || agent.task === "queued") return;
+    // Claude reads images and PDFs itself; other files go into the workspace for its tools.
+    const inline = attachments.filter((file) => readsDirectly(file.mediaType));
+    const saved = attachments
+      .filter((file) => !readsDirectly(file.mediaType))
+      .map((file) => saveAttachment(agent.cwd, agent.name, file));
+    const mentions =
+      saved.length > 0 ? `\n\nAttached: ${saved.map((path) => `@${path}`).join(" ")}` : "";
     const session = this.session(name);
-    // Queue first, so the session starts working instead of starting idle.
-    session?.prompt(text, images);
+    // Queue first, so the session starts working instead of starting idle. A detached session
+    // is taken back from the terminal by sending to it.
+    session?.prompt(text + mentions, inline);
     session?.start();
   }
 
@@ -750,4 +908,18 @@ function directorHooks(cwd: string): NonNullable<Options["hooks"]> {
       },
     ],
   };
+}
+
+const readsDirectly = (type: string): boolean =>
+  type === PDF_TYPE || (IMAGE_TYPES as readonly string[]).includes(type);
+
+/** Writes an attached file under .fleet/<agent>/attachments/ and returns its workspace path. */
+function saveAttachment(cwd: string, agent: string, file: PromptAttachment): string {
+  const dir = join(".fleet", agent, "attachments");
+  mkdirSync(join(cwd, dir), { recursive: true });
+  const safe = basename(file.name).replace(/[^\w.-]+/g, "_") || "attachment";
+  let path = join(dir, safe);
+  for (let n = 2; existsSync(join(cwd, path)); n++) path = join(dir, `${n}-${safe}`);
+  writeFileSync(join(cwd, path), Buffer.from(file.data, "base64"));
+  return path;
 }

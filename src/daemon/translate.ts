@@ -75,6 +75,7 @@ function assistantBlock(block: Block, parent: string | null): AgentEvent[] {
           : summarizeInput(block.input),
         toolName: block.name,
         toolUseId: block.id,
+        title: purposeOf(block.input),
         parent,
       },
     ];
@@ -95,6 +96,12 @@ function flatten(content: unknown): string {
   return blocks(content)
     .map((block) => block.text ?? "")
     .join("\n");
+}
+
+/** The purpose an agent gave for a tool call, if it gave one (Bash and Task take a description). */
+function purposeOf(input: unknown): string | undefined {
+  const description = (input as { description?: unknown } | undefined)?.description;
+  return typeof description === "string" && description.trim() ? description : undefined;
 }
 
 /** One-line view of a tool input, e.g. the bash command or the edited path. */

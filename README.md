@@ -15,9 +15,20 @@ There are six views, numbered as in the design. The board shows whose turn it is
 The inbox collects what waits on you: permission prompts and questions with the text Claude wrote just before
 asking, risk tags (network, writes outside the workspace, runs code), review requests, and Markdown files of open
 points that you answer point by point. The grid shows the agents live, the way the CLI would, with the transcript,
-subagents, to-do list, permission mode, model, context usage and a prompt that knows slash commands, `@` file
-mentions and pasted images. The timeline shows how long each agent waited on you, the flow view shows who sends
+subagents, to-do list, permission mode, model, context usage and a prompt that knows slash commands and `@` file
+mentions. You can paste, drop or attach files there: images and PDFs go to Claude as they are, anything else is
+saved into the agent's `.fleet` folder and mentioned by path. Assistant text and messages render as Markdown, with
+tables and highlighted code. The timeline shows how long each agent waited on you, the flow view shows who sends
 messages to whom, and the history view embeds jj orbit with the op log as checkpoints.
+
+Selecting an agent opens its drawer. Besides the diff, report and messages, the Session tab shows where the agent
+runs, what fills its context window (split up the way `/context` does it) and which files it wrote. The Activity
+tab lists its tool calls with their input and output, its subagents with their steps, and its background tasks.
+
+When a session's context fills up, Hand over (Shift+H) asks it to write a handover document to
+`.fleet/<agent>/handover-N.md`. fleet then starts a fresh session under the same name, which reads the document and
+carries on, and tells the director. Each agent has a color and, if you like, a background tint of that color; both
+are set from the dot in the tile header.
 
 Agents talk to fleet through tools the daemon serves in-process. A worker calls `report_result` when it is done,
 `request_decision` or `request_review` when it needs you, `submit_open_points` for a file of questions,
@@ -59,7 +70,15 @@ In the browser, `n` starts a new task: give it a title and a brief, pick a works
 there. Or tell the director what you want in the box at the bottom, and it splits the work into tasks itself. `i`
 imports a session you started in the CLI: pick the workspace (`default` is the repo itself), pick the session, and
 it becomes a task with its transcript. It starts detached, because the CLI may still have it open; close it there,
-then press Take back and it continues in fleet.
+then send it a message and it continues in fleet. The Import button in the header does the same.
+
+Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). To work in a
+jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it
+does not use yet, and the one you pick is saved to the config.
+
+To update fleet without losing sessions, pull and rebuild, then run `fleet restart` or pick "Restart fleet" in the command palette.
+The daemon waits until no agent is in the middle of a turn, exits, and the `fleet` command starts the new version,
+which resumes every session. Open pages reload themselves once they see the new build.
 
 For working on fleet itself:
 
@@ -139,6 +158,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `s`, Shift+M, Esc | stop or start the session, next permission mode, interrupt |
 | `t`, Shift+T, `x` | next or previous drawer tab, close the drawer |
 | `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
+| Shift+H, Shift+F | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
 | `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, comment, edit, side by side, walkthrough or file order, reload |
 | `w` in the timeline | switch between the last 15 minutes and 2 hours |
 

@@ -1,6 +1,8 @@
-import { type CSSProperties, useState } from "react";
+import { useState } from "react";
 import { SWATCHES } from "../../shared/colors.ts";
+import { TINTS } from "../../shared/events.ts";
 import { type AgentView, columnOf, dayOf, pendingDecisions } from "../../shared/reducer.ts";
+import { agentStyle, TINT_LABELS } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { columnLabel } from "../labels.ts";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
@@ -26,7 +28,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
   return (
     <section
       className={`tile ${selected ? "selected" : ""}`}
-      style={{ "--agent": color(agent.color) } as CSSProperties}
+      style={agentStyle(agent, color)}
       onPointerDown={onSelect}
     >
       <header>
@@ -77,6 +79,16 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
           , then take it back here once you have closed it.
         </div>
       )}
+      {agent.handover?.state === "writing" && (
+        <div className="banner">
+          Writing the handover to {agent.handover.path}; a fresh session takes over next.
+        </div>
+      )}
+      {agent.handover?.state === "failed" && (
+        <div className="banner">
+          Handover failed: {agent.handover.note} This session carries on.
+        </div>
+      )}
       <Log lines={agent.log} filter={filter} />
       <Todos agent={agent} />
       {agent.backgroundTasks.length > 0 && (
@@ -92,16 +104,27 @@ export function Tile({ agent, selected, onSelect, onEnlarge }: Props) {
         />
       ))}
       <CliBar agent={agent} />
-      {agent.activity !== "detached" && (
-        <Prompt
-          name={agent.name}
-          commands={agent.slashCommands}
-          loadFiles={() => call({ type: "list_files", agent: agent.name })}
-          onSend={(text, images) =>
-            send({ type: "prompt", agent: agent.name, text, ...(images.length > 0 && { images }) })
-          }
-        />
-      )}
+      <Prompt
+        name={agent.name}
+        commands={agent.slashCommands}
+        loadFiles={() => call({ type: "list_files", agent: agent.name })}
+        disabled={agent.task === "queued"}
+        hint={
+          agent.task === "queued"
+            ? `${agent.name} is queued: it starts when ${agent.workspace} is free`
+            : agent.activity === "detached"
+              ? `Sending takes ${agent.name} back from the terminal; close it there first`
+              : undefined
+        }
+        onSend={(text, attachments) =>
+          send({
+            type: "prompt",
+            agent: agent.name,
+            text,
+            ...(attachments.length > 0 && { attachments }),
+          })
+        }
+      />
     </section>
   );
 }
@@ -140,7 +163,7 @@ function ColorPicker({ agent }: { agent: AgentView }) {
       <button
         type="button"
         className="swatch"
-        title="Agent color"
+        title="Agent color and background"
         aria-label="Agent color"
         style={{ background: color(agent.color) }}
         onClick={() => setOpen(!open)}
@@ -160,6 +183,18 @@ function ColorPicker({ agent }: { agent: AgentView }) {
               }}
             />
           ))}
+          <span className="tints">
+            {TINTS.map((tint) => (
+              <button
+                key={tint}
+                type="button"
+                className={`small ${tint === agent.tint ? "active" : ""}`}
+                onClick={() => send({ type: "set_tint", agent: agent.name, tint })}
+              >
+                {TINT_LABELS[tint]}
+              </button>
+            ))}
+          </span>
         </span>
       )}
     </span>

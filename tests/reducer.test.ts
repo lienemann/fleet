@@ -175,3 +175,39 @@ describe("usage", () => {
     expect(costOn(state, day + 5)).toBe(1);
   });
 });
+
+describe("session panel", () => {
+  it("keeps the files a session wrote, newest first and without repeats", () => {
+    const write = (path: string, toolName = "Write"): NewEvent => ({
+      kind: "log",
+      agent: "a",
+      role: "tool_use",
+      text: path,
+      toolName,
+    });
+    const agent = run(
+      write("/ws/a.py"),
+      write("/ws/b.py", "Edit"),
+      write("/ws/a.py", "Edit"),
+      write("/ws/c.py", "Read"),
+    );
+    expect(agent.outputs).toEqual(["/ws/a.py", "/ws/b.py"]);
+  });
+
+  it("keeps what fills the context window", () => {
+    const agent = run({
+      kind: "context",
+      agent: "a",
+      tokens: 50_000,
+      window: 200_000,
+      autoCompactAt: 167_000,
+      categories: [{ id: "messages", name: "Messages", tokens: 40_000, kind: "used" }],
+    });
+    expect(agent.context).toEqual({
+      tokens: 50_000,
+      window: 200_000,
+      autoCompactAt: 167_000,
+      categories: [{ id: "messages", name: "Messages", tokens: 40_000, kind: "used" }],
+    });
+  });
+});

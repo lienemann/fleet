@@ -1,3 +1,18 @@
+/* The three typefaces, bundled so the app looks the same everywhere and works offline. */
+:root {
+  --font-sans: "Inter Variable", Inter, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  /* What all text except code is set in; the user picks it (see useFont). */
+  --text-font: var(--font-sans);
+}
+:root[data-font="serif"] {
+  --text-font: var(--font-serif);
+}
+:root[data-font="mono"] {
+  --text-font: var(--font-mono);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -10,10 +25,7 @@ body,
 body {
   background: var(--bg0);
   color: var(--fg);
-  font:
-    13px / 1.45 Inter,
-    system-ui,
-    sans-serif;
+  font: 13px / 1.45 var(--text-font);
 }
 button,
 input,
@@ -71,7 +83,7 @@ textarea {
 code,
 kbd,
 pre {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 kbd {
   font-size: 11px;
@@ -171,10 +183,7 @@ h2 {
 }
 .host {
   color: var(--muted);
-  font:
-    12px "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  font: 12px var(--font-mono);
 }
 .views {
   display: flex;
@@ -264,10 +273,7 @@ h2 {
 .workspaces li {
   display: flex;
   justify-content: space-between;
-  font:
-    12px "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  font: 12px var(--font-mono);
   padding: 2px 4px;
 }
 
@@ -317,7 +323,7 @@ h2 {
   color: var(--warn);
 }
 .card {
-  background: var(--card);
+  background: color-mix(in srgb, var(--agent) var(--tint, 0%), var(--card));
   border: 1px solid var(--line);
   border-left: 3px solid var(--agent);
   border-radius: 6px;
@@ -390,7 +396,7 @@ h2 {
   flex-wrap: wrap;
 }
 .decision .tool {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
   color: var(--tool);
 }
 .decision .explanation {
@@ -457,7 +463,7 @@ h2 {
 .tile {
   display: flex;
   flex-direction: column;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--agent) var(--tint, 0%), var(--panel));
   border: 1px solid var(--line);
   border-top: 3px solid var(--agent);
   border-radius: 8px;
@@ -495,7 +501,7 @@ h2 {
   display: flex;
   gap: 4px;
 }
-.tile .banner code {
+.banner code {
   font-size: 12px;
 }
 .tile .decision {
@@ -506,16 +512,17 @@ h2 {
   min-height: 80px;
   overflow-y: auto;
   padding: 8px 10px;
-  background: var(--term);
-  font:
-    12px / 1.5 "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  background: color-mix(in srgb, var(--agent, transparent) var(--tint, 0%), var(--term));
+  font: 12px / 1.5 var(--font-mono);
 }
 .line {
   white-space: pre-wrap;
   word-break: break-word;
   margin-bottom: 4px;
+}
+.line.user,
+.line.assistant {
+  font-family: var(--text-font);
 }
 .line.user {
   background: var(--userbg);
@@ -664,7 +671,7 @@ h2 {
   text-align: left;
   background: none;
   border-color: transparent;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 .menu-item.active {
   background: var(--sel);
@@ -803,10 +810,7 @@ h2 {
 .message pre {
   margin: 4px 0 0;
   white-space: pre-wrap;
-  font:
-    12px / 1.5 "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  font: 12px / 1.5 var(--font-mono);
   color: var(--fg2);
 }
 .agent-name {
@@ -1049,10 +1053,7 @@ h2 {
   color: var(--warnfg);
 }
 .rows {
-  font:
-    12px / 1.5 "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  font: 12px / 1.5 var(--font-mono);
   overflow-x: auto;
 }
 .row {
@@ -1137,10 +1138,7 @@ button.ln:hover {
   gap: 6px;
 }
 .code-edit {
-  font:
-    12px / 1.5 "JetBrains Mono",
-    ui-monospace,
-    monospace;
+  font: 12px / 1.5 var(--font-mono);
   white-space: pre;
 }
 
@@ -1186,7 +1184,7 @@ button.ln:hover {
   align-items: center;
   margin-bottom: 12px;
 }
-.timeline header h2 {
+.timeline-title {
   margin: 0 8px 0 0;
 }
 .lane {
@@ -1332,4 +1330,279 @@ button.ln:hover {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+}
+
+.file-chip {
+  display: inline-block;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Markdown from agents: compact, in the prose font, tables and code like the Claude apps */
+.markdown {
+  font-family: var(--text-font);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: normal;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown table,
+.markdown blockquote {
+  margin: 0 0 8px;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 20px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 12px 0 6px;
+  font: 600 14px var(--title);
+  color: var(--strong);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.markdown h1 {
+  font-size: 16px;
+}
+.markdown code {
+  font: 12px var(--font-mono);
+  background: var(--btn);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.markdown pre {
+  background: var(--term);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.markdown code.block {
+  display: block;
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+.markdown table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  background: var(--btn);
+  font-weight: 600;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+  color: var(--fg3);
+}
+.markdown a {
+  color: var(--accent);
+}
+
+/* Session tab */
+.session-view .panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+.session-view h3 {
+  margin: 0 0 8px;
+  font: 600 13px var(--title);
+}
+.session-view dl {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.session-view dt {
+  color: var(--muted);
+}
+.session-view dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.context-total {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.context-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--track);
+  margin-bottom: 8px;
+}
+.context-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.context-table td {
+  padding: 2px 0;
+}
+.context-table td:nth-child(2),
+.context-table td:nth-child(3) {
+  text-align: right;
+  padding-left: 12px;
+  white-space: nowrap;
+}
+.context-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.cat-messages {
+  background: var(--run);
+}
+.cat-system_tools,
+.cat-mcp_tools {
+  background: var(--warn);
+}
+.cat-skills {
+  background: var(--ok);
+}
+.cat-free {
+  background: var(--track);
+}
+.cat-buffer {
+  background: var(--line);
+}
+[class^="cat-"]:not(
+  .cat-messages,
+  .cat-system_tools,
+  .cat-mcp_tools,
+  .cat-skills,
+  .cat-free,
+  .cat-buffer
+) {
+  background: var(--dim);
+}
+.outputs {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  font-size: 12px;
+}
+.outputs li {
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tints {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Activity tab */
+.activity section {
+  margin-bottom: 14px;
+}
+.activity h3 {
+  margin: 0 0 6px;
+  font: 600 12px var(--title);
+  color: var(--muted);
+}
+.call {
+  border-bottom: 1px solid var(--line2);
+  padding: 4px 0;
+}
+.call summary {
+  display: flex;
+  gap: 8px;
+  cursor: pointer;
+  list-style-position: outside;
+}
+.call-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steps {
+  margin-left: 14px;
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+.call-input,
+.call-output {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: 12px var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 16em;
+  overflow: auto;
+}
+.call-input {
+  background: var(--term);
+  border: 1px solid var(--line2);
+}
+.call-output {
+  background: var(--btn);
+}
+
+.rail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.rail-head .link {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
+}
+.workspace-offers {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.workspace-offers li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line2);
 }

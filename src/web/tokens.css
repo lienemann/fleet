@@ -52,7 +52,7 @@
   --noteline: #34507a;
   --notefg: #cfe3ff;
   --shadow: rgba(0, 0, 0, 0.5);
-  --title: Inter, system-ui, sans-serif;
+  --title: var(--font-sans);
 }
 
 :root[data-theme="light"] {
@@ -108,7 +108,7 @@
   --noteline: #d9a9a0;
   --notefg: #5e1520;
   --shadow: rgba(60, 30, 20, 0.18);
-  --title: "Source Serif 4", Georgia, serif;
+  --title: var(--font-serif);
 }
 
 @media (prefers-color-scheme: light) {
@@ -165,6 +165,6 @@
     --noteline: #d9a9a0;
     --notefg: #5e1520;
     --shadow: rgba(60, 30, 20, 0.18);
-    --title: "Source Serif 4", Georgia, serif;
+    --title: var(--font-serif);
   }
 }

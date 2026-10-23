@@ -101,7 +101,19 @@ export function demoQuery(delayMs = 400): QueryFn {
       },
       setPermissionMode: async () => undefined,
       setModel: async () => undefined,
-      getContextUsage: async () => ({ totalTokens: 18_000 + 9_000 * sessions, maxTokens: 200_000 }),
+      getContextUsage: async () => ({
+        totalTokens: 18_000 + 9_000 * sessions,
+        maxTokens: 200_000,
+        isAutoCompactEnabled: true,
+        autoCompactThreshold: 167_000,
+        categories: [
+          { id: "messages", name: "Messages", tokens: 9_000 * sessions, kind: "used" },
+          { id: "system_tools", name: "System tools", tokens: 14_800, kind: "used" },
+          { id: "system_prompt", name: "System prompt", tokens: 2_800, kind: "used" },
+          { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+          { id: "free_space", name: "Free space", tokens: 140_000, kind: "free" },
+        ],
+      }),
     }) as unknown as Query;
   }) as QueryFn;
 }

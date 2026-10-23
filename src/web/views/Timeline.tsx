@@ -60,7 +60,7 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
   return (
     <section className="timeline">
       <header>
-        <h2>Timeline</h2>
+        <h2 className="timeline-title">Timeline</h2>
         {WINDOWS.map((w, i) => (
           <button
             key={w.label}

@@ -2,10 +2,21 @@ import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
+import { Markdown } from "../ui/Markdown.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
+import { ActivityView } from "./ActivityView.tsx";
 import { FilesView } from "./FilesView.tsx";
+import { SessionView } from "./SessionView.tsx";
 
-export const DRAWER_TABS = ["live", "files", "diff", "report", "messages"] as const;
+export const DRAWER_TABS = [
+  "live",
+  "session",
+  "activity",
+  "files",
+  "diff",
+  "report",
+  "messages",
+] as const;
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 interface Props {
@@ -23,6 +34,8 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
     .reverse();
   const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
+    { id: "session", label: "Session" },
+    { id: "activity", label: "Activity" },
     { id: "files", label: "Files" },
     {
       id: "diff",
@@ -52,6 +65,8 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
         </button>
       </nav>
       {tab === "live" && <Tile agent={agent} selected />}
+      {tab === "session" && <SessionView agent={agent} />}
+      {tab === "activity" && <ActivityView agent={agent} />}
       {tab === "files" && <FilesView agent={agent} />}
       {tab === "diff" && <DiffView agent={agent} />}
       {tab === "report" && <ReportView agent={agent} />}
@@ -73,7 +88,7 @@ function ReportView({ agent }: { agent: AgentView }) {
   return (
     <div className="drawer-scroll report">
       <h2>Summary</h2>
-      <p>{report.summary}</p>
+      <Markdown text={report.summary} />
       {report.changes.length > 0 && (
         <>
           <h2>Changes</h2>
@@ -103,7 +118,7 @@ function ReportView({ agent }: { agent: AgentView }) {
       {report.walkthrough && (
         <>
           <h2>Walkthrough</h2>
-          <pre className="walkthrough">{report.walkthrough}</pre>
+          <Markdown text={report.walkthrough} className="walkthrough" />
         </>
       )}
     </div>

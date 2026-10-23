@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // Each browser gets its own demo daemon, so their runs cannot see each other's tasks.
+// FLEET_E2E_PORT moves them all, for running two suites side by side.
+const base = Number(process.env.FLEET_E2E_PORT ?? 7791);
 const browsers = [
-  { name: "chromium", device: devices["Desktop Chrome"], port: 7791 },
-  { name: "firefox", device: devices["Desktop Firefox"], port: 7792 },
-  { name: "webkit", device: devices["Desktop Safari"], port: 7793 },
+  { name: "chromium", device: devices["Desktop Chrome"], port: base },
+  { name: "firefox", device: devices["Desktop Firefox"], port: base + 1 },
+  { name: "webkit", device: devices["Desktop Safari"], port: base + 2 },
 ];
 
 export default defineConfig({

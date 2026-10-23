@@ -1,25 +1,29 @@
-import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
-import type { PromptImage } from "../../shared/events.ts";
+import {
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { PromptAttachment } from "../../shared/events.ts";
 
 interface Props {
   name: string;
   commands: string[];
   /** Paths of the agent's workspace, loaded on the first `@`. */
   loadFiles: () => Promise<string[]>;
-  onSend: (text: string, images: PromptImage[]) => void;
+  onSend: (text: string, attachments: PromptAttachment[]) => void;
+  /** Replaces the usual placeholder, e.g. for a session that is detached. */
+  hint?: string;
+  disabled?: boolean;
 }
 
-type Attachment = PromptImage & { id: number; name: string };
-let attachments = 0;
+type Attachment = PromptAttachment & { id: number };
+let attachmentCount = 0;
 
-const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const IMAGE_TYPES: ReadonlySet<string> = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
+const MAX_FILES = 10;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 interface Suggestions {
   items: string[];
@@ -29,14 +33,15 @@ interface Suggestions {
 
 /**
  * The message box, like the CLI's: `/` at the start offers the session's slash commands,
- * `@` offers workspace files, and pasted or attached images go along with the message.
+ * `@` offers workspace files, and pasted, dropped or attached files go along with the message:
+ * images and PDFs for Claude to read, anything else saved into the workspace.
  */
-export function Prompt({ name, commands, loadFiles, onSend }: Props) {
+export function Prompt({ name, commands, loadFiles, onSend, hint, disabled }: Props) {
   const [draft, setDraft] = useState("");
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [files, setFiles] = useState<string[]>();
-  const [images, setImages] = useState<Attachment[]>([]);
+  const [attached, setAttached] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<string>();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -80,10 +85,10 @@ export function Prompt({ name, commands, loadFiles, onSend }: Props) {
     if (!text) return;
     onSend(
       text,
-      images.map(({ mediaType, data }) => ({ mediaType, data })),
+      attached.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
     );
     setDraft("");
-    setImages([]);
+    setAttached([]);
     setProblem(undefined);
   };
 
@@ -103,31 +108,37 @@ export function Prompt({ name, commands, loadFiles, onSend }: Props) {
     }
   };
 
-  const addImages = async (list: File[]): Promise<void> => {
-    const accepted = list.filter((file) => IMAGE_TYPES.has(file.type));
-    const tooBig = accepted.filter((file) => file.size > MAX_IMAGE_BYTES);
-    const room = MAX_IMAGES - images.length;
-    const fitting = accepted.filter((file) => file.size <= MAX_IMAGE_BYTES).slice(0, room);
+  const addFiles = async (list: File[]): Promise<void> => {
+    const tooBig = list.filter((file) => file.size > MAX_FILE_BYTES);
+    const room = MAX_FILES - attached.length;
+    const fitting = list.filter((file) => file.size <= MAX_FILE_BYTES).slice(0, room);
     setProblem(
       tooBig.length > 0
-        ? `${tooBig.map((f) => f.name).join(", ")} is larger than 5 MB.`
-        : accepted.length > room
-          ? `At most ${MAX_IMAGES} images per message.`
+        ? `${tooBig.map((f) => f.name).join(", ")}: larger than 10 MB.`
+        : list.length > room
+          ? `At most ${MAX_FILES} files per message.`
           : undefined,
     );
-    const loaded = await Promise.all(fitting.map(readImage));
-    setImages((current) => [...current, ...loaded]);
+    const loaded = await Promise.all(fitting.map(readFile));
+    setAttached((current) => [...current, ...loaded]);
   };
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
-    const pasted = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
+    const pasted = [...event.clipboardData.files];
     if (pasted.length === 0) return;
     event.preventDefault();
-    void addImages(pasted);
+    void addFiles(pasted);
+  };
+
+  const onDrop = (event: DragEvent<HTMLElement>): void => {
+    if (event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
+    void addFiles([...event.dataTransfer.files]);
   };
 
   return (
-    <footer className="prompt">
+    // biome-ignore lint/a11y/noStaticElementInteractions: dropping files is a mouse shortcut for the Attach button
+    <footer className="prompt" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
       {items.length > 0 && (
         <ul className="slash-menu">
           {items.map((item, i) => (
@@ -145,16 +156,20 @@ export function Prompt({ name, commands, loadFiles, onSend }: Props) {
           ))}
         </ul>
       )}
-      {(images.length > 0 || problem) && (
+      {(attached.length > 0 || problem) && (
         <div className="attachments">
-          {images.map((image) => (
-            <span key={image.id} className="attachment">
-              <img src={`data:${image.mediaType};base64,${image.data}`} alt={image.name} />
+          {attached.map((file) => (
+            <span key={file.id} className="attachment" title={file.name}>
+              {file.mediaType.startsWith("image/") ? (
+                <img src={`data:${file.mediaType};base64,${file.data}`} alt={file.name} />
+              ) : (
+                <span className="file-chip">{file.name}</span>
+              )}
               <button
                 type="button"
                 className="icon"
-                aria-label={`Remove ${image.name}`}
-                onClick={() => setImages(images.filter((other) => other.id !== image.id))}
+                aria-label={`Remove ${file.name}`}
+                onClick={() => setAttached(attached.filter((other) => other.id !== file.id))}
               >
                 ×
               </button>
@@ -168,7 +183,8 @@ export function Prompt({ name, commands, loadFiles, onSend }: Props) {
           ref={textarea}
           data-prompt={name}
           value={draft}
-          placeholder={`Message ${name}… (/ commands, @ files, paste images)`}
+          placeholder={hint ?? `Message ${name}… (/ commands, @ files, paste or drop files)`}
+          disabled={disabled}
           rows={2}
           onChange={(event) => {
             setDraft(event.target.value);
@@ -182,18 +198,27 @@ export function Prompt({ name, commands, loadFiles, onSend }: Props) {
         <input
           ref={picker}
           type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
           multiple
           hidden
           onChange={(event) => {
-            void addImages([...(event.target.files ?? [])]);
+            void addFiles([...(event.target.files ?? [])]);
             event.target.value = "";
           }}
         />
-        <button type="button" title="Attach images" onClick={() => picker.current?.click()}>
+        <button
+          type="button"
+          title="Attach files"
+          disabled={disabled}
+          onClick={() => picker.current?.click()}
+        >
           Attach
         </button>
-        <button type="button" className="primary" onClick={submit} disabled={!draft.trim()}>
+        <button
+          type="button"
+          className="primary"
+          onClick={submit}
+          disabled={disabled || !draft.trim()}
+        >
           Send
         </button>
       </div>
@@ -213,15 +238,15 @@ function rankFiles(files: string[], query: string): string[] {
     );
 }
 
-function readImage(file: File): Promise<Attachment> {
+function readFile(file: File): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result);
       resolve({
-        id: ++attachments,
+        id: ++attachmentCount,
         name: file.name,
-        mediaType: file.type as PromptImage["mediaType"],
+        mediaType: file.type || "application/octet-stream",
         data: url.slice(url.indexOf(",") + 1),
       });
     };

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FleetEvent } from "./events.ts";
-import { PERMISSION_MODES, USER_MOVES } from "./events.ts";
+import { PERMISSION_MODES, TINTS, USER_MOVES } from "./events.ts";
 import type { FleetState } from "./reducer.ts";
 import type { ReviewModel } from "./review.ts";
 
@@ -23,18 +23,19 @@ export const CommandSchema = z.discriminatedUnion("type", [
     type: z.literal("prompt"),
     agent,
     text: z.string().min(1),
-    images: z
+    attachments: z
       .array(
         z.object({
-          mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
-          // The API takes images up to 5 MB, about 7 MB as base64.
+          name: z.string().min(1).max(200),
+          mediaType: z.string().max(200),
+          // 10 MB per file, as base64.
           data: z
             .string()
-            .max(7_000_000)
-            .regex(/^[A-Za-z0-9+/]+=*$/),
+            .max(14_000_000)
+            .regex(/^[A-Za-z0-9+/]*=*$/),
         }),
       )
-      .max(5)
+      .max(10)
       .optional(),
   }),
   z.object({ type: z.literal("interrupt"), agent }),
@@ -48,6 +49,14 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), agent }),
   z.object({ type: z.literal("mark_all_seen") }),
   z.object({ type: z.literal("set_lid_mode"), on: z.boolean() }),
+  /** Makes an existing jj workspace a fleet workspace, and writes it into config.toml. */
+  z.object({
+    type: z.literal("add_workspace"),
+    name: z.string().regex(/^[\w.-]+$/),
+    path: z.string().min(1),
+  }),
+  /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
+  z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
   z.object({
     type: z.literal("create_task"),
     title: z.string().trim().min(1),
@@ -61,6 +70,9 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_mode"), agent, mode: z.enum(PERMISSION_MODES) }),
   z.object({ type: z.literal("set_model"), agent, model: z.string().min(1) }),
   z.object({ type: z.literal("set_color"), agent, color: z.string().regex(/^#[0-9a-f]{6}$/i) }),
+  z.object({ type: z.literal("set_tint"), agent, tint: z.enum(TINTS) }),
+  /** Continues the task in a fresh session, after the old one wrote a handover file. */
+  z.object({ type: z.literal("handover"), agent }),
   z.object({
     type: z.literal("comment_add"),
     agent,
@@ -103,6 +115,8 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review_load"), id, agent }),
   /** Paths of the agent's workspace, for @ mentions. */
   z.object({ type: z.literal("list_files"), id, agent }),
+  /** The jj workspaces of the repo, for adding existing ones; answered by the local daemon. */
+  z.object({ type: z.literal("list_jj_workspaces"), id }),
   /** Claude Code sessions recorded for a workspace's directory, newest first. */
   z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
   /** Files the agent keeps for the user under .fleet/<agent>/. */
@@ -133,6 +147,7 @@ export interface CallResults {
   read_file: string;
   list_files: string[];
   list_sessions: SessionSummary[];
+  list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
   notes: Array<{ path: string; modified: number; size: number }>;
   review_load: ReviewModel;
   review_approve: ReviewModel;
@@ -164,6 +179,8 @@ export interface DaemonInfo {
   remotes: string[];
   /** Directory of the director's workspace, "default", if there is a director. */
   defaultWorkspace?: string;
+  /** Build number of the web UI the daemon serves; absent when it serves none. */
+  build?: number;
 }
 
 export type ServerMessage =

@@ -3,6 +3,7 @@ import type { Answer } from "../../shared/protocol.ts";
 import type { Decision } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { RISK_LABELS } from "../labels.ts";
+import { Markdown } from "./Markdown.tsx";
 
 interface Props {
   decision: Decision;
@@ -25,7 +26,7 @@ export function DecisionCard({ decision, agentColor, focused, onAnswer }: Props)
           </span>
         ))}
       </header>
-      {decision.explanation && <p className="explanation">{decision.explanation}</p>}
+      {decision.explanation && <Markdown text={decision.explanation} className="explanation" />}
       {decision.decision === "question" && <Questions decision={decision} onAnswer={onAnswer} />}
       {decision.decision === "review" && <Review decision={decision} onAnswer={onAnswer} />}
       {decision.decision === "permission" && <Permission decision={decision} onAnswer={onAnswer} />}
@@ -144,7 +145,11 @@ function Review({ decision, onAnswer }: BodyProps) {
       <p className="review-path">
         {decision.reviewKind} · <code>{path}</code>
       </p>
-      <pre className="input file">{error ?? content ?? "Loading…"}</pre>
+      {content !== undefined && path.endsWith(".md") ? (
+        <Markdown text={content} className="input file" />
+      ) : (
+        <pre className="input file">{error ?? content ?? "Loading…"}</pre>
+      )}
       <textarea
         value={comment}
         onChange={(e) => setComment(e.target.value)}

@@ -64,7 +64,9 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await reviewed.locator(".card-main").click();
   await page.getByRole("button", { name: "Report" }).click();
   // The first report, or already the revision that the open-point answers prompt.
-  await expect(page.locator(".report")).toContainText(/scaled by measured runner jitter|Revised after feedback/);
+  await expect(page.locator(".report")).toContainText(
+    /scaled by measured runner jitter|Revised after feedback/,
+  );
   await expect(page.locator(".report")).toContainText("zmplwqrs");
   await shot(page, "report");
 
@@ -177,7 +179,7 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
   await page.keyboard.press("t");
-  await expect(page.getByRole("button", { name: "Files" })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "Session" })).toHaveClass(/active/);
 });
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {
@@ -246,7 +248,7 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
     .setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: png });
   await expect(page.locator(".attachment img")).toBeVisible();
   await prompt.press("Enter");
-  await expect(page.locator(".drawer .log")).toContainText("Look at @lib.py [1 image]");
+  await expect(page.locator(".drawer .log")).toContainText("Look at @lib.py [dot.png]");
 
   // The director writes each spawned worker's context to .fleet/<name>/context.md.
   await page.getByRole("button", { name: "Board 1" }).click();

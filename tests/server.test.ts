@@ -1,4 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { EventLog } from "../src/daemon/eventLog.ts";
@@ -11,16 +14,19 @@ afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
 
-async function start(remotes: Array<{ name: string; url: string }> = []) {
+async function start(
+  remotes: Array<{ name: string; url: string }> = [],
+  staticDir = "/nonexistent",
+) {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));
   const supervisor = { handle: vi.fn(), call: vi.fn() };
-  const info = { host: "mac", workspaces: [], wip: { running: 4, review: 2 }, remotes: [] };
+  const info = () => ({ host: "mac", workspaces: [], wip: { running: 4, review: 2 }, remotes: [] });
   const { server, close } = createFleetServer({
     log,
     supervisor,
     info,
-    staticDir: "/nonexistent",
+    staticDir,
     allowedOrigins: [],
     allowedHosts: [],
     remotes,
@@ -57,6 +63,18 @@ describe("websocket server", () => {
     log.append({ kind: "user_prompt", agent: "a1", text: "hi" });
     await vi.waitFor(() =>
       expect(client.received.at(-1)).toMatchObject({ type: "events", events: [{ seq: 2 }] }),
+    );
+  });
+
+  it("tells each page the build number of the web UI on disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-web-"));
+    writeFileSync(join(dir, "version.json"), JSON.stringify({ build: 42 }));
+    const { port } = await start([], dir);
+    const client = connect(port);
+    await client.opened;
+    client.send({ type: "subscribe", since: 0 });
+    await vi.waitFor(() =>
+      expect(client.received[0]).toMatchObject({ type: "info", info: { build: 42 } }),
     );
   });
 

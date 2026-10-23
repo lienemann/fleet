@@ -24,7 +24,7 @@ it("hands prompts to the newest consumer only", async () => {
 
 it("sends images ahead of the text, as the API expects", async () => {
   const queue = new InputQueue();
-  queue.push("what is this?", [{ mediaType: "image/png", data: "iVBORw0KGgo=" }]);
+  queue.push("what is this?", [{ name: "dot.png", mediaType: "image/png", data: "iVBORw0KGgo=" }]);
   const message = (await queue.stream().next()).value as { message: { content: unknown } };
   expect(message.message.content).toEqual([
     { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } },

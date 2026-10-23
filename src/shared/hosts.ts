@@ -92,6 +92,8 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       return [LOCAL, ...remotes].map((host) => ({ host, message }));
     case "subscribe":
     case "set_lid_mode":
+    case "restart":
+    case "add_workspace":
       return [{ host: LOCAL, message }];
     case "answer": {
       const { host, name } = locate(message.requestId, remotes);
@@ -118,6 +120,7 @@ export function routeCall<C extends DistributiveOmit<Call, "id">>(
   call: C,
   remotes: readonly string[],
 ): { host: string; call: C } {
+  if (!("agent" in call) && !("workspace" in call)) return { host: LOCAL, call };
   if ("workspace" in call) {
     const { host, name } = locate(call.workspace, remotes);
     return { host, call: { ...call, workspace: name } };

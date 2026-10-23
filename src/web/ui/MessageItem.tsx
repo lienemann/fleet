@@ -1,5 +1,6 @@
 import type { Message } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { Markdown } from "./Markdown.tsx";
 
 /** One message between agents: sender, recipient and the Markdown body as written. */
 export function MessageItem({
@@ -27,7 +28,7 @@ export function MessageItem({
         {name(message.from)} → {name(message.to)}
         <time className="dim">{new Date(message.ts).toLocaleTimeString()}</time>
       </header>
-      <pre>{message.body}</pre>
+      <Markdown text={message.body} />
     </article>
   );
 }

@@ -73,3 +73,9 @@ export function highlightLine(line: string, language: string | undefined): strin
   if (!language) return escapeHtml(line);
   return hljs.highlight(line, { language, ignoreIllegals: true }).value;
 }
+
+/** A whole code block as highlighted HTML; unknown languages stay plain. */
+export function highlightBlock(code: string, language: string | undefined): string {
+  if (!language || !hljs.getLanguage(language)) return escapeHtml(code);
+  return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+}

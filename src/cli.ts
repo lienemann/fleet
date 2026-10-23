@@ -1,13 +1,22 @@
 #!/usr/bin/env node
-// The `fleet` command: `fleet init` sets up a repo, `fleet` starts the daemon.
+// The `fleet` command: `fleet init` sets up a repo, `fleet` runs the daemon, `fleet restart`
+// restarts a running one once no agent is mid-turn.
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { fleetHome } from "./daemon/config.ts";
+import { WebSocket } from "ws";
+import { fleetHome, loadConfig } from "./daemon/config.ts";
 import { init } from "./daemon/init.ts";
+import { RESTART_EXIT_CODE } from "./daemon/restart.ts";
 
 const USAGE = `Usage:
-  fleet                            start the daemon (config in ~/.fleet, or FLEET_HOME)
+  fleet                            run the daemon (config in ~/.fleet, or FLEET_HOME)
   fleet init [-n 4] [--into DIR]   in a jj repo: create workspaces ws1..wsN and write the config
+  fleet restart                    restart the running daemon once no agent is mid-turn
 `;
+
+/** A daemon that dies this soon after starting is not started again, so a broken build cannot loop. */
+const CRASH_WINDOW_MS = 10_000;
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -17,6 +26,52 @@ const { positionals, values } = parseArgs({
     help: { type: "boolean", short: "h" },
   },
 });
+
+/**
+ * Runs the daemon as a child process and starts it again when it exits to restart (after an
+ * update) or crashes. Ctrl+C reaches the child from the terminal; the child shuts down and
+ * this process follows.
+ */
+function run(): void {
+  const startedAt = Date.now();
+  const daemon = spawn(
+    process.execPath,
+    [fileURLToPath(new URL("./daemon/main.ts", import.meta.url))],
+    {
+      stdio: "inherit",
+      env: { ...process.env, FLEET_SUPERVISED: "1" },
+    },
+  );
+  const forward = () => daemon.kill("SIGTERM");
+  process.on("SIGTERM", forward);
+  daemon.on("exit", (code, signal) => {
+    process.off("SIGTERM", forward);
+    if (code === RESTART_EXIT_CODE) {
+      console.log("fleet: restarting");
+      run();
+    } else if (code !== 0 && signal === null && Date.now() - startedAt > CRASH_WINDOW_MS) {
+      console.error(`fleet: the daemon exited with code ${code}; starting it again`);
+      run();
+    } else {
+      process.exit(code ?? 0);
+    }
+  });
+}
+
+function restart(): void {
+  const { port } = loadConfig(fleetHome());
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  ws.on("open", () => {
+    ws.send(JSON.stringify({ type: "restart" }), () => {
+      console.log("fleet restarts as soon as no agent is in the middle of a turn.");
+      ws.close();
+    });
+  });
+  ws.on("error", (error) => {
+    console.error(`fleet restart: no daemon on port ${port} (${error.message})`);
+    process.exit(1);
+  });
+}
 
 if (values.help) {
   process.stdout.write(USAGE);
@@ -37,8 +92,12 @@ if (values.help) {
     console.error(`fleet init: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
+} else if (positionals[0] === "restart") {
+  restart();
 } else if (positionals.length === 0) {
-  await import("./daemon/main.ts");
+  // Ctrl+C goes to the whole process group; the daemon handles it, this process waits for it.
+  process.on("SIGINT", () => undefined);
+  run();
 } else {
   process.stderr.write(USAGE);
   process.exit(2);

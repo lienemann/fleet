@@ -8,6 +8,7 @@ import { demoQuery, demoSessions } from "./demo.ts";
 import { EventLog } from "./eventLog.ts";
 import { Orbit } from "./orbit.ts";
 import { Power } from "./power.ts";
+import { RESTART_EXIT_CODE } from "./restart.ts";
 import { createFleetServer } from "./server.ts";
 import { Supervisor } from "./supervisor.ts";
 
@@ -36,20 +37,24 @@ const supervisor = new Supervisor({
   config,
   power,
   sessions: process.env.FLEET_DEMO ? demoSessions : undefined,
+  // Only the `fleet` command starts the daemon again after it exits for a restart.
+  restart: process.env.FLEET_SUPERVISED ? () => void shutdown(RESTART_EXIT_CODE) : undefined,
+  configFile: join(home, "config.toml"),
+  onWorkspacesChanged: () => broadcastInfo(),
 });
 
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
-const { server, close } = createFleetServer({
+const { server, close, broadcastInfo } = createFleetServer({
   orbit,
   log,
   supervisor,
-  info: {
+  info: () => ({
     host: config.host,
     workspaces: config.workspaces.map(({ name, path }) => ({ name, path, host: config.host })),
     wip: config.wip,
     remotes: config.remotes.map((r) => r.name),
     defaultWorkspace: config.director,
-  },
+  }),
   remotes: config.remotes,
   staticDir: fileURLToPath(new URL("../../dist/web", import.meta.url)),
   allowedOrigins: config.allowedOrigins,
@@ -63,7 +68,7 @@ server.listen(config.port, "127.0.0.1", () => {
 });
 
 let stopping = false;
-const shutdown = async (): Promise<void> => {
+async function shutdown(code = 0): Promise<void> {
   if (stopping) return;
   stopping = true;
   close();
@@ -71,7 +76,7 @@ const shutdown = async (): Promise<void> => {
   await supervisor.shutdown();
   await power?.shutdown();
   log.close();
-  process.exit(0);
-};
+  process.exit(code);
+}
 process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());

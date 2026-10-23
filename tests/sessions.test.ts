@@ -45,6 +45,32 @@ describe("transcriptEvents", () => {
     ]);
   });
 
+  it("shows what the harness injected as short notes, not as the user's prompts", () => {
+    const injected = (content: string, origin?: object): SessionMessage => ({
+      ...stored("user", content),
+      ...(origin && { origin }),
+    });
+    const lines = transcriptEvents([
+      injected("Fix it\n<system-reminder>be careful</system-reminder>", { kind: "human" }),
+      injected("<task-notification><task-id>x</task-id></task-notification>", {
+        kind: "task-notification",
+      }),
+      injected('<agent-message from="a1">done</agent-message>', {
+        kind: "peer",
+        name: "code-reviewer",
+      }),
+      injected("<command-name>/compact</command-name><command-args>keep the plan</command-args>"),
+      injected("<task-notification>old CLI, no origin</task-notification>"),
+    ]).map((e) => `${e.kind === "log" ? e.role : e.kind}: ${"text" in e ? e.text : ""}`);
+    expect(lines).toEqual([
+      "user_prompt: Fix it",
+      "system: Background task finished",
+      "system: Message from code-reviewer",
+      "user_prompt: /compact keep the plan",
+      "system: Background task finished",
+    ]);
+  });
+
   it("titles a session by its rename, then its summary, then its first prompt", () => {
     expect(
       sessionTitle({ sessionId: ID, summary: "Sweep", customTitle: "Speed-up", lastModified: 0 }),

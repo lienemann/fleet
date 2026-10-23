@@ -1,5 +1,11 @@
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { PromptImage } from "../shared/events.ts";
+import { IMAGE_TYPES, PDF_TYPE, type PromptAttachment } from "../shared/events.ts";
+
+/** One content block of a user message, as the SDK types it. */
+type ContentBlock = Exclude<SDKUserMessage["message"]["content"], string>[number];
+
+const isImage = (type: string): type is (typeof IMAGE_TYPES)[number] =>
+  (IMAGE_TYPES as readonly string[]).includes(type);
 
 /**
  * Prompts waiting to be fed to a streaming-input query. Survives query restarts:
@@ -11,17 +17,25 @@ export class InputQueue {
   private wake: (() => void) | undefined;
   private generation = 0;
 
-  push(text: string, images: readonly PromptImage[] = []): void {
-    const content =
-      images.length === 0
-        ? text
-        : [
-            ...images.map((image) => ({
-              type: "image" as const,
-              source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
-            })),
-            { type: "text" as const, text },
-          ];
+  /** Images and PDFs go to Claude as content blocks, ahead of the text as the API expects. */
+  push(text: string, attachments: readonly PromptAttachment[] = []): void {
+    const blocks = attachments.flatMap((file): ContentBlock[] => {
+      if (file.mediaType === PDF_TYPE) {
+        return [
+          { type: "document", source: { type: "base64", media_type: PDF_TYPE, data: file.data } },
+        ];
+      }
+      if (isImage(file.mediaType)) {
+        return [
+          {
+            type: "image",
+            source: { type: "base64", media_type: file.mediaType, data: file.data },
+          },
+        ];
+      }
+      return [];
+    });
+    const content = blocks.length === 0 ? text : [...blocks, { type: "text" as const, text }];
     this.buffer.push({
       type: "user",
       message: { role: "user", content },
