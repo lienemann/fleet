@@ -41,18 +41,35 @@ and read-only lists of skills, hooks and MCP servers.
 
 ## Running it
 
+fleet needs Node 24, jj, Python 3 for the history view, and a logged-in Claude Code on the same machine.
+
+In the fleet checkout, `just install` builds the web UI and links the `fleet` command into `~/.local/bin`. Then, in
+the jj repo you want to work on:
+
 ```
-just run          # build the web UI and start the daemon on http://127.0.0.1:7777
-just demo         # the same with scripted agents instead of Claude, to try the UI
+fleet init        # creates the jj workspaces ws1 to ws4 next to the repo and writes ~/.fleet/config.toml
+fleet             # starts the daemon; open http://127.0.0.1:7777
+```
+
+`fleet init -n 2` makes two workspaces instead of four, and `--into DIR` puts them somewhere else. fleet keeps its
+config and event log in `~/.fleet/`, or wherever `FLEET_HOME` points; without a config, the current directory is the
+only workspace.
+
+In the browser, `n` starts a new task: give it a title and a brief, pick a workspace, and a worker starts on it
+there. Or tell the director what you want in the box at the bottom, and it splits the work into tasks itself. `i`
+imports a session you started in the CLI: pick the workspace (`default` is the repo itself), pick the session, and
+it becomes a task with its transcript. It starts detached, because the CLI may still have it open; close it there,
+then press Take back and it continues in fleet.
+
+For working on fleet itself:
+
+```
+just demo         # build and start with scripted agents instead of Claude, to try the UI
 just test lint    # unit and integration tests (need jj), then lint and typecheck
 just e2e          # end-to-end tests in Chromium, Firefox and WebKit against demo daemons
 ```
 
 For work on the UI, run `npm run dev:demo` (or `dev:daemon`) and `npm run dev:web` side by side.
-
-fleet needs Node 24, jj, Python 3 for the history view, and a logged-in Claude Code on the same machine. It keeps
-its state in `~/.fleet/`, or wherever `FLEET_HOME` points. Without a `config.toml`, the current directory is the
-only workspace and the director works there too.
 
 ```toml
 port = 7777
@@ -115,7 +132,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `g b`, `g i`, `g g`, `g t`, `g f`, `g h` (or `1` to `6`) | go to board, inbox, grid, timeline, flow, history |
 | `g d` | select the director |
 | `j`, `k`, then `o` or Enter | next or previous agent (in the inbox: decision), open it in the grid |
-| `n`, `d` | new task, message the director |
+| `n`, `i`, `d` | new task, import a CLI session, message the director |
 | `p` | write to the selected agent; Esc leaves the field |
 | `a`, Shift+A, `r` | approve, always allow, or reject its permission request |
 | `m r`, `m c`, `m a`, `m o` | move to review, request changes, accept, reopen |

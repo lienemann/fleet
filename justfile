@@ -29,3 +29,9 @@ demo: develop
 e2e: develop
     npx playwright install chromium firefox webkit
     npm run test:e2e
+
+# Build the web UI and put the `fleet` command into ~/.local/bin
+install: develop
+    npm run build:web
+    mkdir -p ~/.local/bin
+    ln -sf "{{justfile_directory()}}/src/cli.ts" ~/.local/bin/fleet

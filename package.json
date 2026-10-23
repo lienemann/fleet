@@ -11,7 +11,7 @@
     "dev:daemon": "node --watch src/daemon/main.ts",
     "dev:web": "vite",
     "build:web": "vite build",
-    "start": "node src/daemon/main.ts",
+    "start": "node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
@@ -47,5 +47,8 @@
   },
   "workspaces": [
     "vendor/reviewdiff"
-  ]
+  ],
+  "bin": {
+    "fleet": "src/cli.ts"
+  }
 }
