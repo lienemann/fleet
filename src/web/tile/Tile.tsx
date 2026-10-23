@@ -18,6 +18,7 @@ import { confirmTakeover, holderLabel } from "./attach.ts";
 import { CliBar } from "./CliBar.tsx";
 import { LOG_FILTERS, Log, type LogFilter } from "./Log.tsx";
 import { Prompt } from "./Prompt.tsx";
+import { SideChat, useSideChat } from "./SideChat.tsx";
 
 interface Props {
   agent: AgentView;
@@ -38,6 +39,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
   const decisions = pendingDecisions(state).filter((d) => d.agent === agent.name);
   const column = columnOf(agent);
   const queued = agent.task === "queued";
+  const side = useSideChat(agent.name);
 
   return (
     <section
@@ -112,9 +114,10 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
           onAnswer={(answer) => send({ type: "answer", requestId: decision.requestId, answer })}
         />
       ))}
+      <SideChat entries={side.entries} onClose={side.close} />
       <Prompt
         name={agent.name}
-        commands={agent.slashCommands}
+        commands={["btw", ...agent.slashCommands.filter((c) => c !== "btw")]}
         loadFiles={() => call({ type: "list_files", agent: agent.name })}
         disabled={queued}
         hint={
@@ -125,6 +128,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
               : undefined
         }
         onSend={(text, attachments) => {
+          if (side.ask(text)) return true;
           if (agent.activity === "detached" && !confirmTakeover(agent)) return false;
           send({
             type: "prompt",

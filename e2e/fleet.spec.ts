@@ -217,6 +217,22 @@ test("the director spawns a worker per line and reports to the user", async ({ p
   await shot(page, "flow");
 });
 
+test("a side question gets an answer that stays out of the session", async ({ page }) => {
+  // The director runs since the test before.
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Grid/ }).click();
+  const tile = page
+    .locator(".grid .tile")
+    .filter({ has: page.locator("header .name", { hasText: /^director$/ }) });
+  const prompt = tile.getByPlaceholder(/Message director/);
+  await prompt.fill("/btw what are you doing?");
+  await prompt.press("Enter");
+  await expect(tile.locator(".side-chat")).toContainText("You asked: what are you doing?");
+  await expect(tile.locator(".log")).not.toContainText("what are you doing?");
+  await tile.locator(".side-chat").getByRole("button", { name: "Close" }).click();
+  await expect(tile.locator(".side-chat")).toHaveCount(0);
+});
+
 test("everything works from the keyboard", async ({ page }) => {
   await page.goto("/");
   // Keys only work once the app has mounted; the host name arrives from the daemon after that.

@@ -84,6 +84,7 @@ export function fakeQuery(...scripts: Script[]) {
       stopTask: vi.fn(async () => undefined),
       backgroundTasks: vi.fn(async () => true),
       getTaskOutput: vi.fn(async () => ({ output: "", total_bytes: 0, truncated: false })),
+      askSideQuestion: vi.fn(async (question: string) => ({ response: `About: ${question}` })),
     }) as unknown as Query;
     queries.push(query);
     return query;

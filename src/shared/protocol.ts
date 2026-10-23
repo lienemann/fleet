@@ -166,6 +166,13 @@ export const CallSchema = z.discriminatedUnion("type", [
     taskId: z.string().min(1),
     all: z.boolean().optional(),
   }),
+  /** A question about the session that adds nothing to it, like /btw in the CLI. */
+  z.object({
+    type: z.literal("side_question"),
+    id,
+    agent,
+    question: z.string().trim().min(1).max(20_000),
+  }),
   /** Files the agent keeps for the user under .fleet/<agent>/. */
   z.object({ type: z.literal("notes"), id, agent }),
   z.object({
@@ -198,6 +205,8 @@ export interface CallResults {
   inspect_directory: DirectoryInfo;
   notes: Array<{ path: string; modified: number; size: number }>;
   task_output: TaskOutput;
+  /** null when Claude gave no answer. */
+  side_question: string | null;
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;

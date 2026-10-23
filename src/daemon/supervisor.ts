@@ -447,6 +447,11 @@ export class Supervisor implements ToolHost {
         return agentNotes(agent.cwd, agent.name);
       case "task_output":
         return this.taskOutput(agent, call.taskId, call.all);
+      case "side_question": {
+        const session = this.sessions.get(agent.name);
+        if (!session?.isRunning) throw new Error(`Start ${agent.name} to ask about its session.`);
+        return session.askSideQuestion(call.question);
+      }
       case "review_load":
         return this.trackProgress(
           await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough, call.scope),

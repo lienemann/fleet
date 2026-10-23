@@ -1325,6 +1325,28 @@ button.link.accent {
   background: var(--warn);
 }
 
+/* Side questions: answers that stay out of the session, above its prompt. */
+.side-chat {
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--notebg);
+  color: var(--notefg);
+  font-size: 12.5px;
+}
+.side-chat-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.side-entry p {
+  margin: 4px 0;
+}
+.side-question {
+  font-family: var(--font-mono);
+}
+
 /* Prompt: one line, like the CLI's */
 .prompt {
   position: relative;

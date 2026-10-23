@@ -74,6 +74,11 @@ type OutputQuery = Query & {
   ) => Promise<{ output: string; total_bytes: number; truncated: boolean }>;
 };
 
+/** The SDK answers side questions without declaring the call. */
+type SideQuery = Query & {
+  askSideQuestion?: (question: string) => Promise<{ response: string } | null>;
+};
+
 /** A task of the current process: what it is and when its output last grew. */
 interface LiveTask {
   type: string;
@@ -214,6 +219,13 @@ export class AgentSession {
       task.lastOutputAt = Date.now();
     }
     return { output, totalBytes: total_bytes, truncated, lastOutputAt: task?.lastOutputAt };
+  }
+
+  /** Asks about the session without adding to it, like /btw in the CLI. */
+  async askSideQuestion(question: string): Promise<string | null> {
+    const query = this.query as SideQuery | undefined;
+    if (!query?.askSideQuestion) throw new Error("The session is not running.");
+    return (await query.askSideQuestion(question))?.response ?? null;
   }
 
   async stopTask(taskId: string): Promise<void> {

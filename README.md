@@ -94,7 +94,8 @@ single session ticked, "Use as director" starts fleet's director fresh from what
 writes a handover, and the session itself stays as it is.
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). A turn that
-edited files ends with a card of them, each with the lines it added and removed. To work in a
+edited files ends with a card of them, each with the lines it added and removed. `/btw <question>` asks about the
+session without adding to it, as in the CLI; the answer shows above the prompt. To work in a
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it
 does not use yet, and the one you pick is saved to the config. The same dialog takes any other directory, such as
 another project: once it is added, `i` imports the Claude Code sessions recorded there. Tasks go into such a

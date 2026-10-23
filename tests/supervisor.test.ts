@@ -203,4 +203,19 @@ describe("restart", () => {
     expect(restarted).toBe(0);
     expect(log.state.restartPending).toBe(false);
   });
+
+  it("answers a side question from a running session, leaving its transcript alone", async () => {
+    const { log, supervisor, column } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    const ask = () =>
+      supervisor.call({ type: "side_question", id: "1", agent: "alpha", question: "why?" });
+    await until(() => column("alpha") === "needs_you");
+    const lines = log.state.agents.alpha?.log.length;
+
+    await expect(ask()).resolves.toBe("About: why?");
+    expect(log.state.agents.alpha?.log).toHaveLength(lines ?? 0);
+    supervisor.handle({ type: "stop", agent: "alpha" });
+    await until(() => log.state.agents.alpha?.activity === "stopped");
+    await expect(ask()).rejects.toThrow("Start alpha to ask about its session.");
+  });
 });

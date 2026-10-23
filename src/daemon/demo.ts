@@ -173,6 +173,12 @@ export function demoQuery(delayMs = 400): QueryFn {
         ).join("");
         return { output, total_bytes: output.length, truncated: false };
       },
+      askSideQuestion: async (question: string) => {
+        await pause();
+        return {
+          response: `So far I ran the tests and found the fixed tolerance. (You asked: ${question})`,
+        };
+      },
       stopTask: async (taskId: string) => {
         if (!shells.delete(taskId)) return;
         between.push(

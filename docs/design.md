@@ -188,7 +188,7 @@ The Agent SDK runs the same harness as the CLI, so most capabilities exist; the 
 | `@` file mentions                      | Autocomplete from the workspace              | 3     |
 | Image paste and attachments            | Attach button, paste                         | 3     |
 | Messages queued while busy             | Queue shown under the prompt                 | 3     |
-| `/btw` side questions                  | Side-question popover                        | 3     |
+| `/btw` side questions                  | `/btw` in the prompt, answer above it        | 3     |
 | Plan mode output                       | Plan as a doc with comments, then approve    | 3     |
 | Background tasks and watchers          | Activity tab: output, Stop, Ctrl+B           | 3     |
 | Cost and usage                         | Per agent, per day                           | 3     |
