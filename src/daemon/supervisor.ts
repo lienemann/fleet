@@ -256,6 +256,10 @@ export class Supervisor implements ToolHost {
       case "detach":
         this.background(this.sessions.get(message.agent)?.stop("detached"));
         return;
+      case "remove":
+        if (this.agent(message.agent)?.role === "worker")
+          this.background(this.remove(message.agent));
+        return;
       case "move":
         this.background(this.move(message.agent, message.to));
         return;

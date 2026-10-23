@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DIRECTOR, PERMISSION_MODES, type UserMove } from "../shared/events.ts";
-import { agentList, pendingDecisions } from "../shared/reducer.ts";
+import { agentList, HOLDS_WORKSPACE, pendingDecisions } from "../shared/reducer.ts";
 import { useFleet } from "./fleet.tsx";
 import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, useCommands } from "./keys/keymap.tsx";
@@ -56,6 +56,15 @@ export function App() {
     setSelected(name);
     setEnlarged(name);
     setView("grid");
+  };
+  /** Takes a task off the board; one whose workspace still holds its work asks first. */
+  const remove = (name: string): void => {
+    const target = state.agents[name];
+    if (target?.role !== "worker") return;
+    const question = `Remove ${name}'s task "${target.title}"? Its changes stay in ${target.workspace}, and the next task there starts on top of them.`;
+    if (HOLDS_WORKSPACE.has(target.task) && !window.confirm(question)) return;
+    send({ type: "remove", agent: name });
+    if (selected === name) setSelected(undefined);
   };
 
   // An agent on screen counts as seen, even if its outcome changes while the user looks at it.
@@ -317,6 +326,13 @@ export function App() {
         run: move("running"),
       },
       {
+        id: "agent.remove",
+        label: "Remove from fleet",
+        group: "Move the selected task",
+        keys: ["m x"],
+        run: () => remove(name),
+      },
+      {
         id: "drawer.next",
         label: "Next drawer tab",
         group: "Drawer",
@@ -392,6 +408,7 @@ export function App() {
         <Rail
           selected={selected}
           onSelect={view === "grid" ? open : select}
+          onRemove={remove}
           onImport={() => show("import")}
           onAddWorkspace={() => show("workspaces")}
         />

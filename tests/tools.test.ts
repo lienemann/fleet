@@ -132,6 +132,15 @@ describe("director", () => {
     await until(() => log.state.agents.alpha === undefined);
   });
 
+  it("removes a task the user takes off the board, but never the director", async () => {
+    const { log, supervisor } = setup();
+    supervisor.spawn({ title: "One", context: "x", workspace: "ws1" });
+    supervisor.handle({ type: "remove", agent: "alpha" });
+    supervisor.handle({ type: "remove", agent: DIRECTOR });
+    await until(() => log.state.agents.alpha === undefined);
+    expect(log.state.agents[DIRECTOR]).toBeDefined();
+  });
+
   it("may write its notes but no code", () => {
     const { director } = setup();
     expect(

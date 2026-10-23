@@ -407,6 +407,36 @@ h2 {
 .rail-item.unseen .rail-title {
   font-weight: 600;
 }
+.rail-row {
+  position: relative;
+}
+.remove-x {
+  min-height: 0;
+  padding: 0 6px;
+  color: var(--dim);
+  font: 15px / 1 var(--font-sans);
+}
+.remove-x:hover:not(:disabled) {
+  color: var(--strong);
+}
+.rail-row .remove-x {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  translate: 0 -50%;
+}
+/* With a mouse, a × shows on the row under it; touch screens always show it. */
+@media (hover: hover) {
+  .remove-x {
+    visibility: hidden;
+  }
+  .rail-row:hover .remove-x {
+    visibility: visible;
+  }
+  .rail-row:hover .rail-item {
+    padding-right: 26px;
+  }
+}
 /* Rail sections get small uppercase labels, like the bus ticker; headings elsewhere do not. */
 .rail h2 {
   color: var(--dim);

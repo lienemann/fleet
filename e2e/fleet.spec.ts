@@ -396,6 +396,26 @@ test("existing Claude Code sessions can be imported and taken back", async ({ pa
   );
 });
 
+test("removing an agent asks first while its workspace holds its work", async ({ page }) => {
+  await page.goto("/");
+  const rail = page.locator(".rail");
+  await expect(rail).toContainText("Explain the scheduler");
+  const row = rail.locator(".rail-row", { hasText: "Explain the scheduler" });
+  const name = (await row.locator(".name").textContent()) ?? "";
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await row.hover();
+  await row.getByRole("button", { name: `Remove ${name}` }).click();
+  await expect(rail).toContainText("Explain the scheduler");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  // Firefox forgets the hover once the confirmation closes.
+  await row.hover();
+  await row.getByRole("button", { name: `Remove ${name}` }).click();
+  await expect(rail).not.toContainText("Explain the scheduler");
+  await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeHidden();
+});
+
 test("can be installed as an app", async ({ page, request }) => {
   const manifest = await (await request.get("/manifest.webmanifest")).json();
   expect(manifest).toMatchObject({ name: "fleet", display: "standalone", start_url: "/" });

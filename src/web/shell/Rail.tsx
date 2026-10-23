@@ -6,12 +6,13 @@ import { agentStatus } from "../labels.ts";
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
+  onRemove: (name: string) => void;
   onImport: () => void;
   onAddWorkspace: () => void;
 }
 
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
-export function Rail({ selected, onSelect, onImport, onAddWorkspace }: Props) {
+export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }: Props) {
   const { state, info, send } = useFleet();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const holder = (workspace: string) =>
@@ -36,7 +37,20 @@ export function Rail({ selected, onSelect, onImport, onAddWorkspace }: Props) {
       <ul className="tree">
         {agents.map((agent) => (
           <li key={agent.name}>
-            <AgentRow agent={agent} selected={agent.name === selected} onSelect={onSelect} />
+            <div className="rail-row">
+              <AgentRow agent={agent} selected={agent.name === selected} onSelect={onSelect} />
+              {agent.role === "worker" && (
+                <button
+                  type="button"
+                  className="link remove-x"
+                  aria-label={`Remove ${agent.name}`}
+                  title={`Remove ${agent.name} from fleet; its transcript stays and can be imported again`}
+                  onClick={() => onRemove(agent.name)}
+                >
+                  ×
+                </button>
+              )}
+            </div>
             {agent.subagents.some((s) => !s.done) && (
               <ul>
                 {agent.subagents

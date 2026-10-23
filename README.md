@@ -218,7 +218,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `n`, `i`, `d` | new task, import CLI sessions, message the director |
 | `p` | write to the selected agent; Esc leaves the field |
 | `a`, Shift+A, `r` | approve, always allow, or reject its permission request |
-| `m r`, `m c`, `m a`, `m o` | move to review, request changes, accept, reopen |
+| `m r`, `m c`, `m a`, `m o`, `m x` | move to review, request changes, accept, reopen, remove from fleet |
 | `s`, Shift+M, Esc | stop or start the session (a queued task starts now if its workspace is free), next permission mode, interrupt |
 | `t`, Shift+T, `x` | next or previous drawer tab, close the drawer (in the grid: back to all tiles) |
 | `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
