@@ -8,11 +8,12 @@ import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery, demoSessions } from "./demo.ts";
 import { DiskWatch } from "./disk.ts";
 import { EventLog } from "./eventLog.ts";
+import { noHolders, systemHolders } from "./holders.ts";
 import { Orbit } from "./orbit.ts";
 import { dryHost, Power } from "./power.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { createFleetServer } from "./server.ts";
-import { Supervisor } from "./supervisor.ts";
+import { HOLDER_POLL_MS, Supervisor } from "./supervisor.ts";
 
 // A stray rejection must not end every agent's session with the process.
 process.on("unhandledRejection", (reason) => console.error("fleet: unhandled rejection:", reason));
@@ -41,6 +42,7 @@ const supervisor = new Supervisor({
   config,
   power,
   sessions: process.env.FLEET_DEMO ? demoSessions : undefined,
+  holders: process.env.FLEET_DEMO ? noHolders : systemHolders,
   // Only the `fleet` command starts the daemon again after it exits for a restart.
   restart: process.env.FLEET_SUPERVISED ? () => void shutdown(RESTART_EXIT_CODE) : undefined,
   configFile: join(home, "config.toml"),
@@ -49,6 +51,8 @@ const supervisor = new Supervisor({
 
 // Workspaces of Claude Code sessions that ended are released once nobody took them over.
 setInterval(() => supervisor.expireClaims(), 30_000).unref();
+// Sessions held by a terminal, VS Code or the Desktop app are taken back once those let go.
+setInterval(() => void supervisor.watchHolders(), HOLDER_POLL_MS).unref();
 
 const disk = new DiskWatch(
   (event) => log.append({ ...event, agent: DAEMON }),

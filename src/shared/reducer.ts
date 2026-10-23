@@ -13,6 +13,7 @@ import type {
   ReviewKind,
   RiskTag,
   Role,
+  SessionHolder,
   TaskState,
   Tint,
   Todo,
@@ -137,6 +138,10 @@ export interface AgentView {
   reviewProgress?: { approved: number; total: number };
   /** Lane changes over time, newest last, for the timeline. */
   history: Segment[];
+  /** Who holds the session while it is detached: `null` nobody, absent when fleet cannot tell. */
+  holder?: SessionHolder | null;
+  /** Why fleet does not take the detached session back by itself. */
+  holderNote?: string;
   /** Draft review comments, not yet sent. */
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
@@ -397,7 +402,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       };
     }
     case "activity":
-      return patch({ activity: event.activity });
+      // A session that runs in fleet again has no other holder.
+      return event.activity === "detached"
+        ? patch({ activity: event.activity })
+        : patch({ activity: event.activity, holder: undefined, holderNote: undefined });
+    case "holder":
+      return patch({ holder: event.holder, holderNote: event.note });
     case "session_started":
       return patch({
         sessionId: event.sessionId,

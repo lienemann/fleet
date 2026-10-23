@@ -211,3 +211,29 @@ describe("session panel", () => {
     });
   });
 });
+
+describe("holder", () => {
+  const holder = {
+    pid: 7,
+    client: "terminal" as const,
+    cwd: "/ws",
+    busy: false,
+    background: false,
+    verified: true,
+  };
+  const detached: NewEvent = { kind: "activity", agent: "a", activity: "detached" };
+
+  it("is kept while detached and cleared once the session runs in fleet", () => {
+    const held = run(detached, { kind: "holder", agent: "a", holder, note: "Close it there." });
+    expect(held.holder).toEqual(holder);
+    expect(held.holderNote).toBe("Close it there.");
+    const back = run(detached, { kind: "holder", agent: "a", holder }, working);
+    expect(back.holder).toBeUndefined();
+    expect(back.holderNote).toBeUndefined();
+  });
+
+  it("tells a free session from one fleet cannot see", () => {
+    expect(run(detached, { kind: "holder", agent: "a", holder: null }).holder).toBeNull();
+    expect(run(detached).holder).toBeUndefined();
+  });
+});

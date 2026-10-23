@@ -13,6 +13,7 @@ import {
   type PromptAttachment,
   type Report,
   type ReviewKind,
+  type SessionHolder,
   type TaskState,
   USER,
 } from "../shared/events.ts";
@@ -45,6 +46,7 @@ import {
   readWorkspaceFile,
   resolveInside,
 } from "./files.ts";
+import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
 import type { Power } from "./power.ts";
 import { directorPrompt, handoverRequest, handoverStart, workerPrompt } from "./prompts.ts";
 import { ReviewService } from "./review.ts";
@@ -112,6 +114,12 @@ export interface WorkspaceStatus {
   explicit?: boolean;
 }
 
+/** How often the daemon looks at which Claude Code processes hold its sessions. */
+export const HOLDER_POLL_MS = 3000;
+
+/** A session lost to another client twice within this time stays there. */
+export const LOOP_WINDOW_MS = 60_000;
+
 /** How long an ended session's workspace stays reserved for a session that carries on. */
 export const CLAIM_GRACE_MS = 10 * 60_000;
 
@@ -129,6 +137,8 @@ export interface SupervisorOptions {
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
   sessions?: SessionSource;
+  /** Which Claude Code processes hold sessions; without it fleet cannot tell. */
+  holders?: HolderHost;
   /** Where added workspaces are written; without it they last until the daemon stops. */
   configFile?: string;
   /** Called when the workspace list changed, so pages can be told. */
@@ -150,6 +160,14 @@ export class Supervisor implements ToolHost {
   private readonly power: SupervisorOptions["power"];
   private readonly sessionSource: SessionSource;
   private readonly importing = new Set<string>();
+  private readonly holders: HolderHost | undefined;
+  /** The pid of the holder each detached agent waits for; it is picked up once that exits. */
+  private readonly seen = new Map<string, number>();
+  /** When each agent lately lost its session to another client. */
+  private readonly losses = new Map<string, number[]>();
+  /** Agents that went back and forth with another client; only Attach brings them back. */
+  private readonly manualOnly = new Set<string>();
+  private watching = false;
   private readonly restart: (() => void) | undefined;
   private readonly configFile: string | undefined;
   private readonly onWorkspacesChanged: (() => void) | undefined;
@@ -161,10 +179,12 @@ export class Supervisor implements ToolHost {
     config,
     power,
     sessions,
+    holders,
     restart,
     configFile,
     onWorkspacesChanged,
   }: SupervisorOptions) {
+    this.holders = holders;
     this.configFile = configFile;
     this.onWorkspacesChanged = onWorkspacesChanged;
     this.power = power;
@@ -256,7 +276,7 @@ export class Supervisor implements ToolHost {
         this.background(this.sessions.get(message.agent)?.stop());
         return;
       case "detach":
-        this.background(this.sessions.get(message.agent)?.stop("detached"));
+        this.background(this.detach(message.agent));
         return;
       case "remove":
         if (this.agent(message.agent)?.role === "worker")
@@ -489,6 +509,88 @@ export class Supervisor implements ToolHost {
     for (const event of transcript) this.append(name, event);
     this.append(name, { kind: "task_state", state: "running" });
     this.append(name, { kind: "activity", activity: "detached" });
+
+    const holders = await this.scan();
+    if (!holders) return;
+    const holder = holders.get(sessionId);
+    if (!holder) return this.pickUp(name);
+    this.seen.set(name, holder.pid);
+    this.append(name, { kind: "holder", holder });
+  }
+
+  /** Releases the session to a terminal; fleet takes it back once a terminal had it and let go. */
+  private async detach(name: string): Promise<void> {
+    await this.sessions.get(name)?.stop("detached");
+    this.seen.delete(name);
+    this.manualOnly.delete(name);
+  }
+
+  /**
+   * Follows the Claude Code processes that hold fleet's sessions: a detached session is picked
+   * up once the client it waited for lets go, and fleet steps back when another client opens a
+   * session it runs. Called every few seconds.
+   */
+  async watchHolders(): Promise<void> {
+    if (this.watching) return;
+    this.watching = true;
+    try {
+      const holders = await this.scan();
+      if (!holders) return;
+      for (const agent of this.agents) {
+        const holder = agent.sessionId ? holders.get(agent.sessionId) : undefined;
+        if (agent.activity === "detached") await this.followDetached(agent, holder);
+        else if (holder && this.sessions.get(agent.name)?.isRunning)
+          await this.stepBack(agent.name, holder);
+      }
+    } finally {
+      this.watching = false;
+    }
+  }
+
+  private async followDetached(agent: AgentView, holder: SessionHolder | undefined): Promise<void> {
+    const { name } = agent;
+    if (holder) {
+      this.seen.set(name, holder.pid);
+      if (!sameHolder(agent.holder, holder)) this.append(name, { kind: "holder", holder });
+    } else if (this.seen.delete(name) && !this.manualOnly.has(name)) {
+      await this.pickUp(name);
+    } else if (agent.holder !== null) {
+      this.append(name, { kind: "holder", holder: null, note: agent.holderNote });
+    }
+  }
+
+  /** Another client opened a session fleet runs: fleet lets it have it and waits. */
+  private async stepBack(name: string, holder: SessionHolder): Promise<void> {
+    await this.sessions.get(name)?.stop("detached");
+    this.seen.set(name, holder.pid);
+    const now = Date.now();
+    const recent = [...(this.losses.get(name) ?? []), now].filter((t) => now - t < LOOP_WINDOW_MS);
+    this.losses.set(name, recent);
+    if (recent.length < 2) {
+      this.append(name, { kind: "holder", holder });
+      return;
+    }
+    this.manualOnly.add(name);
+    this.append(name, {
+      kind: "holder",
+      holder,
+      note: "This session went back and forth between fleet and another client, so fleet leaves it there. Attach brings it back.",
+    });
+  }
+
+  /** Runs a detached session in fleet again. */
+  private async pickUp(name: string): Promise<void> {
+    this.session(name)?.start();
+  }
+
+  private async scan(): Promise<Holders | undefined> {
+    if (!this.holders) return undefined;
+    try {
+      return await scanHolders(this.holders);
+    } catch (error) {
+      console.error("fleet: reading the session files failed:", error);
+      return undefined;
+    }
   }
 
   createTask(title: string, prompt: string, workspace: string): string | undefined {
@@ -1238,6 +1340,11 @@ function saveAttachment(cwd: string, agent: string, file: PromptAttachment): str
   writeFileSync(join(cwd, path), Buffer.from(file.data, "base64"));
   return path;
 }
+
+const sameHolder = (a: SessionHolder | null | undefined, b: SessionHolder): boolean =>
+  a !== null &&
+  a !== undefined &&
+  (Object.keys(b) as (keyof SessionHolder)[]).every((key) => a[key] === b[key]);
 
 /** Whether `path` is `dir` or lies below it. */
 function isWithin(path: string, dir: string): boolean {

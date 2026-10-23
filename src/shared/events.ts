@@ -144,6 +144,11 @@ export type EventBody =
   /** The task is off the board. Whatever it changed stays in its workspace. */
   | { kind: "task_removed" }
   | { kind: "activity"; activity: Activity }
+  /**
+   * Who holds a detached session: `null` nobody, absent when fleet cannot tell. `note` says why
+   * fleet does not take the session back by itself.
+   */
+  | { kind: "holder"; holder?: SessionHolder | null; note?: string }
   | {
       kind: "session_started";
       sessionId: string;
