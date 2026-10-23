@@ -161,7 +161,7 @@ Each worker owns one jj workspace; the director and I share the default one. jj 
 
 **Workspaces.** Configured in `config.toml` per host (`ws1`–`ws4` on the Mac, more on pods). Background-session worktrees from Claude Code stay off: the daemon starts each SDK session with its workspace directory as working directory. A queued task waits until its workspace is free.
 
-**History view.** Embeds jj orbit, served by the daemon. Its flat layout is the classic graph; lanes and spiral are the 3D modes. Commits are colored by the agent that owns their workspace.
+**History view.** Embeds jj orbit, served by the daemon. Its flat layout is the classic graph; lanes and spiral are the 3D modes. Commits are colored by the agent that owns their workspace. Orbit follows a `data-theme` on its root, which fleet sets from its own theme, so the vendored copy stays as it is.
 
 **Op log as checkpoints.** Every jj operation is attributed to an agent (by workspace) or to me. The op slider scrubs through them; picking an older op fades later commits and offers `jj op restore` with a preview first. This replaces per-session checkpoints: rewinding an agent is restoring the op before its last turn.
 

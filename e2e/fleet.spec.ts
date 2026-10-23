@@ -353,6 +353,13 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
   await expect
     .poll(() => page.frame({ url: /\/orbit\/$/ })?.title(), { timeout: 20_000 })
     .toBe("jj orbit");
+  // Orbit takes fleet's theme, and follows when it changes.
+  const orbitTheme = () =>
+    page.frame({ url: /\/orbit\/$/ })?.evaluate(() => document.documentElement.dataset.theme);
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+  await expect.poll(orbitTheme).toBe(theme);
+  await page.getByRole("button", { name: "Switch light or dark theme" }).click();
+  await expect.poll(orbitTheme).toBe(theme === "dark" ? "light" : "dark");
 });
 
 test("tasks on a remote daemon show up and are answered like local ones", async ({ page }) => {
