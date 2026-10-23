@@ -71,12 +71,20 @@ export class Connection {
       ws.send(JSON.stringify({ type: "subscribe", since: this.lastSeq() } satisfies Command));
     };
     ws.onmessage = (message) => this.receive(JSON.parse(message.data as string) as ServerMessage);
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.on.connected(false);
       for (const request of this.pending.values())
         request.reject(new Error("Disconnected from the daemon"));
       this.pending.clear();
       if (this.closed) return;
+      // Refused before it opened: if the daemon no longer knows this browser (a new secret),
+      // reloading shows its login page.
+      if (event.code === 1006 && this.path === "/ws") {
+        void fetch("/version.json", { cache: "no-store" }).then(
+          (response) => response.status === 401 && location.reload(),
+          () => undefined,
+        );
+      }
       this.attempt++;
       this.timer = setTimeout(
         () => this.connect(),

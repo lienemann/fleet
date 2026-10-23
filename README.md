@@ -63,7 +63,7 @@ the jj repo you want to work on:
 
 ```
 fleet init        # creates the jj workspaces ws1 to ws4 next to the repo and writes ~/.fleet/config.toml
-fleet             # starts the daemon; open http://127.0.0.1:7777
+fleet             # starts the daemon and prints the link that logs your browser in
 ```
 
 `fleet init -n 2` makes two workspaces instead of four, and `--into DIR` puts them somewhere else. fleet keeps its
@@ -101,6 +101,7 @@ The header and `fleet --version` show the version from `package.json`. To releas
 
 ```toml
 port = 7777
+# auth = false                          # no login, for a computer nobody else uses
 model = "opus"                          # default model, optional
 wip = { running = 4, review = 2 }
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
@@ -132,7 +133,7 @@ On a pod, run the same daemon with its own workspaces and `[director] enabled = 
 The daemon serves an MCP server at `/mcp`, so a Claude Code session you run yourself can work alongside the fleet:
 
 ```
-claude mcp add --transport http fleet http://127.0.0.1:7777/mcp
+claude mcp add --transport http fleet http://127.0.0.1:7777/mcp --header "Authorization: Bearer $(cat ~/.fleet/secret)"
 ```
 
 Such a session can then list the workspaces with whoever holds them, claim a free one to work in and release it
@@ -145,8 +146,8 @@ With two hooks in `~/.claude/settings.json`, sessions claim and release workspac
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $(cat ~/.fleet/secret 2>/dev/null)\" --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $(cat ~/.fleet/secret 2>/dev/null)\" --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }]
   }
 }
 ```
@@ -161,7 +162,14 @@ it. fleet's own sessions set `FLEET_AGENT` and skip the hooks.
 
 The daemon can make agents run commands, so it listens on 127.0.0.1 only. It accepts browser connections only from
 pages it served itself under a loopback host name, which also stops DNS rebinding. Reach it from elsewhere through
-a tunnel, and add the tunnel's host name to `allowed_hosts` if it is not `localhost`. The daemon validates every
+a tunnel, and add the tunnel's host name to `allowed_hosts` if it is not `localhost`.
+
+Everyone on the same computer shares its loopback port, so the daemon also asks for a secret. It makes one on first
+start in `~/.fleet/secret`, readable only by you, and prints a link that logs your browser in; `fleet login` prints
+it again, and the login page also takes the secret pasted in. The browser then keeps a cookie for a year. The hooks
+and the MCP command above send the secret as a bearer token. For a daemon on a pod, copy the pod's secret to
+`~/.fleet/remotes/<name>.secret` on the Mac, for example with `ssh pod cat .fleet/secret > ~/.fleet/remotes/pod1.secret`.
+On a computer nobody else uses, `auth = false` in `config.toml` turns the login off. The daemon validates every
 message from the browser, reads files only inside an agent's workspace, and lets the director write only to
 `.fleet/director/`.
 

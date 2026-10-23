@@ -5,6 +5,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAC_SECRET, POD_SECRET } from "./secrets.ts";
 
 const port = Number(process.env.PORT ?? 7791);
 const isPod = process.env.FLEET_POD === "1";
@@ -43,6 +44,11 @@ const config = isPod
     `port = ${port}\nhost = "test"\n\n[director]\npath = "${join(home, "ws1")}"\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n${workspaces.join("\n")}`;
 writeFileSync(join(home, "config.toml"), config);
+writeFileSync(join(home, "secret"), isPod ? POD_SECRET : MAC_SECRET, { mode: 0o600 });
+if (!isPod) {
+  mkdirSync(join(home, "remotes"));
+  writeFileSync(join(home, "remotes", "pod.secret"), POD_SECRET, { mode: 0o600 });
+}
 
 if (!isPod) {
   const pod = spawn(process.execPath, [new URL(import.meta.url).pathname], {

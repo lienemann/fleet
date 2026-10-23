@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { MAC_SECRET } from "./secrets.ts";
 
 // One daemon serves all tests, so they run in order and find agents by task title.
 test.describe.configure({ mode: "serial" });
@@ -126,6 +127,21 @@ test("a second task in a busy workspace waits in the queue", async ({ page }) =>
   await newTask(page, "Second in ws2", "ws2");
   await expect(card(page, "Queued", "Second in ws2")).toBeVisible();
   await expect(page.locator(".workspaces")).toContainText("ws2");
+});
+
+test("a browser without the cookie logs in with the secret", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByText("fleet login")).toBeVisible();
+  await page.getByLabel("Secret").fill("a guess");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByText("That is not this daemon's secret.")).toBeVisible();
+
+  await page.getByLabel("Secret").fill(MAC_SECRET);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.locator(".host")).toContainText("test + 1 pod");
+  await context.close();
 });
 
 test("lid-closed mode shows a banner while it is on, and turns off from there", async ({

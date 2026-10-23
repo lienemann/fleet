@@ -1,9 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { Auth, loadSecret } from "../src/daemon/auth.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { createFleetServer, isAllowedRequest } from "../src/daemon/server.ts";
 import type { ServerMessage } from "../src/shared/protocol.ts";
@@ -15,8 +16,9 @@ afterEach(() => {
 });
 
 async function start(
-  remotes: Array<{ name: string; url: string }> = [],
+  remotes: Array<{ name: string; url: string; secret?: string }> = [],
   staticDir = "/nonexistent",
+  auth?: Auth,
 ) {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));
@@ -30,6 +32,7 @@ async function start(
     allowedOrigins: [],
     allowedHosts: [],
     remotes,
+    auth,
   });
   closers.push(close);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -152,6 +155,76 @@ describe("websocket server", () => {
   it("refuses browser pages from other origins", async () => {
     const { port } = await start();
     await expect(connect(port, { Origin: "http://evil.example" }).opened).rejects.toThrow();
+  });
+});
+
+describe("with a secret", () => {
+  const secret = "s3cret";
+  const auth = new Auth(secret);
+  const get = (port: number, path: string, headers: Record<string, string> = {}) =>
+    fetch(`http://127.0.0.1:${port}${path}`, { headers, redirect: "manual" });
+
+  it("shows a stranger the login page and nothing else", async () => {
+    const { port } = await start([], "/nonexistent", auth);
+    const page = await get(port, "/", { accept: "text/html" });
+    expect(page.status).toBe(401);
+    expect(await page.text()).toContain("fleet login");
+    expect((await get(port, "/version.json")).status).toBe(401);
+    await expect(connect(port).opened).rejects.toThrow();
+    // Installing the app fetches these without cookies.
+    expect((await get(port, "/manifest.webmanifest")).status).not.toBe(401);
+  });
+
+  it("lets in a tool with the secret, and a browser with the cookie the login sets", async () => {
+    const { port } = await start([], "/nonexistent", auth);
+    await connect(port, { authorization: `Bearer ${secret}` }).opened;
+    expect((await get(port, "/", { authorization: "Bearer wrong" })).status).toBe(401);
+
+    const wrong = await fetch(`http://127.0.0.1:${port}/login`, {
+      method: "POST",
+      body: new URLSearchParams({ secret: "guess" }),
+    });
+    expect(wrong.status).toBe(401);
+    const typed = await fetch(`http://127.0.0.1:${port}/login`, {
+      method: "POST",
+      body: new URLSearchParams({ secret }),
+      redirect: "manual",
+    });
+    const linked = await get(port, `/login?secret=${secret}`);
+    for (const login of [typed, linked]) {
+      expect(login.status).toBe(303);
+      expect(login.headers.get("set-cookie")).toContain(`${auth.cookie}; Path=/; HttpOnly`);
+    }
+    await connect(port, { cookie: auth.cookie }).opened;
+    expect((await get(port, "/", { cookie: `${auth.cookieName}=forged` })).status).toBe(401);
+  });
+
+  it("relays to a remote daemon with that daemon's secret", async () => {
+    const pod = await start([], "/nonexistent", new Auth("pod secret"));
+    const url = `http://127.0.0.1:${pod.port}`;
+    const mac = await start([
+      { name: "with", url, secret: "pod secret" },
+      { name: "without", url },
+    ]);
+    const relayed = (name: string) =>
+      new Promise<string>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${mac.port}/remote/${name}/ws`);
+        ws.once("open", () => ws.send(JSON.stringify({ type: "subscribe", since: 0 })));
+        ws.once("message", () => resolve("served"));
+        ws.once("close", () => resolve("closed"));
+      });
+    expect(await relayed("with")).toBe("served");
+    expect(await relayed("without")).toBe("closed");
+  });
+});
+
+describe("loadSecret", () => {
+  it("makes a secret only its owner can read, and keeps it", () => {
+    const home = mkdtempSync(join(tmpdir(), "fleet-home-"));
+    const secret = loadSecret(home);
+    expect(secret).toMatch(/^[\w-]{43}$/);
+    expect(statSync(join(home, "secret")).mode & 0o777).toBe(0o600);
+    expect(loadSecret(home)).toBe(secret);
   });
 });
 

@@ -22,6 +22,8 @@ const ConfigFile = z.object({
   allowed_origins: z.array(z.string()).default([]),
   allowed_hosts: z.array(z.string()).default([]),
   allowed_tools: z.array(z.string()).default(DEFAULT_ALLOWED_TOOLS),
+  /** Only the owner of ~/.fleet/secret gets in; false lets every user of this computer in. */
+  auth: z.boolean().default(true),
   wip: z
     .object({
       running: z.number().int().positive().default(4),
@@ -72,6 +74,8 @@ export interface Config {
   history?: { repo: string; python: string };
   /** Free space in bytes below which a volume counts as low. */
   diskMinFree: number;
+  /** Whether the daemon asks for its secret. */
+  auth: boolean;
   workspaces: Workspace[];
 }
 
@@ -99,6 +103,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     director: parsed.director.enabled ? expandHome(parsed.director.path ?? fallbackCwd) : undefined,
     remotes: parsed.remotes,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
+    auth: parsed.auth,
     history: parsed.history.enabled
       ? {
           repo: expandHome(

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // The `fleet` command: `fleet init` sets up a repo, `fleet` runs the daemon, `fleet restart`
-// restarts a running one once no agent is mid-turn.
+// restarts a running one once no agent is mid-turn, `fleet login` prints the login link.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { WebSocket } from "ws";
+import { loadSecret, loginLink } from "./daemon/auth.ts";
 import { fleetHome, loadConfig } from "./daemon/config.ts";
 import { init } from "./daemon/init.ts";
 import { RESTART_EXIT_CODE } from "./daemon/restart.ts";
@@ -14,6 +15,7 @@ const USAGE = `Usage:
   fleet                            run the daemon (config in ~/.fleet, or FLEET_HOME)
   fleet init [-n 4] [--into DIR]   in a jj repo: create workspaces ws1..wsN and write the config
   fleet restart                    restart the running daemon once no agent is mid-turn
+  fleet login                      print the link that logs a browser in
   fleet --version                  print the version
 `;
 
@@ -62,8 +64,12 @@ function run(): void {
 }
 
 function restart(): void {
-  const { port } = loadConfig(fleetHome());
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const home = fleetHome();
+  const { port, auth } = loadConfig(home);
+  const headers: Record<string, string> = auth
+    ? { authorization: `Bearer ${loadSecret(home)}` }
+    : {};
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
   ws.on("open", () => {
     ws.send(JSON.stringify({ type: "restart" }), () => {
       console.log("fleet restarts as soon as no agent is in the middle of a turn.");
@@ -99,6 +105,14 @@ if (values.help) {
   }
 } else if (positionals[0] === "restart") {
   restart();
+} else if (positionals[0] === "login") {
+  const home = fleetHome();
+  const { port, auth } = loadConfig(home);
+  console.log(
+    auth
+      ? loginLink(port, loadSecret(home))
+      : `auth = false: http://127.0.0.1:${port} needs no login`,
+  );
 } else if (positionals.length === 0) {
   // Ctrl+C goes to the whole process group; the daemon handles it, this process waits for it.
   process.on("SIGINT", () => undefined);

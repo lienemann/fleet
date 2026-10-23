@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentEvent, DAEMON } from "../shared/events.ts";
+import { Auth, loadRemoteSecret, loadSecret, loginLink } from "./auth.ts";
 import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery, demoSessions } from "./demo.ts";
 import { DiskWatch } from "./disk.ts";
@@ -58,7 +59,9 @@ void disk.check();
 setInterval(() => void disk.check(), 60_000).unref();
 
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
+const secret = config.auth ? loadSecret(home) : undefined;
 const { server, close, broadcastInfo } = createFleetServer({
+  auth: secret ? new Auth(secret) : undefined,
   orbit,
   log,
   supervisor,
@@ -71,7 +74,7 @@ const { server, close, broadcastInfo } = createFleetServer({
     remotes: config.remotes.map((r) => r.name),
     defaultWorkspace: config.director,
   }),
-  remotes: config.remotes,
+  remotes: config.remotes.map((r) => ({ ...r, secret: loadRemoteSecret(home, r.name) })),
   staticDir: fileURLToPath(new URL("../../dist/web", import.meta.url)),
   allowedOrigins: config.allowedOrigins,
   allowedHosts: config.allowedHosts,
@@ -80,6 +83,7 @@ const { server, close, broadcastInfo } = createFleetServer({
 // Loopback only: reach it from elsewhere through an ssh tunnel.
 server.listen(config.port, "127.0.0.1", () => {
   console.log(`fleet listening on http://127.0.0.1:${config.port}`);
+  if (secret) console.log(`log in with ${loginLink(config.port, secret)}`);
   supervisor.init();
 });
 

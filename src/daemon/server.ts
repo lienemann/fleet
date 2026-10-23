@@ -15,6 +15,7 @@ import {
   type DaemonInfo,
   type ServerMessage,
 } from "../shared/protocol.ts";
+import type { Auth } from "./auth.ts";
 import type { EventLog } from "./eventLog.ts";
 import { handleHook } from "./hooks.ts";
 import { handleMcp, type McpHost } from "./mcp.ts";
@@ -32,8 +33,10 @@ export interface ServerOptions {
   allowedHosts: string[];
   /** The history view, proxied under /orbit/. */
   orbit?: Pick<Orbit, "port">;
-  /** Daemons on other hosts, relayed at /remote/<name>/ws. */
-  remotes?: Array<{ name: string; url: string }>;
+  /** Daemons on other hosts, relayed at /remote/<name>/ws, with the secret each one wants. */
+  remotes?: Array<{ name: string; url: string; secret?: string }>;
+  /** Lets only the owner in; without it, any local user may connect. */
+  auth?: Auth;
   /** Serves fleet's tools to Claude Code sessions outside fleet at /mcp. */
   mcp?: McpHost;
   /** Takes the SessionStart and SessionEnd hooks of those sessions at /hooks/claude. */
@@ -88,8 +91,18 @@ export function createFleetServer(options: ServerOptions): {
   /** Sends the current daemon info to every page connected to this daemon. */
   broadcastInfo: () => void;
 } {
-  const { log, supervisor, info, staticDir, allowedHosts, allowedOrigins, orbit, mcp, hooks } =
-    options;
+  const {
+    log,
+    supervisor,
+    info,
+    staticDir,
+    allowedHosts,
+    allowedOrigins,
+    orbit,
+    mcp,
+    hooks,
+    auth,
+  } = options;
   const remotes = options.remotes ?? [];
   const allowed = (req: IncomingMessage): boolean =>
     isAllowedRequest(req.headers, allowedHosts, allowedOrigins);
@@ -99,11 +112,19 @@ export function createFleetServer(options: ServerOptions): {
       res.writeHead(403).end();
       return;
     }
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (auth && (path === "/login" || !auth.allows(req))) {
+      auth.login(req, res).catch((error: unknown) => {
+        console.error("fleet: login:", error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      return;
+    }
     if (orbit && (req.url === "/orbit" || req.url?.startsWith("/orbit/"))) {
       void proxyOrbit(orbit, req, res);
       return;
     }
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
     if (hooks && path === "/hooks/claude") {
       handleHook(hooks, req, res).catch((error: unknown) => {
         console.error("fleet: hook:", error);
@@ -131,7 +152,11 @@ export function createFleetServer(options: ServerOptions): {
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => (remote ? relay(ws, remote.url) : attach(ws)));
+    if (auth && !auth.allows(req)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => (remote ? relay(ws, remote) : attach(ws)));
   });
 
   // Pages talking to this daemon; relayed sockets to remote daemons are not among them.
@@ -297,10 +322,13 @@ async function proxyOrbit(
 
 /**
  * Connects a browser socket to a remote daemon's socket, so the UI reaches every daemon
- * through this one. The remote sees a non-browser client on its loopback tunnel.
+ * through this one. The remote sees a non-browser client on its loopback tunnel, which logs
+ * in with the remote's secret.
  */
-function relay(browser: WebSocket, url: string): void {
-  const remote = new WebSocket(`${url.replace(/^http/, "ws").replace(/\/$/, "")}/ws`);
+function relay(browser: WebSocket, { url, secret }: { url: string; secret?: string }): void {
+  const remote = new WebSocket(`${url.replace(/^http/, "ws").replace(/\/$/, "")}/ws`, {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  });
   const queued: string[] = [];
   browser.on("message", (data) => {
     const text = data.toString();
