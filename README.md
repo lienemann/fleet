@@ -78,7 +78,9 @@ then send it a message and it continues in fleet. The Import button in the heade
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). To work in a
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it
-does not use yet, and the one you pick is saved to the config.
+does not use yet, and the one you pick is saved to the config. The same dialog takes any other directory, such as
+another project: once it is added, `i` imports the Claude Code sessions recorded there. Tasks go into such a
+directory only when they name it, so the director never puts work for this repo there.
 
 To update fleet without losing sessions, pull and rebuild, then run `fleet restart` or pick "Restart fleet" in the command palette.
 The daemon waits until no agent is in the middle of a turn, exits, and the `fleet` command starts the new version,
@@ -107,6 +109,7 @@ path = "~/Projects/foo"                 # the default workspace, which you share
 name = "ws1"
 path = "~/Projects/foo/workspaces/ws1"  # a jj workspace of the same repo
 # allowed_tools = [...] replaces the list for this workspace
+# explicit = true: only tasks that name it go there (set for directories added from elsewhere)
 
 [[remotes]]                             # a daemon on a Coder pod, through a tunnel to its port
 name = "pod1"

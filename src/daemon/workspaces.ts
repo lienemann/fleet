@@ -4,6 +4,8 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 export interface JjWorkspace {
   name: string;
   path: string;
+  /** Written as `explicit = true`: see `Workspace` in config.ts. */
+  explicit?: boolean;
 }
 
 /** The workspaces of the jj repo containing `dir`, with their directories. */
@@ -33,7 +35,7 @@ export function persistWorkspace(
   current: readonly JjWorkspace[],
 ): void {
   const entry = (ws: JjWorkspace) =>
-    `\n[[workspaces]]\nname = ${JSON.stringify(ws.name)}\npath = ${JSON.stringify(ws.path)}\n`;
+    `\n[[workspaces]]\nname = ${JSON.stringify(ws.name)}\npath = ${JSON.stringify(ws.path)}\n${ws.explicit ? "explicit = true\n" : ""}`;
   if (existsSync(configFile)) appendFileSync(configFile, entry(added));
   else
     writeFileSync(

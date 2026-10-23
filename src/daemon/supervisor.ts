@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
@@ -15,7 +16,14 @@ import {
   type TaskState,
   USER,
 } from "../shared/events.ts";
-import type { Answer, Call, CallResults, Command, SessionSummary } from "../shared/protocol.ts";
+import type {
+  Answer,
+  Call,
+  CallResults,
+  Command,
+  DirectoryInfo,
+  SessionSummary,
+} from "../shared/protocol.ts";
 import {
   type AgentView,
   agentList,
@@ -98,6 +106,8 @@ export interface WorkspaceStatus {
   /** Tasks waiting for the workspace. */
   queued: number;
   claim?: Claim;
+  /** Only tasks that name it go there. */
+  explicit?: boolean;
 }
 
 /** How long an ended session's workspace stays reserved for a session that carries on. */
@@ -289,7 +299,7 @@ export class Supervisor implements ToolHost {
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
         return;
       case "add_workspace":
-        this.addWorkspace(message.name, message.path);
+        this.addWorkspace(message.name, message.path, message.explicit);
         return;
       case "release_workspace":
         if (this.log.state.claims[message.workspace]) this.release(message.workspace);
@@ -315,6 +325,7 @@ export class Supervisor implements ToolHost {
   private async respond(call: Call): Promise<CallResults[Call["type"]]> {
     if (call.type === "list_sessions") return this.listSessions(call.workspace);
     if (call.type === "list_jj_workspaces") return this.listJjWorkspaces();
+    if (call.type === "inspect_directory") return this.inspectDirectory(call.path);
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
@@ -352,9 +363,13 @@ export class Supervisor implements ToolHost {
       .map((ws) => ({ ...ws, added: known.has(ws.path) }));
   }
 
-  private addWorkspace(name: string, path: string): void {
+  private addWorkspace(name: string, path: string, explicit = false): void {
     if (this.config.workspaces.some((ws) => ws.name === name || ws.path === path)) return;
-    const before = this.config.workspaces.map(({ name, path }) => ({ name, path }));
+    const before = this.config.workspaces.map(({ name, path, explicit }) => ({
+      name,
+      path,
+      explicit,
+    }));
     const allowedTools = this.config.workspaces[0]?.allowedTools ?? [
       "Read",
       "Glob",
@@ -362,10 +377,42 @@ export class Supervisor implements ToolHost {
       "Bash(jj:*)",
       "Bash(just:*)",
     ];
-    this.config.workspaces.push({ name, path, allowedTools });
-    if (this.configFile) persistWorkspace(this.configFile, { name, path }, before);
+    this.config.workspaces.push({ name, path, allowedTools, explicit });
+    if (this.configFile) persistWorkspace(this.configFile, { name, path, explicit }, before);
     this.onWorkspacesChanged?.();
     this.schedule();
+  }
+
+  /** Checks a directory before it is added as a workspace: any directory, also of another repo. */
+  private async inspectDirectory(raw: string): Promise<DirectoryInfo> {
+    const path = resolve(raw.replace(/^~(?=$|\/)/, homedir()));
+    if (!statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`${path} is not a directory.`);
+    }
+    const existing = this.config.workspaces.find((ws) => ws.path === path);
+    const vcs = existsSync(join(path, ".jj"))
+      ? "jj"
+      : existsSync(join(path, ".git"))
+        ? "git"
+        : undefined;
+    const sessions = await this.sessionSource.list(path).catch(() => []);
+    return {
+      path,
+      name: existing?.name ?? this.freeWorkspaceName(basename(path)),
+      vcs,
+      sessions: sessions.length,
+      added: existing !== undefined,
+    };
+  }
+
+  /** `base` made fit for a workspace name, numbered if a workspace has it already. */
+  private freeWorkspaceName(base: string): string {
+    const clean = base.replace(/[^\w.-]+/g, "-") || "workspace";
+    const taken = new Set([DEFAULT_WORKSPACE, ...this.config.workspaces.map((ws) => ws.name)]);
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? clean : `${clean}-${n}`;
+      if (!taken.has(name)) return name;
+    }
   }
 
   /** Directory of a workspace; "default" is the director's, which the user shares. */
@@ -617,6 +664,11 @@ export class Supervisor implements ToolHost {
   /** Creates a worker task with its brief written to the workspace; the director's limits aside. */
   startTask({ title, context, workspace }: SpawnRequest): string {
     const ws = workspace ?? this.pickWorkspace();
+    if (!ws) {
+      throw new ToolError(
+        `Name the workspace; none takes tasks unasked. Workspaces: ${this.workspaceNames()}.`,
+      );
+    }
     const name = this.createTask(title, context, ws);
     if (!name) throw new ToolError(`No workspace "${ws}". Workspaces: ${this.workspaceNames()}.`);
     this.writeContextPack(name, context);
@@ -722,9 +774,10 @@ export class Supervisor implements ToolHost {
 
   /** Every workspace with what holds it: tasks, a claim, or nothing. */
   workspaceList(): WorkspaceStatus[] {
-    return this.config.workspaces.map(({ name, path }) => ({
+    return this.config.workspaces.map(({ name, path, explicit }) => ({
       name,
       path,
+      explicit,
       tasks: this.agents
         .filter((a) => a.workspace === name && HOLDS_WORKSPACE.has(a.task))
         .map((a) => a.name),
@@ -741,7 +794,7 @@ export class Supervisor implements ToolHost {
     const list = this.workspaceList();
     const status = name
       ? list.find((ws) => ws.name === name)
-      : list.find((ws) => !ws.claim && ws.tasks.length === 0 && ws.queued === 0);
+      : list.find((ws) => !ws.explicit && !ws.claim && ws.tasks.length === 0 && ws.queued === 0);
     if (!status) {
       throw new ToolError(
         name
@@ -977,9 +1030,9 @@ export class Supervisor implements ToolHost {
     const busy = (ws: Workspace) => Number(!this.workspaceFree(ws.name));
     const queued = (ws: Workspace) =>
       this.agents.filter((a) => a.task === "queued" && a.workspace === ws.name).length;
-    const ranked = [...this.config.workspaces].sort(
-      (a, b) => busy(a) - busy(b) || queued(a) - queued(b),
-    );
+    const ranked = this.config.workspaces
+      .filter((ws) => !ws.explicit)
+      .sort((a, b) => busy(a) - busy(b) || queued(a) - queued(b));
     return ranked[0]?.name ?? "";
   }
 
@@ -1036,7 +1089,7 @@ export class Supervisor implements ToolHost {
       env: { FLEET_AGENT: name },
       appendSystemPrompt: director
         ? directorPrompt(
-            this.config.workspaces.map((w) => w.name),
+            this.config.workspaces.filter((w) => !w.explicit).map((w) => w.name),
             this.config.wip,
           )
         : workerPrompt(name, agent.workspace),

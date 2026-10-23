@@ -11,6 +11,7 @@ const WorkspaceConfig = z.object({
   name: z.string().regex(/^[\w.-]+$/),
   path: z.string().min(1),
   allowed_tools: z.array(z.string()).optional(),
+  explicit: z.boolean().default(false),
 });
 
 const ConfigFile = z.object({
@@ -51,6 +52,8 @@ export interface Workspace {
   name: string;
   path: string;
   allowedTools: string[];
+  /** Tasks go here only when they name it; picking a free workspace passes it by. */
+  explicit?: boolean;
 }
 
 export interface Config {
@@ -79,7 +82,9 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
   const parsed = ConfigFile.parse(raw);
   const workspaces =
-    parsed.workspaces.length > 0 ? parsed.workspaces : [{ name: "default", path: fallbackCwd }];
+    parsed.workspaces.length > 0
+      ? parsed.workspaces
+      : [WorkspaceConfig.parse({ name: "default", path: fallbackCwd })];
   return {
     port: parsed.port,
     host: parsed.host ?? hostname().replace(/\.local$/, ""),
@@ -101,6 +106,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
       name: ws.name,
       path: expandHome(ws.path),
       allowedTools: ws.allowed_tools ?? parsed.allowed_tools,
+      explicit: ws.explicit,
     })),
   };
 }

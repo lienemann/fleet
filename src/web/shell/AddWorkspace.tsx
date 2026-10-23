@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import type { DirectoryInfo } from "../../shared/protocol.ts";
 import { useFleet } from "../fleet.tsx";
 
 type Offer = { name: string; path: string; added: boolean };
 
-/** Lists the repo's jj workspaces and adds existing ones to fleet, e.g. those made with jj-workspace-claim. */
+/** Adds existing directories as workspaces: the repo's own jj workspaces, or any other directory. */
 export function AddWorkspace({ onClose }: { onClose: () => void }) {
   const { call, send } = useFleet();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -47,7 +48,8 @@ export function AddWorkspace({ onClose }: { onClose: () => void }) {
         {offers?.map((offer) => (
           <li key={offer.path}>
             <span>
-              <strong>{offer.name}</strong> <code className="dim">{offer.path}</code>
+              <strong className="name">{offer.name}</strong>{" "}
+              <code className="dim">{offer.path}</code>
             </span>
             {offer.added ? (
               <span className="dim">added</span>
@@ -59,6 +61,78 @@ export function AddWorkspace({ onClose }: { onClose: () => void }) {
           </li>
         ))}
       </ul>
+      <OtherDirectory />
     </dialog>
+  );
+}
+
+/**
+ * Any directory, e.g. a session's repo elsewhere: once added, its Claude Code sessions can be
+ * imported as tasks, and tasks can start there.
+ */
+function OtherDirectory() {
+  const { call, send } = useFleet();
+  const [path, setPath] = useState("");
+  const [found, setFound] = useState<DirectoryInfo>();
+  const [error, setError] = useState<string>();
+
+  const check = (event: FormEvent) => {
+    event.preventDefault();
+    setFound(undefined);
+    call({ type: "inspect_directory", path: path.trim() }).then(
+      (info) => {
+        setFound(info);
+        setError(undefined);
+      },
+      (e: Error) => setError(e.message),
+    );
+  };
+
+  return (
+    <form className="other-directory" onSubmit={check}>
+      <h3>Another directory</h3>
+      <p className="dim">
+        A directory outside the repo, for example another project whose Claude Code session you want
+        to import.
+      </p>
+      <div className="dir-row">
+        <input
+          aria-label="Directory"
+          placeholder="~/Projects/other/repo"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+        />
+        <button type="submit" className="small" disabled={!path.trim()}>
+          Check
+        </button>
+      </div>
+      {error && <p className="banner">{error}</p>}
+      {found && (
+        <div className="dir-row">
+          <span>
+            <strong className="name">{found.name}</strong> <code className="dim">{found.path}</code>
+            <span className="dim">
+              {" "}
+              · {found.vcs ?? "no version control"} · {found.sessions} Claude Code{" "}
+              {found.sessions === 1 ? "session" : "sessions"}
+            </span>
+          </span>
+          {found.added ? (
+            <span className="dim">added</span>
+          ) : (
+            <button
+              type="button"
+              className="small primary"
+              onClick={() => {
+                send({ type: "add_workspace", name: found.name, path: found.path, explicit: true });
+                setFound({ ...found, added: true });
+              }}
+            >
+              Add
+            </button>
+          )}
+        </div>
+      )}
+    </form>
   );
 }

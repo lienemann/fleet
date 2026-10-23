@@ -54,6 +54,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
     type: z.literal("add_workspace"),
     name: z.string().regex(/^[\w.-]+$/),
     path: z.string().min(1),
+    /** Only tasks that name it go there, e.g. for a directory of another project. */
+    explicit: z.boolean().optional(),
   }),
   /** Ends a claim a session outside fleet holds on a workspace, e.g. one it forgot to release. */
   z.object({ type: z.literal("release_workspace"), workspace: z.string().min(1) }),
@@ -130,6 +132,8 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list_files"), id, agent }),
   /** The jj workspaces of the repo, for adding existing ones; answered by the local daemon. */
   z.object({ type: z.literal("list_jj_workspaces"), id }),
+  /** Any directory, e.g. another repo, checked before it is added as a workspace. */
+  z.object({ type: z.literal("inspect_directory"), id, path: z.string().min(1).max(4096) }),
   /** Claude Code sessions recorded for a workspace's directory, newest first. */
   z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
   /** Files the agent keeps for the user under .fleet/<agent>/. */
@@ -161,10 +165,24 @@ export interface CallResults {
   list_files: string[];
   list_sessions: SessionSummary[];
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
+  inspect_directory: DirectoryInfo;
   notes: Array<{ path: string; modified: number; size: number }>;
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;
+}
+
+/** A directory that could become a workspace. */
+export interface DirectoryInfo {
+  /** Absolute, with `~` expanded. */
+  path: string;
+  /** The workspace's name: its own once added, else a free one made from the directory name. */
+  name: string;
+  /** The version control at its root, if any. */
+  vcs?: "jj" | "git";
+  /** Claude Code sessions recorded for it, which can be imported once it is added. */
+  sessions: number;
+  added: boolean;
 }
 
 /** A Claude Code session that could be imported. */

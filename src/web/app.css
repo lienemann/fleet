@@ -2158,6 +2158,25 @@ button.ln:hover {
   padding: 6px 0;
   border-bottom: 1px solid var(--line2);
 }
+.other-directory {
+  margin-top: 16px;
+}
+.other-directory h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+.dir-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.other-directory input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
 
 /* A decision above the tile's CLI bar, or on a board card: everything on the warning color */
 .decision.strip {
