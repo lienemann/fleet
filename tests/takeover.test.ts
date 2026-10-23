@@ -366,3 +366,46 @@ describe("attach", () => {
     await until(() => calls.length === 1);
   });
 });
+
+describe("turns made elsewhere", () => {
+  const texts = (lines: { text: string }[] | undefined, text: string) =>
+    lines?.filter((l) => l.text === text).length ?? 0;
+
+  it("shows the turns made in a terminal once fleet picks the session up", async () => {
+    const { host, hold, release } = clients();
+    const { agent, calls, importIt, supervisor, transcript } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+    supervisor.handle({ type: "detach", agent: "alpha" });
+    await until(() => agent()?.activity === "detached");
+    expect(agent()?.transcriptMark).toBe("a1");
+    hold(801);
+    await supervisor.watchHolders();
+    transcript.push(
+      stored("u2", "user", "Rename the flag"),
+      stored("a2", "assistant", "Renamed it."),
+    );
+    release(801);
+    await supervisor.watchHolders();
+    await until(() => calls.length === 2);
+    expect(texts(agent()?.log, "Rename the flag")).toBe(1);
+    expect(texts(agent()?.log, "Renamed it.")).toBe(1);
+    expect(texts(agent()?.log, "It re-uploads the waveform.")).toBe(1);
+  });
+
+  it("adds nothing when the mark is not in the transcript", async () => {
+    const { host, hold, release } = clients();
+    const { agent, calls, importIt, supervisor, transcript } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+    supervisor.handle({ type: "detach", agent: "alpha" });
+    await until(() => agent()?.activity === "detached");
+    hold(802);
+    await supervisor.watchHolders();
+    transcript.splice(0, transcript.length, stored("x1", "assistant", "From another branch."));
+    release(802);
+    await supervisor.watchHolders();
+    await until(() => calls.length === 2);
+    expect(texts(agent()?.log, "From another branch.")).toBe(0);
+  });
+});

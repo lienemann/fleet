@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
 import {
   type AgentEvent,
@@ -516,9 +516,9 @@ export class Supervisor implements ToolHost {
       return;
     // Reading the transcript takes a moment; a second click must not import the session twice.
     this.importing.add(sessionId);
-    let transcript: AgentEvent[];
+    let messages: SessionMessage[];
     try {
-      transcript = transcriptEvents(await this.sessionSource.messages(sessionId, dir));
+      messages = await this.sessionSource.messages(sessionId, dir);
     } finally {
       this.importing.delete(sessionId);
     }
@@ -534,7 +534,9 @@ export class Supervisor implements ToolHost {
       imported: true,
     });
     this.append(name, { kind: "session_started", sessionId });
-    for (const event of transcript) this.append(name, event);
+    for (const event of transcriptEvents(messages)) this.append(name, event);
+    const last = messages.at(-1)?.uuid;
+    if (last) this.append(name, { kind: "transcript_mark", uuid: last });
     this.append(name, { kind: "task_state", state: "running" });
     this.append(name, { kind: "activity", activity: "detached" });
 
@@ -548,10 +550,39 @@ export class Supervisor implements ToolHost {
 
   /** Releases the session to a terminal; fleet takes it back once a terminal had it and let go. */
   private async detach(name: string): Promise<void> {
-    await this.sessions.get(name)?.stop("detached");
+    // Cleared first: a terminal that opens while the session stops is the one to wait for.
     this.seen.delete(name);
     this.manualOnly.delete(name);
     this.returning.add(name);
+    await this.sessions.get(name)?.stop("detached");
+    await this.markTranscript(name);
+  }
+
+  /** Remembers where the tile's log ends, so turns made elsewhere can be added on pickup. */
+  private async markTranscript(name: string): Promise<void> {
+    const messages = await this.transcriptOf(name);
+    const last = messages?.at(-1)?.uuid;
+    if (last) this.append(name, { kind: "transcript_mark", uuid: last });
+  }
+
+  /** Adds the turns made in another client since the mark to the tile's log. */
+  private async catchUp(name: string): Promise<void> {
+    const mark = this.agent(name)?.transcriptMark;
+    const messages = mark ? await this.transcriptOf(name) : undefined;
+    const index = messages?.findIndex((m) => m.uuid === mark) ?? -1;
+    if (!messages || index < 0) return;
+    for (const event of transcriptEvents(messages.slice(index + 1))) this.append(name, event);
+  }
+
+  private async transcriptOf(name: string): Promise<SessionMessage[] | undefined> {
+    const agent = this.agent(name);
+    if (!agent?.sessionId) return undefined;
+    try {
+      return await this.sessionSource.messages(agent.sessionId, agent.cwd);
+    } catch (error) {
+      console.error(`fleet: reading ${name}'s transcript failed:`, error);
+      return undefined;
+    }
   }
 
   /**
@@ -593,6 +624,7 @@ export class Supervisor implements ToolHost {
     await this.sessions.get(name)?.stop("detached");
     this.seen.set(name, holder.pid);
     this.returning.add(name);
+    await this.markTranscript(name);
     const now = Date.now();
     const recent = [...(this.losses.get(name) ?? []), now].filter((t) => now - t < LOOP_WINDOW_MS);
     this.losses.set(name, recent);
@@ -654,6 +686,7 @@ export class Supervisor implements ToolHost {
    * a briefing that is due, or messages that waited for it.
    */
   private async pickUp(name: string): Promise<void> {
+    await this.catchUp(name);
     const session = this.session(name);
     const first = this.compose(name);
     if (first) session?.prompt(first);

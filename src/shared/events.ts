@@ -174,6 +174,8 @@ export type EventBody =
     }
   /** An imported session was told that it now runs in fleet. */
   | { kind: "briefed" }
+  /** The last transcript entry the tile shows; turns after it were made in another client. */
+  | { kind: "transcript_mark"; uuid: string }
   | { kind: "task_state"; state: TaskState }
   /** The task was changed after it was created; the brief and workspace only while queued. */
   | { kind: "task_updated"; title?: string; prompt?: string; workspace?: string; cwd?: string }

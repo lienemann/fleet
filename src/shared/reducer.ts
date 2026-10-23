@@ -150,6 +150,8 @@ export interface AgentView {
   holderNote?: string;
   /** An imported session is told on its first turn that it now runs in fleet. */
   briefing?: "due" | "done";
+  /** The last transcript entry the tile shows, when the session left fleet. */
+  transcriptMark?: string;
   /** Draft review comments, not yet sent. */
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
@@ -433,6 +435,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ holder: event.holder, holderNote: event.note });
     case "briefed":
       return patch({ briefing: "done" });
+    case "transcript_mark":
+      return patch({ transcriptMark: event.uuid });
     case "session_started":
       return patch({
         sessionId: event.sessionId,
