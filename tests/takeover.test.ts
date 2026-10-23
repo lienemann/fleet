@@ -119,6 +119,18 @@ afterEach(() => {
 });
 
 describe("watching who holds a session", () => {
+  it("leaves the process table alone while no agent has a session", async () => {
+    // Another Claude Code session runs, but none of fleet's.
+    const { host, hold } = clients();
+    hold(4242);
+    const processes = vi.spyOn(host, "processes");
+    const { supervisor } = setup({ ...host, processes });
+    // Starting up looks once, for sessions to resume.
+    await until(() => processes.mock.calls.length === 1);
+    await supervisor.watchHolders();
+    expect(processes).toHaveBeenCalledOnce();
+  });
+
   it("runs an imported session nobody holds in fleet", async () => {
     const { host } = clients();
     const { agent, calls, importIt } = setup(host);

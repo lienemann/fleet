@@ -3,7 +3,7 @@ import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { contextPercent, effortsOf, MODE_LABELS, modelId, modelLabel } from "../labels.ts";
 import { Menu } from "../ui/Menu.tsx";
-import { attachAgent } from "./attach.ts";
+import { attachAgent, endsHolder } from "./attach.ts";
 
 /** Until the daemon has asked Claude Code for its models. */
 const FALLBACK_MODELS: ModelChoice[] = ["opus", "sonnet", "haiku"].map((value) => ({
@@ -106,7 +106,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
           <button
             type="button"
             className="outline"
-            disabled={agent.holder?.background}
+            disabled={Boolean(agent.holder) && !endsHolder(agent.holder)}
             title="End the client that holds the session and run it in fleet"
             onClick={() => attachAgent(agent, send)}
           >

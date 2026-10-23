@@ -1,3 +1,4 @@
+import type { Usage } from "../../shared/events.ts";
 import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
 import { type AgentView, agentList, workspaceInUse, workspaceUse } from "../../shared/reducer.ts";
@@ -19,7 +20,6 @@ interface Props {
 /** Agent tree (director, workers, their subagents) and the workspaces they hold. */
 export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }: Props) {
   const { state, info } = useFleet();
-  const now = useNow();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
 
   return (
@@ -100,14 +100,7 @@ export function Rail({ selected, onSelect, onRemove, onImport, onAddWorkspace }:
             AGPL
           </a>
         </span>
-        {state.usage && state.usage.limits.length > 0 && (
-          <span
-            className={`usage${state.usage.limits.some((l) => l.percent >= 80) ? " high" : ""}`}
-            title={usageDetails(state.usage, now)}
-          >
-            {usageText(state.usage)}
-          </span>
-        )}
+        {state.usage && state.usage.limits.length > 0 && <PlanUsage usage={state.usage} />}
       </footer>
     </aside>
   );
@@ -223,5 +216,18 @@ function WorkspaceRow({
       </div>
       {detail && <div className="ws-detail">{detail}</div>}
     </li>
+  );
+}
+
+/** The plan's usage; it ticks on its own, so the rest of the rail does not re-render with it. */
+function PlanUsage({ usage }: { usage: Usage }) {
+  const now = useNow();
+  return (
+    <span
+      className={`usage${usage.limits.some((l) => l.percent >= 80) ? " high" : ""}`}
+      title={usageDetails(usage, now)}
+    >
+      {usageText(usage)}
+    </span>
   );
 }

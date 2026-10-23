@@ -308,7 +308,7 @@ export function App() {
         id: "agent.terminal",
         label: "Continue in a terminal",
         group: "Selected agent",
-        run: () => current?.sessionId && send({ type: "detach", agent: name }),
+        run: () => live && current?.sessionId && send({ type: "detach", agent: name }),
       },
       {
         id: "agent.mode",

@@ -14,7 +14,7 @@ import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
-import { confirmTakeover, holderLabel } from "./attach.ts";
+import { confirmTakeover, endsHolder, holderLabel } from "./attach.ts";
 import { CliBar } from "./CliBar.tsx";
 import { LOG_FILTERS, Log, type LogFilter } from "./Log.tsx";
 import { Prompt } from "./Prompt.tsx";
@@ -164,7 +164,7 @@ function Detached({ agent }: { agent: AgentView }) {
       ) : holder.background ? (
         "A background job of Claude Code holds this session; fleet takes it back when the job ends."
       ) : (
-        `Open in ${holderLabel(holder)} in ${holder.cwd}, ${holder.busy ? "working" : "idle"}. fleet takes the session back when that ends; Attach ends it now.`
+        `Open in ${holderLabel(holder)} in ${holder.cwd}, ${holder.busy ? "working" : "idle"}. fleet takes the session back when that ends; ${holder.verified ? "Attach ends it now." : "fleet cannot confirm which process it is, so close it there."}`
       )}
       {holderNote && <p className="banner-note">{holderNote}</p>}
     </div>
@@ -172,11 +172,13 @@ function Detached({ agent }: { agent: AgentView }) {
 }
 
 const detachedHint = (agent: AgentView): string =>
-  agent.holder && !agent.holder.background
+  endsHolder(agent.holder)
     ? `Sending ends ${holderLabel(agent.holder)} and runs ${agent.name} in fleet`
     : agent.holder === null
       ? `Sending runs ${agent.name} in fleet again`
-      : `Sending takes ${agent.name} back from the terminal; close it there first`;
+      : agent.holder
+        ? `A message waits until ${agent.name} is free again`
+        : `Sending takes ${agent.name} back from the terminal; close it there first`;
 
 /** One line under the header: what the agent does now, its context, its time in the column. */
 function StatusRow({ agent }: { agent: AgentView }) {

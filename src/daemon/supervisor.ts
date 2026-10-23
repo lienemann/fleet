@@ -664,7 +664,8 @@ export class Supervisor implements ToolHost {
    * session it runs. Called every few seconds.
    */
   async watchHolders(): Promise<void> {
-    if (this.watching) return;
+    // Nothing to look for before any agent has a session.
+    if (this.watching || !this.agents.some((a) => a.sessionId)) return;
     this.watching = true;
     try {
       const holders = await this.scan();

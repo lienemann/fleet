@@ -12,10 +12,14 @@ const CLIENTS: Record<SessionHolder["client"], string> = {
 /** "a terminal", "VS Code", "the Desktop app" */
 export const holderLabel = (holder: SessionHolder): string => CLIENTS[holder.client];
 
-/** Asks first while the client that holds the session is in the middle of a turn. */
+/** Whether Attach ends the holder: never a background job or a process fleet cannot confirm. */
+export const endsHolder = (holder: SessionHolder | null | undefined): holder is SessionHolder =>
+  Boolean(holder && !holder.background && holder.verified);
+
+/** Asks first while the client that Attach would end is in the middle of a turn. */
 export function confirmTakeover(agent: AgentView): boolean {
   const holder = agent.holder;
-  if (!holder?.busy) return true;
+  if (!endsHolder(holder) || !holder.busy) return true;
   const label = holderLabel(holder);
   return confirm(
     `${label[0]?.toUpperCase()}${label.slice(1)} is in the middle of a turn. End it and run ${agent.name} in fleet?`,
