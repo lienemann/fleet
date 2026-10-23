@@ -27,15 +27,15 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
       >
         director
       </button>
-      <span className="dock-reply" title={reply?.text}>
-        {director.activity === "working"
-          ? "thinking…"
-          : (reply?.text.split("\n")[0] ?? "Tell the director what to get done.")}
-      </span>
+      {(director.activity === "working" || reply) && (
+        <span className="dock-reply" title={reply?.text}>
+          {director.activity === "working" ? "thinking…" : reply?.text.split("\n")[0]}
+        </span>
+      )}
       <textarea
         data-dock
         value={draft}
-        rows={Math.min(6, draft.split("\n").length)}
+        rows={1}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {

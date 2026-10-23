@@ -91,6 +91,12 @@ textarea {
 input:not([type="checkbox"], [type="radio"]) {
   min-height: 32px;
 }
+/* Text fields grow with their lines, as in Claude's apps, and scroll once they are tall. */
+textarea {
+  field-sizing: content;
+  min-height: calc(3lh + 14px);
+  max-height: 40vh;
+}
 code,
 kbd,
 pre {
@@ -1267,7 +1273,7 @@ button.link.accent {
   font: 12.5px / 1.4 var(--font-mono);
   resize: none;
   outline: none;
-  field-sizing: content;
+  min-height: 0;
   max-height: 8em;
 }
 .prompt textarea::placeholder {
@@ -1430,7 +1436,8 @@ button.link.accent {
   border-top: 1px solid var(--line);
 }
 .dock-reply {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 35%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1438,7 +1445,9 @@ button.link.accent {
   color: var(--fg3);
 }
 .dock textarea {
-  width: min(460px, 42vw);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   resize: none;
 }
 

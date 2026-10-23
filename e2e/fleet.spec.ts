@@ -170,6 +170,17 @@ test("lid-closed mode shows a banner while it is on, and turns off from there", 
 test("the director spawns a worker per line and reports to the user", async ({ page }) => {
   await page.goto("/");
   const dock = page.getByPlaceholder(/Message the director/);
+  await expect(page.locator(".dock")).not.toContainText("Tell the director");
+  // The field takes most of the dock and grows with its lines, as in Claude's apps.
+  const width = (selector: string) =>
+    page.locator(selector).evaluate((element) => element.getBoundingClientRect().width);
+  expect(await width(".dock textarea")).toBeGreaterThan((await width(".dock")) / 2);
+  const height = () => dock.evaluate((field) => field.getBoundingClientRect().height);
+  const single = await height();
+  await dock.fill("1\n2\n3");
+  const three = await height();
+  await dock.fill("1\n2\n3\n4\n5\n6\n7\n8\n9");
+  expect((await height()) - three).toBeGreaterThan(1.5 * (three - single));
   await dock.fill("Port the pulse pass\nWrite the migration guide");
   await dock.press("Enter");
 
