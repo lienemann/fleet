@@ -37,6 +37,8 @@ export interface SessionOptions {
   mcpServers?: Record<string, McpServerConfig>;
   /** Hooks the CLI runs whatever the permission mode, e.g. to keep the director from editing code. */
   hooks?: Options["hooks"];
+  /** Added to the CLI's environment, which its hooks and tools inherit. */
+  env?: Record<string, string>;
   /** Settles a permission request without asking the user, or returns undefined to ask. */
   autoDecide?: (toolName: string, input: Record<string, unknown>) => PermissionResult | undefined;
   sleep?: (ms: number) => Promise<void>;
@@ -258,9 +260,10 @@ export class AgentSession {
   }
 
   private sdkOptions(): Options {
-    const { cwd, allowedTools, appendSystemPrompt, mcpServers } = this.options;
+    const { cwd, allowedTools, appendSystemPrompt, mcpServers, env } = this.options;
     return {
       cwd,
+      env: env && { ...process.env, ...env },
       model: this.model,
       allowedTools,
       mcpServers,

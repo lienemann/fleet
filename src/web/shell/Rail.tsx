@@ -60,8 +60,17 @@ export function Rail({ selected, onSelect, onAddWorkspace }: Props) {
                 <li key={ws.name} title={ws.path}>
                   <span className="name">{ws.name}</span>
                   {claim ? (
-                    <span className="dim" title={claim.note}>
-                      {claim.holder}{" "}
+                    <span
+                      className="dim"
+                      title={
+                        claim.until
+                          ? `${claim.note ?? ""} The session ended; a new session in ${ws.name} takes it over, or it is released then.`
+                          : claim.note
+                      }
+                    >
+                      {claim.holder}
+                      {claim.until !== undefined &&
+                        ` until ${new Date(claim.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}{" "}
                       <button
                         type="button"
                         className="link"

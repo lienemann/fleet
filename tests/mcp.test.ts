@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { afterEach, describe, expect, it } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { createFleetServer } from "../src/daemon/server.ts";
-import { Supervisor } from "../src/daemon/supervisor.ts";
+import { CLAIM_GRACE_MS, Supervisor } from "../src/daemon/supervisor.ts";
 import { ToolError } from "../src/daemon/tools.ts";
 import { echoing, fakeQuery, result } from "./helpers.ts";
 
@@ -36,12 +36,13 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-/** An MCP client talking to a real daemon server over HTTP, as Claude Code would. */
-async function connect(supervisor: Supervisor, log: EventLog) {
+/** A real daemon server on a free port; returns its address. */
+async function serve(supervisor: Supervisor, log: EventLog): Promise<string> {
   const { server, close } = createFleetServer({
     log,
     supervisor,
     mcp: supervisor,
+    hooks: (hook) => supervisor.sessionHook(hook),
     info: () => ({ host: "mac", workspaces: [], wip: { running: 4, review: 2 }, remotes: [] }),
     staticDir: "/nonexistent",
     allowedOrigins: [],
@@ -49,9 +50,14 @@ async function connect(supervisor: Supervisor, log: EventLog) {
   });
   closers.push(close);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+/** An MCP client talking to a real daemon server over HTTP, as Claude Code would. */
+async function connect(supervisor: Supervisor, log: EventLog) {
+  const base = await serve(supervisor, log);
   const client = new Client({ name: "test", version: "1" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
   closers.push(() => client.close());
   return async (name: string, args: Record<string, unknown> = {}) => {
     const reply = await client.callTool({ name, arguments: args });
@@ -99,6 +105,61 @@ describe("workspace claims", () => {
     supervisor.claimWorkspace("cli", "ws1");
     supervisor.handle({ type: "release_workspace", workspace: "ws1" });
     expect(log.state.claims).toEqual({});
+  });
+});
+
+describe("session hooks", () => {
+  const ws1 = join(root, "ws1");
+  const start = (session: string, cwd = ws1) => ({ event: "SessionStart", session, cwd }) as const;
+  const end = (session: string, cwd = ws1) => ({ event: "SessionEnd", session, cwd }) as const;
+
+  it("reserve the workspace a session starts in, and hand it on after the session ends", () => {
+    const { log, supervisor } = setup();
+    expect(supervisor.sessionHook(start("aaaaaaaa-1", join(ws1, "src")))).toContain(
+      "ws1 is reserved for this session as session-aaaaaaaa",
+    );
+    expect(supervisor.sessionHook(start("bbbbbbbb-2"))).toBe(
+      `fleet: ws1 is claimed by session-aaaaaaaa (Claude Code session in ${join(ws1, "src")}).`,
+    );
+
+    // Ended, the claim waits for a session that carries on, here after /clear.
+    supervisor.sessionHook(end("aaaaaaaa-1"));
+    expect(log.state.claims.ws1?.until).toBeGreaterThan(Date.now());
+    supervisor.sessionHook(start("cccccccc-3"));
+    expect(log.state.claims.ws1).toMatchObject({ holder: "session-cccccccc", until: undefined });
+
+    // Nobody carries on: the claim lapses and a waiting task starts.
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    supervisor.sessionHook(end("cccccccc-3"));
+    supervisor.expireClaims(Date.now());
+    expect(log.state.claims.ws1).toBeDefined();
+    supervisor.expireClaims(Date.now() + CLAIM_GRACE_MS);
+    expect(log.state.claims).toEqual({});
+    expect(log.state.agents.alpha?.task).toBe("running");
+  });
+
+  it("warn a session that starts where a task works, and ignore other directories", () => {
+    const { log, supervisor } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    expect(supervisor.sessionHook(start("aaaaaaaa-1"))).toContain(
+      'ws1 holds the work of alpha ("Fix it")',
+    );
+    expect(supervisor.sessionHook(start("aaaaaaaa-1", root))).toBe("");
+    expect(log.state.claims).toEqual({});
+  });
+
+  it("are taken over HTTP, from Claude Code but not from web pages", async () => {
+    const { log, supervisor } = setup();
+    const base = await serve(supervisor, log);
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      fetch(`${base}/hooks/claude`, { method: "POST", body: JSON.stringify(body), headers });
+    const input = { hook_event_name: "SessionStart", session_id: "aaaaaaaa-1", cwd: ws1 };
+
+    expect((await post(input, { origin: "https://example.com" })).status).toBe(403);
+    expect((await post({ session_id: "x" })).status).toBe(400);
+    const reply = await post({ ...input, transcript_path: "/tmp/t.jsonl", source: "startup" });
+    expect(await reply.text()).toContain("ws1 is reserved for this session");
+    expect(log.state.claims.ws1?.session).toBe("aaaaaaaa-1");
   });
 });
 

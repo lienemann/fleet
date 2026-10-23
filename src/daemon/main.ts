@@ -43,12 +43,16 @@ const supervisor = new Supervisor({
   onWorkspacesChanged: () => broadcastInfo(),
 });
 
+// Workspaces of Claude Code sessions that ended are released once nobody took them over.
+setInterval(() => supervisor.expireClaims(), 30_000).unref();
+
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
 const { server, close, broadcastInfo } = createFleetServer({
   orbit,
   log,
   supervisor,
   mcp: supervisor,
+  hooks: (hook) => supervisor.sessionHook(hook),
   info: () => ({
     host: config.host,
     workspaces: config.workspaces.map(({ name, path }) => ({ name, path, host: config.host })),

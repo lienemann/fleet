@@ -100,6 +100,16 @@ export interface WorkspaceStatus {
   claim?: Claim;
 }
 
+/** How long an ended session's workspace stays reserved for a session that carries on. */
+export const CLAIM_GRACE_MS = 10 * 60_000;
+
+/** A Claude Code session start or end, from its SessionStart and SessionEnd hooks. */
+export interface SessionHook {
+  event: "SessionStart" | "SessionEnd";
+  session: string;
+  cwd: string;
+}
+
 export interface SupervisorOptions {
   log: EventLog;
   queryFn: QueryFn;
@@ -757,6 +767,58 @@ export class Supervisor implements ToolHost {
     return `Released ${name}.`;
   }
 
+  /**
+   * A Claude Code session outside fleet started or ended, as its hooks report. Starting in a
+   * free workspace reserves it. Ending keeps the reservation for a while, so that a session
+   * that carries on with the work (after /clear, a resume or a handover) takes it over;
+   * otherwise it lapses. Returns what a starting session should know, which Claude Code adds
+   * to its context.
+   */
+  sessionHook({ event, session, cwd }: SessionHook): string {
+    const ws = this.config.workspaces.find((w) => cwd === w.path || cwd.startsWith(`${w.path}/`));
+    if (!ws) return "";
+    const claim = this.log.state.claims[ws.name];
+    if (event === "SessionEnd") {
+      if (claim?.session === session) {
+        this.append(DAEMON, {
+          kind: "workspace_claim",
+          workspace: ws.name,
+          holder: claim.holder,
+          note: claim.note,
+          session,
+          until: Date.now() + CLAIM_GRACE_MS,
+        });
+      }
+      return "";
+    }
+    const tasks = this.agents
+      .filter((a) => a.workspace === ws.name && HOLDS_WORKSPACE.has(a.task))
+      .map((a) => `${a.name} ("${a.title}")`);
+    if (tasks.length > 0) {
+      return `fleet: ${ws.name} holds the work of ${tasks.join(", ")}; your edits here would collide with it. Ask the user, or claim a free workspace with fleet's claim_workspace tool.`;
+    }
+    if (claim && claim.session !== session && claim.until === undefined) {
+      return `fleet: ${ws.name} is claimed by ${claim.holder}${claim.note ? ` (${claim.note})` : ""}.`;
+    }
+    // Free, already ours, or left by a session that ended: this session takes it.
+    const holder = `session-${session.slice(0, 8)}`;
+    this.append(DAEMON, {
+      kind: "workspace_claim",
+      workspace: ws.name,
+      holder,
+      note: `Claude Code session in ${cwd}`,
+      session,
+    });
+    return `fleet: ${ws.name} is reserved for this session as ${holder}; fleet starts no task there until the session ends.`;
+  }
+
+  /** Releases the claims of sessions that ended longer ago than the grace period. */
+  expireClaims(now = Date.now()): void {
+    for (const [name, claim] of Object.entries(this.log.state.claims)) {
+      if (claim.until !== undefined && claim.until <= now) this.release(name);
+    }
+  }
+
   /** A message from a session outside fleet; replies can only go to the user. */
   messageFromOutside(from: string, to: string, body: string): string {
     if (from === USER || from === DAEMON || this.agent(from)) {
@@ -970,6 +1032,8 @@ export class Supervisor implements ToolHost {
       permissionMode: agent.permissionMode,
       allowedTools: allowed.filter((rule) => rule.includes("(")),
       mcpServers: { [SERVER]: fleetServer(name, agent.role, this) },
+      // The session hooks from the README skip fleet's own sessions by this.
+      env: { FLEET_AGENT: name },
       appendSystemPrompt: director
         ? directorPrompt(
             this.config.workspaces.map((w) => w.name),

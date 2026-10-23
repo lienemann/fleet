@@ -38,6 +38,8 @@ describe("Supervisor", () => {
       task: "running",
     });
     expect(calls[0]?.options?.allowedTools).toEqual([]);
+    // The session hooks of the CLI recognise fleet's own sessions by this.
+    expect(calls[0]?.options?.env?.FLEET_AGENT).toBe("alpha");
     const canUseTool = calls[0]?.options?.canUseTool;
     const ask = (tool: string) =>
       canUseTool?.(

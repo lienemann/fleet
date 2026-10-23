@@ -207,7 +207,16 @@ export type EventBody =
    * A session outside fleet took a workspace (`holder` set) or gave it back (`holder` null);
    * logged by the daemon itself. No task starts in a claimed workspace.
    */
-  | { kind: "workspace_claim"; workspace: string; holder: string | null; note?: string };
+  | {
+      kind: "workspace_claim";
+      workspace: string;
+      holder: string | null;
+      note?: string;
+      /** The Claude Code session whose hooks claimed it. */
+      session?: string;
+      /** The session ended; the claim lapses at this time unless another session takes it. */
+      until?: number;
+    };
 
 export type EventKind = EventBody["kind"];
 

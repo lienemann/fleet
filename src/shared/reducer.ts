@@ -161,6 +161,10 @@ export interface Claim {
   holder: string;
   note?: string;
   since: number;
+  /** The Claude Code session that holds it, when its hooks made the claim. */
+  session?: string;
+  /** That session has ended: the claim lapses at this time unless a new session takes it over. */
+  until?: number;
 }
 
 export interface PowerState {
@@ -291,7 +295,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
   if (event.kind === "workspace_claim") {
     const { [event.workspace]: _released, ...claims } = state.claims;
     if (event.holder !== null) {
-      claims[event.workspace] = { holder: event.holder, note: event.note, since: event.ts };
+      const { holder, note, session, until } = event;
+      claims[event.workspace] = { holder, note, session, until, since: event.ts };
     }
     return { ...state, claims };
   }

@@ -130,9 +130,24 @@ claude mcp add --transport http fleet http://127.0.0.1:7777/mcp
 
 Such a session can then list the workspaces with whoever holds them, claim a free one to work in and release it
 afterwards, list fleet's tasks, hand a new task to fleet, change or remove tasks as the director can, and send a
-message to an agent, the director or you. No
-task starts in a claimed workspace, and the director's tasks go elsewhere. The rail shows the claim with a release
-link, for a session that forgot to give it back.
+message to an agent, the director or you. No task starts in a claimed workspace, and the director's tasks go
+elsewhere. The rail shows the claim with a release link, for a session that forgot to give it back.
+
+With two hooks in `~/.claude/settings.json`, sessions claim and release workspaces by themselves:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -n \"$FLEET_AGENT\" ] || curl -sf --max-time 2 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:7777/hooks/claude || true" }] }]
+  }
+}
+```
+
+A session that starts inside a free workspace then holds it, and one that starts where a task works is told so.
+When the session ends, its workspace stays reserved for ten minutes: a session that starts there in that time
+takes it over (after `/clear`, a resume or a handover), otherwise fleet releases it. fleet's own sessions set
+`FLEET_AGENT` and skip the hooks.
 
 ## Security
 
