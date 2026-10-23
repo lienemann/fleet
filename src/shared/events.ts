@@ -114,6 +114,18 @@ export interface LowDisk {
   host?: string;
 }
 
+/** A Claude Code process outside fleet that has a session open. */
+export interface SessionHolder {
+  pid: number;
+  client: "terminal" | "vscode" | "desktop" | "other";
+  cwd: string;
+  busy: boolean;
+  /** A background job of Claude Code; fleet never ends it. */
+  background: boolean;
+  /** The pid is still the process the file describes, so fleet may end it. */
+  verified: boolean;
+}
+
 export type EventBody =
   | {
       kind: "agent_created";
