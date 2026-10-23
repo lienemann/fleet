@@ -14,6 +14,7 @@ import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
+import { confirmTakeover, holderLabel } from "./attach.ts";
 import { CliBar } from "./CliBar.tsx";
 import { LOG_FILTERS, Log, type LogFilter } from "./Log.tsx";
 import { Prompt } from "./Prompt.tsx";
@@ -87,15 +88,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
       </header>
       {colors && <ColorRow agent={agent} onDone={() => setColors(false)} />}
       <StatusRow agent={agent} />
-      {agent.activity === "detached" && agent.sessionId && (
-        <div className="banner">
-          Detached. Continue in a terminal with{" "}
-          <code>
-            cd {agent.cwd} && claude --resume {agent.sessionId}
-          </code>
-          , then take it back here once you have closed it.
-        </div>
-      )}
+      {agent.activity === "detached" && agent.sessionId && <Detached agent={agent} />}
       {agent.handover?.state === "writing" && (
         <div className="banner">
           Writing the handover to {agent.handover.path}; a fresh session takes over next.
@@ -129,21 +122,56 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
           queued
             ? `${agent.name} is queued: it starts when ${agent.workspace} is free`
             : agent.activity === "detached"
-              ? `Sending takes ${agent.name} back from the terminal; close it there first`
+              ? detachedHint(agent)
               : undefined
         }
-        onSend={(text, attachments) =>
+        onSend={(text, attachments) => {
+          if (agent.activity === "detached" && !confirmTakeover(agent)) return;
           send({
             type: "prompt",
             agent: agent.name,
             text,
             ...(attachments.length > 0 && { attachments }),
-          })
-        }
+          });
+        }}
       />
     </section>
   );
 }
+
+/** Who holds a detached session and how it comes back to fleet. */
+function Detached({ agent }: { agent: AgentView }) {
+  const { holder, holderNote } = agent;
+  const resume = (
+    <code>
+      cd {agent.cwd} && claude --resume {agent.sessionId}
+    </code>
+  );
+  return (
+    <div className="banner">
+      {holder === undefined ? (
+        <>
+          Detached. Continue in a terminal with {resume}, then attach it here once you have closed
+          it.
+        </>
+      ) : holder === null ? (
+        <>Continue in a terminal with {resume}; fleet takes the session back when you close it.</>
+      ) : holder.background ? (
+        "A background job of Claude Code holds this session; fleet takes it back when the job ends."
+      ) : (
+        `Open in ${holderLabel(holder)} in ${holder.cwd}, ${holder.busy ? "working" : "idle"}. fleet takes the session back when that ends; Attach ends it now.`
+      )}
+      {holderNote && <p className="banner-note">{holderNote}</p>}
+    </div>
+  );
+}
+
+const detachedHint = (agent: AgentView): string =>
+  agent.holder && !agent.holder.background
+    ? `Sending ends ${holderLabel(agent.holder)} and runs ${agent.name} in fleet`
+    : agent.holder === null
+      ? `Sending runs ${agent.name} in fleet again`
+      : `Sending takes ${agent.name} back from the terminal; close it there first`;
 
 /** One line under the header: what the agent does now, its context, its time in the column. */
 function StatusRow({ agent }: { agent: AgentView }) {

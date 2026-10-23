@@ -417,7 +417,7 @@ test("desktop notifications tell about agents that need you while fleet is in th
     .toContainEqual(expect.stringMatching(/needs you$/));
 });
 
-test("existing Claude Code sessions can be imported, and run in fleet when nobody has them open", async ({
+test("existing Claude Code sessions can be imported, run in fleet when free, and attached when held", async ({
   page,
 }) => {
   await page.goto("/");
@@ -446,6 +446,16 @@ test("existing Claude Code sessions can be imported, and run in fleet when nobod
     "This conversation started in another Claude Code client",
   );
   await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
+
+  // A terminal still has the other one, in the middle of a turn: the tile says so, and Attach
+  // asks before it ends the terminal.
+  await page.locator(".card", { hasText: "Explain the scheduler" }).locator(".card-main").click();
+  await expect(drawer.locator(".banner")).toContainText("Open in a terminal");
+  await expect(drawer.locator(".banner")).toContainText("working");
+  page.once("dialog", (dialog) => dialog.accept());
+  await drawer.getByRole("button", { name: "Attach", exact: true }).click();
+  await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(drawer.locator(".banner")).toBeHidden();
 
   // Imported once, the session is marked in the list.
   await page.locator(".drawer textarea[data-prompt]").focus();

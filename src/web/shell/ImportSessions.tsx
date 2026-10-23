@@ -7,7 +7,7 @@ import { useNow } from "../useNow.ts";
 
 /**
  * Lists the Claude Code sessions recorded for a workspace's directory and makes the picked ones
- * tasks. They start detached, in case the CLI still has them open.
+ * tasks. One that another client still has open waits until that client lets it go.
  */
 export function ImportSessions({ onClose }: { onClose: () => void }) {
   const { info, call, send } = useFleet();
@@ -125,8 +125,8 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
           </label>
         )}
         <p className="dim">
-          Tasks start detached, in case the CLI still has the session open. Close it there, then
-          take the task back.
+          A session nobody has open runs in fleet right away. One that is open elsewhere waits until
+          you close it there, or until you press Attach.
         </p>
         <footer>
           <button type="button" onClick={onClose}>

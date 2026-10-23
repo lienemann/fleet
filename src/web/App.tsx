@@ -22,6 +22,7 @@ import { ImportSessions } from "./shell/ImportSessions.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
+import { attachAgent } from "./tile/attach.ts";
 import { canHandOver } from "./tile/CliBar.tsx";
 import { ViewHead } from "./ui/ViewHead.tsx";
 import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
@@ -277,12 +278,17 @@ export function App() {
         id: "agent.session",
         label: live
           ? "Stop the session"
-          : current?.task === "queued"
-            ? "Start the queued task now"
-            : "Start the session",
+          : current?.activity === "detached"
+            ? "Attach the session"
+            : current?.task === "queued"
+              ? "Start the queued task now"
+              : "Start the session",
         group: "Selected agent",
         keys: ["s"],
-        run: () => send({ type: live ? "stop" : "start", agent: name }),
+        run: () =>
+          current?.activity === "detached"
+            ? attachAgent(current, send)
+            : send({ type: live ? "stop" : "start", agent: name }),
       },
       {
         id: "agent.handover",

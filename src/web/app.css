@@ -1067,6 +1067,9 @@ button.link.accent {
 .banner code {
   font-size: 12px;
 }
+.banner-note {
+  margin: 2px 0 0;
+}
 /* The log: every line starts with the CLI's glyph */
 .log {
   flex: 1;

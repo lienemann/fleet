@@ -84,8 +84,10 @@ only workspace.
 In the browser, `n` starts a new task: give it a title and a brief, pick a workspace, and a worker starts on it
 there. Or tell the director what you want in the box at the bottom, and it splits the work into tasks itself. `i`,
 or "+ Add" next to the agent list, imports sessions you started in the CLI: pick the workspace (`default` is the repo
-itself), tick one or more sessions, and each becomes a task with its transcript. It starts detached, because the CLI
-may still have it open; close it there, then send it a message and it continues in fleet.
+itself), tick one or more sessions, and each becomes a task with its transcript. A session nobody has open runs in
+fleet right away and is told that it now works in fleet. One that a terminal, VS Code or the Desktop app still has
+open waits: fleet takes it once you close it there, and Attach (or a message to it) ends that client at once.
+"Continue in a terminal" under ⋯ hands a session the other way; fleet takes it back when the terminal closes.
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). To work in a
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it

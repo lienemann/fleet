@@ -7,6 +7,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { USAGE_METHOD } from "./account.ts";
+import type { HolderHost } from "./holders.ts";
 import type { QueryFn } from "./session.ts";
 import type { SessionSource } from "./sessions.ts";
 import { SERVER, toolsOf } from "./tools.ts";
@@ -364,6 +365,38 @@ const toolResult = (id: string, content: string, parent: string | null = null): 
     parent_tool_use_id: parent,
     message: { content: [{ type: "tool_result", tool_use_id: id, content }] },
   });
+
+/**
+ * A terminal that holds the second demo session mid-turn, for trying Attach; ending it is
+ * pretend, like everything else in the demo.
+ */
+export function demoHolders(): HolderHost {
+  const pid = 4242;
+  let running = true;
+  const file = JSON.stringify({
+    pid,
+    sessionId: "8e2d3b5f-1c8e-4d2f-8b66-4d3e2f1a0b22",
+    cwd: "~/work/sweep",
+    procStart: "Mon Oct 19 00:14:35 2026",
+    kind: "interactive",
+    entrypoint: "cli",
+    status: "busy",
+  });
+  return {
+    list: () => [`${pid}.json`],
+    read: () => file,
+    processes: async (pids) =>
+      new Map(
+        running && pids.includes(pid)
+          ? [[pid, { ppid: 1, started: "Mon Oct 19 00:14:35 2026" }]]
+          : [],
+      ),
+    terminate: () => {
+      running = false;
+    },
+    self: process.pid,
+  };
+}
 
 /** Two earlier CLI sessions per workspace, for trying the import. */
 export const demoSessions: SessionSource = {

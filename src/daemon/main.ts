@@ -6,10 +6,10 @@ import { type AgentEvent, DAEMON } from "../shared/events.ts";
 import { ACCOUNT_POLL_MS, Account } from "./account.ts";
 import { Auth, loadRemoteSecret, loadSecret, loginLink } from "./auth.ts";
 import { fleetHome, loadConfig } from "./config.ts";
-import { demoQuery, demoSessions } from "./demo.ts";
+import { demoHolders, demoQuery, demoSessions } from "./demo.ts";
 import { DiskWatch } from "./disk.ts";
 import { EventLog } from "./eventLog.ts";
-import { noHolders, systemHolders } from "./holders.ts";
+import { systemHolders } from "./holders.ts";
 import { Orbit } from "./orbit.ts";
 import { dryHost, Power } from "./power.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
@@ -43,7 +43,7 @@ const supervisor = new Supervisor({
   config,
   power,
   sessions: process.env.FLEET_DEMO ? demoSessions : undefined,
-  holders: process.env.FLEET_DEMO ? noHolders : systemHolders,
+  holders: process.env.FLEET_DEMO ? demoHolders() : systemHolders,
   // Only the `fleet` command starts the daemon again after it exits for a restart.
   restart: process.env.FLEET_SUPERVISED ? () => void shutdown(RESTART_EXIT_CODE) : undefined,
   configFile: join(home, "config.toml"),

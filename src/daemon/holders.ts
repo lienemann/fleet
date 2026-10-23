@@ -183,12 +183,3 @@ export function parsePs(stdout: string): Map<number, ProcessInfo> {
   }
   return processes;
 }
-
-/** An empty sessions directory, for the demo. */
-export const noHolders: HolderHost = {
-  list: () => [],
-  read: () => undefined,
-  processes: async () => new Map(),
-  terminate: () => undefined,
-  self: process.pid,
-};

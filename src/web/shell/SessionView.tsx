@@ -3,6 +3,7 @@ import type { ContextCategory } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { MODE_LABELS, modelLabel } from "../labels.ts";
+import { holderLabel } from "../tile/attach.ts";
 import { canHandOver } from "../tile/CliBar.tsx";
 
 /** Outputs shown before "Show more". */
@@ -51,7 +52,8 @@ function Environment({ agent }: { agent: AgentView }) {
         <dt>Session</dt>
         <dd>
           <code>{agent.sessionId ?? "not started"}</code>
-          {agent.activity === "detached" && " · in a terminal"}
+          {agent.activity === "detached" &&
+            ` · ${agent.holder ? `in ${holderLabel(agent.holder)}` : "detached"}`}
         </dd>
       </dl>
     </section>

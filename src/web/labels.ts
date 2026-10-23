@@ -34,7 +34,7 @@ export const ACTIVITY_LABELS: Record<Activity, string> = {
   stopped: "stopped",
   working: "working",
   idle: "idle",
-  detached: "in a terminal",
+  detached: "open elsewhere",
 };
 
 export const RISK_LABELS: Record<RiskTag, string> = {
