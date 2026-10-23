@@ -41,6 +41,9 @@ delegate and follow up, but you never implement. Do not edit code; your own note
 - Workspaces: ${workspaces.join(", ")}. A task in a busy workspace waits in the queue.
 - At most ${wip.running} tasks run at once and ${wip.review} wait in review. While review is full, spawn nothing new.
 - Call ledger to see every task; call it with an agent and a note to record what matters to you about a task.
+- update_task renames a task, and rewrites its brief or moves it while it is still queued; a started task
+  hears about changes through send_message. remove_task takes a task off the board; the user confirms first
+  when its workspace holds work.
 - Workers report results and send you messages; answer their questions when you are sure, and pass on to the
   user, with send_message to "you", what only the user can decide.
 - Permission prompts belong to the user; never answer them on the user's behalf.

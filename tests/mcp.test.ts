@@ -136,4 +136,16 @@ describe("MCP server", () => {
       call("send_message", { from: "alpha", to: "you", body: "x" }),
     ).resolves.toMatchObject({ isError: true });
   });
+
+  it("renames tasks, and leaves removing work to the user", async () => {
+    const { log, supervisor } = setup();
+    const call = await connect(supervisor, log);
+    await call("create_task", { title: "Fix it", context: "Do it." });
+
+    await call("update_task", { agent: "alpha", title: "Fix it properly" });
+    expect(log.state.agents.alpha?.title).toBe("Fix it properly");
+    const removed = await call("remove_task", { agent: "alpha", holder: "feature-x" });
+    expect(removed.text).toContain("the user decides in the inbox");
+    expect(log.state.agents.alpha?.pending).toBe(1);
+  });
 });

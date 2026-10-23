@@ -82,6 +82,56 @@ describe("director", () => {
     expect(ledger).toContain("director's note: blocked on CI");
   });
 
+  it("renames tasks, and rewrites or moves them only while queued", () => {
+    const { log, supervisor, workspaces } = setup();
+    supervisor.spawn({ title: "One", context: "Do one.", workspace: "ws1" });
+    supervisor.spawn({ title: "Two", context: "Do two.", workspace: "ws1" });
+    expect(log.state.agents.bravo?.task).toBe("queued");
+
+    supervisor.updateTask("alpha", { title: "One, renamed" });
+    expect(log.state.agents.alpha?.title).toBe("One, renamed");
+    expect(() => supervisor.updateTask("alpha", { context: "Do more." })).toThrow(ToolError);
+
+    // Moved to a free workspace, the queued task starts there with its new brief.
+    expect(supervisor.updateTask("bravo", { context: "Do two better.", workspace: "ws2" })).toBe(
+      "Updated bravo; it is running in ws2.",
+    );
+    const ws2 = workspaces[1]?.path ?? "";
+    expect(log.state.agents.bravo).toMatchObject({ prompt: "Do two better.", cwd: ws2 });
+    expect(readFileSync(join(ws2, ".fleet/bravo/context.md"), "utf8")).toContain("Do two better.");
+  });
+
+  it("removes a queued task at once, and work only once the user agrees", async () => {
+    const { log, supervisor } = setup();
+    supervisor.spawn({ title: "One", context: "x", workspace: "ws1" });
+    supervisor.spawn({ title: "Two", context: "y", workspace: "ws1" });
+    expect(await supervisor.removeTask("bravo", DIRECTOR)).toBe("Removed bravo.");
+    expect(log.state.agents.bravo).toBeUndefined();
+
+    const answer = async (choice: string) => {
+      await until(() => pendingDecisions(log.state).length > 0);
+      const [decision] = pendingDecisions(log.state);
+      const question = decision?.questions?.[0]?.question ?? "";
+      const answers = { [question]: choice };
+      supervisor.handle({
+        type: "answer",
+        requestId: decision?.requestId ?? "",
+        answer: { behavior: "answers", answers },
+      });
+      return decision;
+    };
+
+    // The director waits for the answer.
+    const removing = supervisor.removeTask("alpha", DIRECTOR);
+    expect((await answer("Keep"))?.agent).toBe(DIRECTOR);
+    expect(await removing).toBe("The user keeps alpha.");
+
+    // A session outside fleet does not; the task itself asks.
+    expect(await supervisor.removeTask("alpha", "outside")).toContain("decides in the inbox");
+    expect((await answer("Remove"))?.agent).toBe("alpha");
+    await until(() => log.state.agents.alpha === undefined);
+  });
+
   it("may write its notes but no code", () => {
     const { director } = setup();
     expect(

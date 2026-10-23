@@ -1,6 +1,12 @@
 import { createSdkMcpServer, type McpServerConfig, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { Report, ReviewKind, RiskTag, Role } from "../shared/events.ts";
+import {
+  DIRECTOR,
+  type Report,
+  type ReviewKind,
+  type RiskTag,
+  type Role,
+} from "../shared/events.ts";
 
 /** Name of the in-process MCP server; its tools appear to agents as `mcp__fleet__<tool>`. */
 export const SERVER = "fleet";
@@ -21,6 +27,12 @@ export interface SpawnRequest {
   workspace?: string;
 }
 
+export interface TaskChanges {
+  title?: string;
+  context?: string;
+  workspace?: string;
+}
+
 /** What the tools do; the supervisor implements it. Errors are thrown as `ToolError`. */
 export interface ToolHost {
   decide(agent: string, ask: DecisionAsk): Promise<string>;
@@ -32,8 +44,28 @@ export interface ToolHost {
   spawn(request: SpawnRequest): string;
   ledger(): string;
   note(agent: string, text: string): string;
+  updateTask(agent: string, changes: TaskChanges): string;
+  removeTask(agent: string, requester: string): Promise<string>;
   stopTask(agent: string): Promise<string>;
 }
+
+/** The arguments of update_task, shared by the director's tools and the MCP server. */
+export const TASK_CHANGES = {
+  agent: z.string().describe("The task's agent name"),
+  title: z.string().min(1).max(80).optional(),
+  context: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("A new brief, replacing the old one; only while the task is queued"),
+  workspace: z.string().optional().describe("Another workspace; only while the task is queued"),
+};
+
+export const UPDATE_TASK =
+  "Change a task: rename it, or, while it is queued, rewrite its brief or move it to another workspace. A started task gets changes as a message instead.";
+
+export const REMOVE_TASK =
+  "Take a task off the board. A queued or accepted task goes at once; a task whose workspace holds its work goes only if the user agrees in the inbox.";
 
 /** A failure the agent should read and act on, not a crash. */
 export class ToolError extends Error {}
@@ -142,6 +174,15 @@ function directorTools(host: ToolHost) {
       { agent: z.string().optional(), note: z.string().optional() },
       (args) =>
         run(() => (args.agent && args.note ? host.note(args.agent, args.note) : host.ledger())),
+    ),
+    tool("update_task", UPDATE_TASK, TASK_CHANGES, ({ agent, ...changes }) =>
+      run(() => host.updateTask(agent, changes)),
+    ),
+    tool(
+      "remove_task",
+      `${REMOVE_TASK} Blocks until the user answers, if they need to.`,
+      { agent: z.string().describe("The task's agent name") },
+      (args) => run(() => host.removeTask(args.agent, DIRECTOR)),
     ),
     tool(
       "stop_task",

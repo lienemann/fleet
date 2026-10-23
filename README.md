@@ -33,7 +33,9 @@ are set from the dot in the tile header.
 Agents talk to fleet through tools the daemon serves in-process. A worker calls `report_result` when it is done,
 `request_decision` or `request_review` when it needs you, `submit_open_points` for a file of questions,
 `report_status` for the line on its card and `send_message` to reach the director or you. The director has
-`spawn_task`, which starts a worker with a written brief, plus `ledger` and `stop_task`; it cannot edit code.
+`spawn_task`, which starts a worker with a written brief, plus `ledger`, `update_task`, `remove_task` and
+`stop_task`; it cannot edit code. It can rename any task, but rewrite the brief or change the workspace only while
+the task is queued. Removing a task whose workspace holds work needs your yes in the inbox.
 
 Review happens in a diff view built on reviewdiff-core. You approve hunk by hunk, and approvals go into
 ReviewDiff's own `approvals.json`, so when the agent revises its change only the hunks it touched come back. The
@@ -127,7 +129,8 @@ claude mcp add --transport http fleet http://127.0.0.1:7777/mcp
 ```
 
 Such a session can then list the workspaces with whoever holds them, claim a free one to work in and release it
-afterwards, list fleet's tasks, hand a new task to fleet, and send a message to an agent, the director or you. No
+afterwards, list fleet's tasks, hand a new task to fleet, change or remove tasks as the director can, and send a
+message to an agent, the director or you. No
 task starts in a claimed workspace, and the director's tasks go elsewhere. The rail shows the claim with a release
 link, for a session that forgot to give it back.
 

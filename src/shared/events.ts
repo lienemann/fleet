@@ -117,6 +117,10 @@ export type EventBody =
       prompt?: string;
     }
   | { kind: "task_state"; state: TaskState }
+  /** The task was changed after it was created; the brief and workspace only while queued. */
+  | { kind: "task_updated"; title?: string; prompt?: string; workspace?: string; cwd?: string }
+  /** The task is off the board. Whatever it changed stays in its workspace. */
+  | { kind: "task_removed" }
   | { kind: "activity"; activity: Activity }
   | {
       kind: "session_started";

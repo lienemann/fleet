@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { Supervisor, WorkspaceStatus } from "./supervisor.ts";
-import { run } from "./tools.ts";
+import { REMOVE_TASK, run, TASK_CHANGES, UPDATE_TASK } from "./tools.ts";
 
 /** What the MCP tools need from the supervisor. */
 export type McpHost = Pick<
@@ -13,6 +13,8 @@ export type McpHost = Pick<
   | "releaseWorkspace"
   | "ledger"
   | "startTask"
+  | "updateTask"
+  | "removeTask"
   | "messageFromOutside"
 >;
 
@@ -81,6 +83,19 @@ function mcpServer(host: McpHost): McpServer {
       },
     },
     (request) => run(() => host.startTask(request)),
+  );
+  server.registerTool(
+    "update_task",
+    { description: UPDATE_TASK, inputSchema: TASK_CHANGES },
+    ({ agent, ...changes }) => run(() => host.updateTask(agent, changes)),
+  );
+  server.registerTool(
+    "remove_task",
+    {
+      description: `${REMOVE_TASK} Returns at once; the user's answer is not reported back.`,
+      inputSchema: { agent: z.string().describe("The task's agent name"), holder },
+    },
+    ({ agent, holder }) => run(() => host.removeTask(agent, holder)),
   );
   server.registerTool(
     "send_message",

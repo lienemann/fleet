@@ -45,6 +45,7 @@ import {
   fleetServer,
   SERVER,
   type SpawnRequest,
+  type TaskChanges,
   ToolError,
   type ToolHost,
 } from "./tools.ts";
@@ -636,6 +637,69 @@ export class Supervisor implements ToolHost {
     return `Noted on ${agent}.`;
   }
 
+  /**
+   * Renames a task, or rewrites its brief or moves it to another workspace while it is queued.
+   * Once a task has started, its brief is in the conversation; changes go to it as a message.
+   */
+  updateTask(name: string, { title, context, workspace }: TaskChanges): string {
+    const agent = this.agent(name);
+    if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
+    if ((context !== undefined || workspace !== undefined) && agent.task !== "queued") {
+      throw new ToolError(
+        `${name} has started; send it a message to change its brief, and stop it before moving it.`,
+      );
+    }
+    const ws = workspace === undefined ? undefined : this.workspace(workspace);
+    if (workspace !== undefined && !ws) {
+      throw new ToolError(`No workspace "${workspace}". Workspaces: ${this.workspaceNames()}.`);
+    }
+    this.append(name, {
+      kind: "task_updated",
+      title,
+      prompt: context,
+      workspace: ws?.name,
+      cwd: ws?.path,
+    });
+    if (context !== undefined) this.writeContextPack(name, context);
+    if (ws) this.schedule();
+    return `Updated ${name}; it is ${this.agent(name)?.task} in ${this.agent(name)?.workspace}.`;
+  }
+
+  /**
+   * Takes a task off the board. A task whose workspace holds its work goes only once the user
+   * agrees: the director waits for the answer, a session outside fleet does not.
+   */
+  async removeTask(name: string, requester: string): Promise<string> {
+    const agent = this.agent(name);
+    if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
+    if (!HOLDS_WORKSPACE.has(agent.task)) {
+      await this.remove(name);
+      return `Removed ${name}.`;
+    }
+    const question = `Remove ${name}'s task "${agent.title}"?`;
+    // The director asks in its own name; for a session outside fleet, the task itself asks.
+    const fromFleet = this.agent(requester) !== undefined;
+    const asker = fromFleet ? requester : name;
+    this.session(asker);
+    const confirmation = this.ask(asker, {
+      decision: "question",
+      toolName: "remove_task",
+      input: {},
+      explanation: `${requester} asks to remove it. Its changes stay in ${agent.workspace}, and the next task there starts on top of them.`,
+      risk: [],
+      questions: [{ question, options: [{ label: "Remove" }, { label: "Keep" }] }],
+    }).then(async (answer) => {
+      if (answer.behavior !== "answers" || answer.answers[question] !== "Remove") {
+        return `The user keeps ${name}.`;
+      }
+      await this.remove(name);
+      return `Removed ${name}.`;
+    });
+    if (fromFleet) return confirmation;
+    confirmation.catch((error: unknown) => console.error("fleet:", error));
+    return `${name} holds work in ${agent.workspace}; the user decides in the inbox whether it goes.`;
+  }
+
   async stopTask(agent: string): Promise<string> {
     if (agent === DIRECTOR) throw new ToolError("The director cannot stop itself.");
     const session = this.sessions.get(agent);
@@ -699,6 +763,13 @@ export class Supervisor implements ToolHost {
       throw new ToolError(`"${from}" is taken by fleet; sign with another name.`);
     }
     return this.message(from, to, body);
+  }
+
+  private async remove(name: string): Promise<void> {
+    await this.sessions.get(name)?.stop();
+    this.sessions.delete(name);
+    this.append(name, { kind: "task_removed" });
+    this.schedule(); // its workspace may be free now
   }
 
   private release(name: string): void {

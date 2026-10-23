@@ -340,6 +340,26 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
   switch (event.kind) {
     case "task_state":
       return patch({ task: event.state });
+    case "task_updated": {
+      const { title, prompt, workspace, cwd } = event;
+      return patch({
+        ...(title !== undefined && { title }),
+        ...(prompt !== undefined && { prompt }),
+        ...(workspace !== undefined && { workspace }),
+        ...(cwd !== undefined && { cwd }),
+      });
+    }
+    case "task_removed": {
+      const { [event.agent]: _removed, ...agents } = state.agents;
+      const keep = <T extends { agent: string }>(items: Record<string, T>) =>
+        Object.fromEntries(Object.entries(items).filter(([, item]) => item.agent !== event.agent));
+      return {
+        ...state,
+        agents,
+        decisions: keep(state.decisions),
+        openPoints: keep(state.openPoints),
+      };
+    }
     case "activity":
       return patch({ activity: event.activity });
     case "session_started":
