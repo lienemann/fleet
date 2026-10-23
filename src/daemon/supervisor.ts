@@ -181,9 +181,11 @@ export class Supervisor implements ToolHost {
   private readonly losses = new Map<string, number[]>();
   /** Agents that went back and forth with another client; only Attach brings them back. */
   private readonly manualOnly = new Set<string>();
+  /** Polls in a row that missed the holder an agent waits for; one miss may be a glitch. */
+  private readonly misses = new Map<string, number>();
+  /** Agents an Attach is taking over right now; the poll leaves them alone meanwhile. */
+  private readonly attaching = new Set<string>();
   private watching = false;
-  /** Messages from agents to a detached session, sent once it runs in fleet again. */
-  private readonly held = new Map<string, string[]>();
   /** Agents back from another client; their next prompt says so. */
   private readonly returning = new Set<string>();
   private readonly restart: (() => void) | undefined;
@@ -248,13 +250,28 @@ export class Supervisor implements ToolHost {
     }
     for (const agent of this.agents) {
       if (agent.reconnecting) this.append(agent.name, { kind: "connection", reconnecting: false });
-      if (agent.activity === "working" || agent.activity === "idle") {
-        const session = this.session(agent.name);
-        if (agent.activity === "working") session?.prompt(RESTART_NOTE);
-        session?.start();
-      }
     }
+    const live = this.agents.filter((a) => a.activity === "working" || a.activity === "idle");
+    if (this.holders) this.background(this.resumeUnlessHeld(live));
+    else for (const agent of live) this.resume(agent);
     this.schedule();
+  }
+
+  /** Resumes a session that ran when the daemon stopped; one mid-turn is told to continue. */
+  private resume(agent: AgentView): void {
+    const session = this.session(agent.name);
+    if (agent.activity === "working") session?.prompt(RESTART_NOTE);
+    session?.start();
+  }
+
+  /** A session that another client opened while the daemon was down stays with it. */
+  private async resumeUnlessHeld(agents: AgentView[]): Promise<void> {
+    const holders = await this.scan();
+    for (const agent of agents) {
+      const holder = agent.sessionId ? holders?.get(agent.sessionId) : undefined;
+      if (holder) await this.letGo(agent.name, holder);
+      else this.resume(agent);
+    }
   }
 
   handle(message: Command): void {
@@ -570,13 +587,15 @@ export class Supervisor implements ToolHost {
     if (last) this.append(name, { kind: "transcript_mark", uuid: last });
   }
 
-  /** Adds the turns made in another client since the mark to the tile's log. */
+  /** Adds the turns made in another client since the mark to the tile's log, and moves the mark. */
   private async catchUp(name: string): Promise<void> {
     const mark = this.agent(name)?.transcriptMark;
     const messages = mark ? await this.transcriptOf(name) : undefined;
     const index = messages?.findIndex((m) => m.uuid === mark) ?? -1;
     if (!messages || index < 0) return;
     for (const event of transcriptEvents(messages.slice(index + 1))) this.append(name, event);
+    const last = messages.at(-1)?.uuid;
+    if (last && last !== mark) this.append(name, { kind: "transcript_mark", uuid: last });
   }
 
   private async transcriptOf(name: string): Promise<SessionMessage[] | undefined> {
@@ -602,10 +621,12 @@ export class Supervisor implements ToolHost {
       const holders = await this.scan();
       if (!holders) return;
       for (const agent of this.agents) {
+        if (this.attaching.has(agent.name) || agent.task === "accepted") continue;
         const holder = agent.sessionId ? holders.get(agent.sessionId) : undefined;
         if (agent.activity === "detached") await this.followDetached(agent, holder);
         else if (holder && this.sessions.get(agent.name)?.isRunning)
           await this.stepBack(agent.name, holder);
+        else if (holder && agent.activity === "stopped") await this.letGo(agent.name, holder);
       }
     } finally {
       this.watching = false;
@@ -616,12 +637,29 @@ export class Supervisor implements ToolHost {
     const { name } = agent;
     if (holder) {
       this.seen.set(name, holder.pid);
+      this.misses.delete(name);
       if (!sameHolder(agent.holder, holder)) this.append(name, { kind: "holder", holder });
-    } else if (this.seen.delete(name) && !this.manualOnly.has(name)) {
-      await this.pickUp(name);
+    } else if (this.seen.has(name)) {
+      const misses = (this.misses.get(name) ?? 0) + 1;
+      if (misses < 2) {
+        this.misses.set(name, misses);
+        return;
+      }
+      this.seen.delete(name);
+      this.misses.delete(name);
+      if (!this.manualOnly.has(name)) await this.pickUp(name);
     } else if (agent.holder !== null) {
       this.append(name, { kind: "holder", holder: null, note: agent.holderNote });
     }
+  }
+
+  /** Another client opened a session fleet had stopped: it waits for that client too. */
+  private async letGo(name: string, holder: SessionHolder): Promise<void> {
+    this.seen.set(name, holder.pid);
+    this.returning.add(name);
+    this.append(name, { kind: "activity", activity: "detached" });
+    this.append(name, { kind: "holder", holder });
+    await this.markTranscript(name);
   }
 
   /** Another client opened a session fleet runs: fleet lets it have it and waits. */
@@ -657,23 +695,31 @@ export class Supervisor implements ToolHost {
   ): Promise<void> {
     const sessionId = this.agent(name)?.sessionId;
     if (this.agent(name)?.activity !== "detached" || !sessionId) return;
-    this.manualOnly.delete(name);
-    const holder = (await this.scan())?.get(sessionId);
-    if (holder) {
-      const note = holder.background
-        ? "A background job of Claude Code holds this session, and fleet leaves those alone. fleet takes the session once the job ends."
-        : !holder.verified
-          ? "fleet cannot confirm which process holds this session, so it does not end it. Close it there, and fleet takes the session back."
-          : await this.endHolder(sessionId, holder.pid);
-      if (note) {
-        this.seen.set(name, holder.pid);
-        this.append(name, { kind: "holder", holder, note });
-        return;
+    if (this.attaching.has(name)) return;
+    this.attaching.add(name);
+    try {
+      this.manualOnly.delete(name);
+      const holder = (await this.scan())?.get(sessionId);
+      if (holder) {
+        const refused = holder.background
+          ? "A background job of Claude Code holds this session, and fleet leaves those alone. fleet takes the session once the job ends."
+          : !holder.verified
+            ? "fleet cannot confirm which process holds this session, so it does not end it. Close it there, and fleet takes the session back."
+            : await this.endHolder(sessionId, holder.pid);
+        if (refused) {
+          this.seen.set(name, holder.pid);
+          if (text !== undefined) this.hold(name, text);
+          const note = text === undefined ? refused : `${refused} Your message waits until then.`;
+          this.append(name, { kind: "holder", holder, note });
+          return;
+        }
       }
+      this.seen.delete(name);
+      this.misses.delete(name);
+      await this.pickUp(name, text, attachments);
+    } finally {
+      this.attaching.delete(name);
     }
-    this.seen.delete(name);
-    if (text === undefined) await this.pickUp(name);
-    else this.prompt(name, text, attachments);
   }
 
   /** Sends SIGTERM and waits for the session to be free; a note when it is not. */
@@ -687,15 +733,26 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Runs a detached session in fleet again. It works only when there is something to say:
-   * a briefing that is due, or messages that waited for it.
+   * Runs a detached session in fleet again, after adding the turns made elsewhere to its log.
+   * It works only when there is something to say: the user's text, a briefing that is due, or
+   * messages that waited for it.
    */
-  private async pickUp(name: string): Promise<void> {
+  private async pickUp(
+    name: string,
+    text?: string,
+    attachments: PromptAttachment[] = [],
+  ): Promise<void> {
     await this.catchUp(name);
+    if (text !== undefined) return this.prompt(name, text, attachments);
     const session = this.session(name);
     const first = this.compose(name);
     if (first) session?.prompt(first);
     session?.start();
+  }
+
+  /** Keeps a prompt until fleet runs the detached session again. */
+  private hold(name: string, text: string): void {
+    this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), text] });
   }
 
   /**
@@ -712,12 +769,13 @@ export class Supervisor implements ToolHost {
       : this.returning.has(name)
         ? BACK_IN_FLEET
         : undefined;
-    const body = [...(this.held.get(name) ?? []), ...(text === undefined ? [] : [text])];
+    const held = agent.held ?? [];
+    const body = [...held, ...(text === undefined ? [] : [text])];
     if (body.length === 0) {
       if (!briefing) return undefined;
       body.push(BRIEFING_ACK);
     }
-    this.held.delete(name);
+    if (held.length > 0) this.append(name, { kind: "held", texts: [] });
     this.returning.delete(name);
     if (briefing) this.append(name, { kind: "briefed" });
     return [lead, ...body].filter((part) => part !== undefined).join("\n\n");
@@ -812,14 +870,16 @@ export class Supervisor implements ToolHost {
     const path = join(".fleet", DIRECTOR, `handover-${director.handovers + 1}.md`);
     this.append(DIRECTOR, { kind: "handover", state: "writing", path });
     const file = join(director.cwd, path);
-    mkdirSync(dirname(file), { recursive: true });
-    if (!(await writeForkHandover(this.queryFn, { sessionId, cwd, path: file }))) {
-      this.append(DIRECTOR, {
-        kind: "handover",
-        state: "failed",
-        path,
-        note: "The session did not write the handover.",
-      });
+    let note: string | undefined;
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      const written = await writeForkHandover(this.queryFn, { sessionId, cwd, path: file });
+      if (!written) note = "The session did not write the handover.";
+    } catch (error) {
+      note = `The session could not write the handover: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (note) {
+      this.append(DIRECTOR, { kind: "handover", state: "failed", path, note });
       return;
     }
     await this.continueFrom(DIRECTOR, path, directorHandoverStart(path));
@@ -1179,6 +1239,7 @@ export class Supervisor implements ToolHost {
   private async remove(name: string): Promise<void> {
     await this.sessions.get(name)?.stop();
     this.sessions.delete(name);
+    this.forgetHolder(name);
     this.append(name, { kind: "task_removed" });
     this.schedule(); // its workspace may be free now
   }
@@ -1273,17 +1334,17 @@ export class Supervisor implements ToolHost {
    */
   private deliver(to: string, from: string, body: string): void {
     const text = `Message from ${from}:\n\n${body}`;
-    if (this.agent(to)?.activity === "detached") {
-      this.held.set(to, [...(this.held.get(to) ?? []), text]);
-    } else {
-      this.prompt(to, text);
-    }
+    if (this.agent(to)?.activity === "detached") this.hold(to, text);
+    else this.prompt(to, text);
   }
 
   private async move(name: string, to: TaskState): Promise<void> {
     const agent = this.agent(name);
     if (agent?.role !== "worker" || agent.task === to || agent.task === "queued") return;
-    if (to === "accepted") await this.sessions.get(name)?.stop();
+    if (to === "accepted") {
+      await this.sessions.get(name)?.stop();
+      this.forgetHolder(name);
+    }
     // An accepted task gave up its workspace; reopened, it waits for it like any other.
     const reopened = agent.task === "accepted" && ACTIVE.has(to);
     if (
@@ -1293,9 +1354,20 @@ export class Supervisor implements ToolHost {
       this.append(name, { kind: "task_state", state: "queued" });
     } else {
       this.append(name, { kind: "task_state", state: to });
-      if (ACTIVE.has(to)) this.session(name)?.start();
+      // A session another client holds runs again once fleet takes it back.
+      if (ACTIVE.has(to) && agent.activity !== "detached") this.session(name)?.start();
     }
     this.schedule();
+  }
+
+  /** A detached task that is done waits for no client any more. */
+  private forgetHolder(name: string): void {
+    this.seen.delete(name);
+    this.misses.delete(name);
+    this.returning.delete(name);
+    if (this.agent(name)?.activity === "detached") {
+      this.append(name, { kind: "activity", activity: "stopped" });
+    }
   }
 
   private activeCount(): number {

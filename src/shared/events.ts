@@ -176,6 +176,8 @@ export type EventBody =
   | { kind: "briefed" }
   /** The last transcript entry the tile shows; turns after it were made in another client. */
   | { kind: "transcript_mark"; uuid: string }
+  /** Prompts waiting until fleet runs the detached session again; replaces the earlier list. */
+  | { kind: "held"; texts: string[] }
   | { kind: "task_state"; state: TaskState }
   /** The task was changed after it was created; the brief and workspace only while queued. */
   | { kind: "task_updated"; title?: string; prompt?: string; workspace?: string; cwd?: string }

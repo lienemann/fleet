@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
+import { FORK_TIMEOUT_MS } from "../src/daemon/forkHandover.ts";
 import type { HolderHost, ProcessInfo } from "../src/daemon/holders.ts";
 import { BACK_IN_FLEET, BRIEFING_ACK } from "../src/daemon/prompts.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
@@ -71,8 +72,8 @@ function clients() {
   return { host, hold, release, terminated, stayOnTerm, files };
 }
 
-function setup(host?: HolderHost) {
-  const log = new EventLog(":memory:");
+/** A daemon; passing the log of an earlier one is a restart. */
+function setup(host?: HolderHost, log = new EventLog(":memory:")) {
   const transcript: SessionMessage[] = [
     stored("u1", "user", "Why is the sweep slow?"),
     stored("a1", "assistant", "It re-uploads the waveform."),
@@ -138,6 +139,7 @@ describe("watching who holds a session", () => {
 
     release(501);
     await supervisor.watchHolders();
+    await supervisor.watchHolders();
     await until(() => calls.length === 1);
     expect(calls[0]?.options?.resume).toBe(ID);
     expect(agent()?.holder).toBeUndefined();
@@ -161,6 +163,7 @@ describe("watching who holds a session", () => {
     await supervisor.watchHolders();
     expect(agent()?.holder).toMatchObject({ pid: 502 });
     release(502);
+    await supervisor.watchHolders();
     await supervisor.watchHolders();
     await until(() => calls.length === 2);
   });
@@ -197,6 +200,7 @@ describe("watching who holds a session", () => {
     await until(() => agent()?.activity === "detached");
     release(505);
     await supervisor.watchHolders();
+    await supervisor.watchHolders();
     await until(() => calls.length === 2);
 
     hold(506);
@@ -204,6 +208,7 @@ describe("watching who holds a session", () => {
     await until(() => agent()?.activity === "detached");
     expect(agent()?.holderNote).toMatch(/Attach/);
     release(506);
+    await supervisor.watchHolders();
     await supervisor.watchHolders();
     expect(agent()?.activity).toBe("detached");
     expect(calls).toHaveLength(2);
@@ -272,6 +277,7 @@ describe("telling a session where it is", () => {
 
     release(602);
     await supervisor.watchHolders();
+    await supervisor.watchHolders();
     await until(() => userLines().length === 1);
     expect(userLines()[0]).toContain('You are "alpha"');
     expect(userLines()[0]).toContain("Message from bravo:\n\nRebase first");
@@ -287,6 +293,7 @@ describe("telling a session where it is", () => {
     hold(603);
     await supervisor.watchHolders();
     release(603);
+    await supervisor.watchHolders();
     await supervisor.watchHolders();
     await until(() => calls.length === 2);
     expect(agent()?.activity).toBe("idle");
@@ -390,6 +397,7 @@ describe("turns made elsewhere", () => {
     );
     release(801);
     await supervisor.watchHolders();
+    await supervisor.watchHolders();
     await until(() => calls.length === 2);
     expect(texts(agent()?.log, "Rename the flag")).toBe(1);
     expect(texts(agent()?.log, "Renamed it.")).toBe(1);
@@ -408,28 +416,36 @@ describe("turns made elsewhere", () => {
     transcript.splice(0, transcript.length, stored("x1", "assistant", "From another branch."));
     release(802);
     await supervisor.watchHolders();
+    await supervisor.watchHolders();
     await until(() => calls.length === 2);
     expect(texts(agent()?.log, "From another branch.")).toBe(0);
   });
 });
 
 describe("bringing my own director", () => {
-  async function setupDirector(writes: boolean) {
+  /** A daemon with a director, asked to start it from a fork that behaves as `fork` says. */
+  async function setupDirector(fork: "writes" | "nothing" | "throws" | "hangs", stale = false) {
     const dir = mkdtempSync(join(tmpdir(), "fleet-director-"));
     const path = join(dir, ".fleet", "director", "handover-1.md");
+    if (stale) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "# From an attempt that crashed\n");
+    }
     const log = new EventLog(":memory:");
     const source: SessionSource = {
       list: async () => [{ sessionId: ID, summary: "Coordinate", lastModified: 1 }],
       messages: async () => [],
     };
-    const fork = async function* () {
-      if (writes) {
+    const script = async function* () {
+      if (fork === "throws") throw new Error("No conversation found");
+      if (fork === "hangs") await new Promise(() => undefined);
+      if (fork === "writes") {
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, "# Handover\n");
       }
       yield result();
     };
-    const fake = fakeQuery(fork, echoing(result()));
+    const fake = fakeQuery(script, echoing(result()));
     const supervisor = new Supervisor({
       log,
       queryFn: fake.queryFn,
@@ -448,7 +464,7 @@ describe("bringing my own director", () => {
   }
 
   it("starts the director fresh from a fork of the session", async () => {
-    const { calls, director, path } = await setupDirector(true);
+    const { calls, director, path } = await setupDirector("writes");
     await until(() => calls.length === 2);
     expect(calls[0]?.options).toMatchObject({
       resume: ID,
@@ -467,13 +483,13 @@ describe("bringing my own director", () => {
   });
 
   it("leaves the director as it is when the fork writes nothing", async () => {
-    const { calls, director } = await setupDirector(false);
+    const { calls, director } = await setupDirector("nothing");
     await until(() => director()?.handover?.state === "failed");
     expect(calls).toHaveLength(1);
   });
 
   it("lets the fork write only the handover file", async () => {
-    const { calls, path } = await setupDirector(true);
+    const { calls, path } = await setupDirector("writes");
     await until(() => calls.length >= 1);
     const canUseTool = calls[0]?.options?.canUseTool;
     const ask = (tool: string, input: Record<string, unknown>) =>
@@ -490,5 +506,160 @@ describe("bringing my own director", () => {
       behavior: "deny",
     });
     await expect(ask("Bash", { command: "rm -rf /" })).resolves.toMatchObject({ behavior: "deny" });
+  });
+
+  it("reports a fork that fails, instead of writing for good", async () => {
+    const { director } = await setupDirector("throws");
+    await until(() => director()?.handover?.state === "failed");
+    expect(director()?.handover?.note).toContain("No conversation found");
+  });
+
+  it("does not take a handover left by an earlier attempt", async () => {
+    const { director } = await setupDirector("nothing", true);
+    await until(() => director()?.handover?.state === "failed");
+  });
+
+  it("gives up on a fork that never finishes", async () => {
+    vi.useFakeTimers();
+    const { director } = await setupDirector("hangs");
+    await vi.advanceTimersByTimeAsync(FORK_TIMEOUT_MS + 1000);
+    expect(director()?.handover?.state).toBe("failed");
+  });
+
+  it("holds the fork to the handover file even where the user's settings allow more", async () => {
+    const { calls, path } = await setupDirector("writes");
+    await until(() => calls.length >= 1);
+    const hook = calls[0]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
+    const decide = async (tool_name: string, tool_input: Record<string, unknown>) => {
+      const input = { hook_event_name: "PreToolUse", tool_name, tool_input } as never;
+      const output = await hook?.(input, tool_name, { signal: new AbortController().signal });
+      return (output as { hookSpecificOutput?: { permissionDecision?: string } } | undefined)
+        ?.hookSpecificOutput?.permissionDecision;
+    };
+    expect(await decide("Bash", { command: "jj describe -m x" })).toBe("deny");
+    expect(await decide("Edit", { file_path: "/work/ws1/lib.py" })).toBe("deny");
+    expect(await decide("Write", { file_path: path })).toBeUndefined();
+    expect(await decide("Grep", { pattern: "x" })).toBeUndefined();
+  });
+});
+
+describe("review fixes", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const count = (lines: { text: string }[] | undefined, text: string) =>
+    lines?.filter((l) => l.text.includes(text)).length ?? 0;
+
+  it("waits a second poll before it takes a session whose holder vanished", async () => {
+    const { host, hold, release } = clients();
+    hold(901);
+    const { calls, importIt, supervisor } = setup(host);
+    await importIt();
+    release(901);
+    await supervisor.watchHolders();
+    expect(calls).toHaveLength(0);
+    await supervisor.watchHolders();
+    await until(() => calls.length === 1);
+  });
+
+  it("shows the turns made elsewhere when a message takes the session over", async () => {
+    const { host, hold } = clients();
+    hold(902);
+    const { agent, calls, importIt, supervisor, transcript } = setup(host);
+    await importIt();
+    transcript.push(stored("u2", "user", "Rename the flag"));
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Go on" });
+    await until(() => calls.length === 1);
+    expect(count(agent()?.log, "Rename the flag")).toBe(1);
+  });
+
+  it("takes a session over once, however often Attach and the poll race", async () => {
+    const { host, hold } = clients();
+    hold(903);
+    const { agent, calls, importIt, supervisor, transcript, userLines } = setup(host);
+    await importIt();
+    transcript.push(stored("u2", "user", "Rename the flag"));
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "alpha" });
+    await sleep(20);
+    await supervisor.watchHolders();
+    await supervisor.watchHolders();
+    await until(() => calls.length === 1);
+    await sleep(400);
+    expect(calls).toHaveLength(1);
+    expect(userLines()).toHaveLength(1);
+    expect(count(agent()?.log, "Rename the flag")).toBe(1);
+  });
+
+  it("notices a stopped session that another client opens, and leaves it there", async () => {
+    const { host, hold } = clients();
+    const { agent, calls, importIt, supervisor } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+    supervisor.handle({ type: "stop", agent: "alpha" });
+    await until(() => agent()?.activity === "stopped");
+    hold(904);
+    await supervisor.watchHolders();
+    expect(agent()?.activity).toBe("detached");
+    expect(agent()?.holder).toMatchObject({ pid: 904 });
+    supervisor.message("bravo", "alpha", "Rebase first");
+    supervisor.handle({ type: "move", agent: "alpha", to: "review" });
+    supervisor.handle({ type: "move", agent: "alpha", to: "running" });
+    await sleep(20);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not resume a session another client opened while the daemon was down", async () => {
+    const { host, hold } = clients();
+    const first = setup(host);
+    await first.importIt();
+    await until(() => first.agent()?.activity === "idle");
+    hold(905);
+    const second = setup(host, first.log);
+    await until(() => second.agent()?.activity === "detached");
+    expect(second.calls).toHaveLength(0);
+  });
+
+  it("forgets a detached task once it is accepted", async () => {
+    const { host, hold, release } = clients();
+    hold(906);
+    const { agent, calls, importIt, supervisor } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "move", agent: "alpha", to: "accepted" });
+    await until(() => agent()?.task === "accepted");
+    release(906);
+    await supervisor.watchHolders();
+    await supervisor.watchHolders();
+    await sleep(20);
+    expect(calls).toHaveLength(0);
+    expect(agent()?.activity).toBe("stopped");
+  });
+
+  it("keeps messages for a detached session across a restart", async () => {
+    const { host, hold, release } = clients();
+    hold(907);
+    const first = setup(host);
+    await first.importIt();
+    first.supervisor.message("bravo", "alpha", "Rebase first");
+    const second = setup(host, first.log);
+    await second.supervisor.watchHolders();
+    release(907);
+    await second.supervisor.watchHolders();
+    await second.supervisor.watchHolders();
+    await until(() => second.userLines().length === 1);
+    expect(second.userLines()[0]).toContain("Message from bravo:\n\nRebase first");
+  });
+
+  it("keeps what the user typed when the take-over is refused", async () => {
+    const { host, hold, release } = clients();
+    hold(908, { kind: "bg" });
+    const { agent, importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Hello there" });
+    await until(() => agent()?.holderNote !== undefined);
+    expect(agent()?.holderNote).toMatch(/waits/);
+    release(908);
+    await supervisor.watchHolders();
+    await supervisor.watchHolders();
+    await until(() => userLines().length === 1);
+    expect(userLines()[0]).toMatch(/Hello there$/);
   });
 });

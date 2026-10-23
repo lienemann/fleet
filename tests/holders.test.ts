@@ -4,6 +4,7 @@ import {
   type ProcessInfo,
   parsePs,
   parseSessionFile,
+  psResult,
   scanHolders,
 } from "../src/daemon/holders.ts";
 
@@ -74,7 +75,26 @@ describe("parsePs", () => {
   });
 });
 
+describe("psResult", () => {
+  const line = "  7847     1 Mon Oct 19 00:14:35 2026\n";
+
+  it("reads the list when ps exits because a pid is gone", () => {
+    expect(psResult(Object.assign(new Error("exit 1"), { code: 1 }), line).size).toBe(1);
+    expect(psResult(null, line).size).toBe(1);
+  });
+
+  it("cannot tell when ps did not run at all", () => {
+    expect(() => psResult(Object.assign(new Error("spawn"), { code: "EAGAIN" }), "")).toThrow();
+  });
+});
+
 describe("scanHolders", () => {
+  it("cannot tell when the process table cannot be read", async () => {
+    const broken = host({ "7847.json": file() });
+    broken.fake.processes = async () => Promise.reject(new Error("spawn ps EAGAIN"));
+    expect(await scanHolders(broken.fake)).toBeUndefined();
+  });
+
   it("a live pid holds its session; a dead one holds nothing", async () => {
     const live = await scanHolders(host({ "7847.json": file() }).fake);
     expect(live?.get(SESSION)).toEqual({

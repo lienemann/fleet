@@ -152,6 +152,8 @@ export interface AgentView {
   briefing?: "due" | "done";
   /** The last transcript entry the tile shows, when the session left fleet. */
   transcriptMark?: string;
+  /** Prompts waiting until fleet runs the detached session again. */
+  held?: string[];
   /** Draft review comments, not yet sent. */
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
@@ -207,6 +209,8 @@ export const TEXT_LIMIT = 4000;
 export const MESSAGE_LIMIT = 500;
 /** Timeline segments kept per agent. */
 export const HISTORY_LIMIT = 400;
+/** Prompts kept for a detached session; more are unlikely, and the oldest go first. */
+export const HELD_LIMIT = 50;
 /** Models offered for picking; Claude Code lists about a dozen. */
 export const MODELS_LIMIT = 40;
 
@@ -437,6 +441,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ briefing: "done" });
     case "transcript_mark":
       return patch({ transcriptMark: event.uuid });
+    case "held":
+      return patch({ held: event.texts.slice(-HELD_LIMIT) });
     case "session_started":
       return patch({
         sessionId: event.sessionId,

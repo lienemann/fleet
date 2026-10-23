@@ -14,7 +14,8 @@ interface Props {
   commands: string[];
   /** Paths of the agent's workspace, loaded on the first `@`. */
   loadFiles: () => Promise<string[]>;
-  onSend: (text: string, attachments: PromptAttachment[]) => void;
+  /** Returns false when it did not send, so the draft stays. */
+  onSend: (text: string, attachments: PromptAttachment[]) => boolean | undefined;
   /** Replaces the usual placeholder, e.g. for a session that is detached. */
   hint?: string;
   disabled?: boolean;
@@ -84,10 +85,9 @@ export function Prompt({ name, commands, loadFiles, onSend, hint, disabled }: Pr
   const submit = (): void => {
     const text = draft.trim();
     if (!text) return;
-    onSend(
-      text,
-      attached.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
-    );
+    const files = attached.map(({ name, mediaType, data }) => ({ name, mediaType, data }));
+    // The caller may decline, e.g. when the user does not confirm; the draft then stays.
+    if (onSend(text, files) === false) return;
     setDraft("");
     setAttached([]);
     setProblem(undefined);

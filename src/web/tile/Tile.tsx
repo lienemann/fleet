@@ -126,13 +126,14 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
               : undefined
         }
         onSend={(text, attachments) => {
-          if (agent.activity === "detached" && !confirmTakeover(agent)) return;
+          if (agent.activity === "detached" && !confirmTakeover(agent)) return false;
           send({
             type: "prompt",
             agent: agent.name,
             text,
             ...(attachments.length > 0 && { attachments }),
           });
+          return true;
         }}
       />
     </section>

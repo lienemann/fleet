@@ -458,6 +458,13 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await page.locator(".card", { hasText: "Explain the scheduler" }).locator(".card-main").click();
   await expect(drawer.locator(".banner")).toContainText("Open in a terminal");
   await expect(drawer.locator(".banner")).toContainText("working");
+  // Saying no to ending the terminal keeps what was typed.
+  const prompt = drawer.locator("textarea[data-prompt]");
+  await prompt.fill("Carry on");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await prompt.press("Enter");
+  await expect(prompt).toHaveValue("Carry on");
+  await prompt.fill("");
   page.once("dialog", (dialog) => dialog.accept());
   await drawer.getByRole("button", { name: "Attach", exact: true }).click();
   await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();

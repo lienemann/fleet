@@ -113,7 +113,13 @@ export async function scanHolders(host: HolderHost): Promise<Holders | undefined
   });
   if (names.length > 0 && files.length === 0) return undefined;
 
-  const processes = await host.processes(files.map((file) => file.pid));
+  let processes: Map<number, ProcessInfo>;
+  try {
+    processes = await host.processes(files.map((file) => file.pid));
+  } catch {
+    // Without the process table every holder would look gone.
+    return undefined;
+  }
   const holders: Holders = new Map();
   for (const file of files) {
     const process = processes.get(file.pid);
@@ -154,14 +160,19 @@ export const systemHolders: HolderHost = {
     }
   },
   processes: (pids) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
       if (pids.length === 0) return resolve(new Map());
-      // ps exits with 1 when one of the pids is gone, and still lists the others.
       execFile(
         "ps",
         ["-o", "pid=,ppid=,lstart=", "-p", pids.join(",")],
         { env: { ...process.env, TZ: "UTC" } },
-        (_error, stdout) => resolve(parsePs(stdout)),
+        (error, stdout) => {
+          try {
+            resolve(psResult(error, stdout));
+          } catch (failure) {
+            reject(failure);
+          }
+        },
       );
     }),
   terminate: (pid) => {
@@ -173,6 +184,18 @@ export const systemHolders: HolderHost = {
   },
   self: process.pid,
 };
+
+/**
+ * What `ps` answered. It exits with 1 when one of the pids is gone and still lists the others;
+ * a ps that did not run at all (no code, or a code like EAGAIN) says nothing about who lives.
+ */
+export function psResult(
+  error: (Error & { code?: unknown }) | null,
+  stdout: string,
+): Map<number, ProcessInfo> {
+  if (error && typeof error.code !== "number") throw error;
+  return parsePs(stdout);
+}
 
 /** Lines of `ps -o pid=,ppid=,lstart=`. */
 export function parsePs(stdout: string): Map<number, ProcessInfo> {
