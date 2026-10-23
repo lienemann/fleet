@@ -141,10 +141,10 @@ h2 {
   color: var(--muted);
 }
 .new {
-  background: var(--warn);
-  color: var(--onwarn);
+  background: var(--accent);
+  color: var(--onaccent);
   border-radius: 8px;
-  padding: 0 6px;
+  padding: 0 5px;
   font-size: 10px;
   font-weight: 700;
 }
@@ -316,6 +316,7 @@ h2 {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--c, var(--dim));
 }
 .spacer {
   flex: 1;
@@ -340,9 +341,9 @@ h2 {
 
 /* Rail */
 .rail {
-  width: 220px;
+  width: 250px;
   flex-shrink: 0;
-  padding: 12px;
+  padding: 12px 8px;
   background: var(--bg2);
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -369,13 +370,29 @@ h2 {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
   background: none;
-  border: 1px solid transparent;
   text-align: left;
 }
 .rail-item.active {
   background: var(--selrow);
-  border-color: var(--line);
+}
+.rail-item .name {
+  font-size: 12px;
+}
+.rail-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-item.unseen .rail-title {
+  font-weight: 600;
 }
 /* Rail sections get small uppercase labels, like the bus ticker; headings elsewhere do not. */
 .rail h2 {
@@ -385,17 +402,25 @@ h2 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.rail-state {
-  margin-left: auto;
-  color: var(--dim);
-  font-size: 11px;
+/* Whoever waits on you pulses in the rail. */
+.rail .dot.col-needs_you {
+  animation: pulse 1.6s infinite;
 }
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--c, var(--dim));
-  flex-shrink: 0;
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 65%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail .dot.col-needs_you {
+    animation: none;
+  }
 }
 .dot.act-stopped,
 .dot.act-detached {
@@ -429,78 +454,128 @@ h2 {
 }
 
 /* Board */
+/* Columns keep their width and the board scrolls sideways. */
 .board {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  display: flex;
   gap: 10px;
-  align-items: start;
-  min-height: 100%;
+  overflow-x: auto;
+  padding-bottom: 6px;
 }
 .column {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  width: 240px;
+  min-height: 160px;
+  padding: 8px;
   background: var(--col);
   border: 1px solid var(--line2);
-  border-top: 3px solid var(--c);
-  border-radius: 8px;
-  padding: 8px;
-  min-height: 160px;
+  border-radius: 10px;
+}
+.column.waiting {
+  border-color: var(--warnline);
 }
 .column.drop {
   border-color: var(--accent);
 }
-.column h2 {
+.column-head {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 12px;
 }
-.count.over {
+.column-head h2 {
+  margin: 0;
+  font-size: 12.5px;
+}
+.wip {
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.wip.over {
   color: var(--warn);
 }
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
   background: color-mix(in srgb, var(--agent) var(--tint, 0%), var(--card));
   border: 1px solid var(--line);
-  border-left: 3px solid var(--agent);
-  border-radius: 6px;
-  margin-bottom: 8px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px var(--shadow);
   cursor: grab;
 }
+.card.waiting {
+  border-color: var(--warnline);
+}
 .card.selected {
-  border-color: var(--agent);
-  box-shadow: 0 0 0 1px var(--agent);
+  border-color: var(--accent);
 }
 .card-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
   width: 100%;
-  padding: 8px 10px;
+  min-height: 0;
+  padding: 0;
   background: none;
   border: none;
   text-align: left;
 }
 .card-head {
   display: flex;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
+  width: 100%;
 }
-.card-head strong {
+.card-head .dot {
+  background: var(--agent);
+}
+.card-head .name {
   color: var(--agent);
+  font-size: 12px;
+}
+.card-ws {
+  color: var(--muted);
+  font: 11px var(--font-mono);
 }
 .since {
-  margin-left: auto;
-  color: var(--dim);
+  color: var(--muted);
   font-size: 11px;
 }
 .card-title {
-  color: var(--fg2);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
-.card-sub,
-.card-status {
-  color: var(--dim);
-  font-size: 11px;
+.card-todo {
+  color: var(--fg3);
+  font-size: 12px;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.card-meta .rev {
+  color: var(--rev);
+}
+.card-meta .warn {
+  color: var(--warn);
 }
 .card footer {
   display: flex;
-  gap: 6px;
-  padding: 0 10px 8px;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 .card footer:empty {
   display: none;
@@ -1973,7 +2048,7 @@ button.ln:hover {
   border-bottom: 1px solid var(--line2);
 }
 
-/* A decision above the tile's CLI bar: everything on the warning color */
+/* A decision above the tile's CLI bar, or on a board card: everything on the warning color */
 .decision.strip {
   display: flex;
   flex-direction: column;
@@ -1991,11 +2066,38 @@ button.ln:hover {
 .decision.strip.focused {
   box-shadow: none;
 }
+.decision.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 7px;
+  background: var(--warnbg);
+  border: 1px solid var(--warnline);
+  border-radius: 6px;
+  color: var(--warnfg);
+  cursor: default;
+}
+.decision.compact .kind {
+  display: none;
+}
+.decision.compact .why {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.4;
+  opacity: 0.9;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
 .decision.strip .kind {
   background: var(--warn);
   color: var(--onwarn);
 }
-.decision.strip .subject {
+.decision.strip .subject,
+.decision.compact .subject {
   flex: 1;
   min-width: 0;
   max-height: 8em;
@@ -2019,12 +2121,14 @@ button.ln:hover {
   background: transparent;
   font-size: 10.5px;
 }
-.decision.strip fieldset {
+.decision.strip fieldset,
+.decision.compact fieldset {
   margin: 0;
   padding: 0;
   border: 0;
 }
-.decision.strip button {
+.decision.strip button,
+.decision.compact button {
   min-height: 28px;
   padding: 4px 10px;
   border: 1px solid var(--warnline);
@@ -2034,12 +2138,14 @@ button.ln:hover {
   font-size: 12px;
   font-weight: 500;
 }
-.decision.strip button.primary {
+.decision.strip button.primary,
+.decision.compact button.primary {
   background: var(--warn);
   border-color: var(--warn);
   color: var(--onwarn);
 }
-.decision.strip button.primary kbd {
+.decision.strip button.primary kbd,
+.decision.compact button.primary kbd {
   color: var(--onwarn);
 }
 .decision.strip .other {

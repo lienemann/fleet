@@ -1,4 +1,4 @@
-import { type AgentView, agentList, columnOf } from "../../shared/reducer.ts";
+import { type AgentView, agentList, columnOf, needsUser } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { ACTIVITY_LABELS, columnLabel } from "../labels.ts";
 
@@ -104,17 +104,27 @@ function AgentRow({
       : agent.role === "director" || agent.activity === "stopped" || agent.activity === "detached"
         ? ACTIVITY_LABELS[agent.activity]
         : columnLabel(column);
+  // The director idles by design; its dot only warns when it asks for something.
+  const dot =
+    agent.role !== "director"
+      ? column
+      : needsUser(agent)
+        ? "needs_you"
+        : agent.activity === "working"
+          ? "running"
+          : "idle";
   return (
     <button
       type="button"
-      className={`rail-item ${selected ? "active" : ""}`}
+      className={`rail-item ${selected ? "active" : ""} ${agent.unseen ? "unseen" : ""}`}
+      title={`${agent.name}: ${status}`}
       onClick={() => onSelect(agent.name)}
     >
-      <span className={`dot col-${column} act-${agent.activity}`} />
+      <span className={`dot col-${dot} act-${agent.activity}`} />
       <span className="name" style={{ color: color(agent.color) }}>
         {agent.name}
       </span>
-      <span className="rail-state">{status}</span>
+      <span className="rail-title">{agent.title}</span>
       {agent.unseen && <span className="new">new</span>}
     </button>
   );

@@ -18,7 +18,7 @@ async function newTask(page: Page, title: string, workspace = "ws1") {
   await page.keyboard.press("n");
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Workspace").selectOption(workspace);
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
 }
 
 test("a task asks for permission and a decision, hands in open points, and is reviewed", async ({
@@ -226,11 +226,12 @@ test("tasks on a remote daemon show up and are answered like local ones", async 
   await page.keyboard.press("n");
   await page.getByLabel("Title").fill("Benchmark on the pod");
   await page.getByLabel("Workspace").selectOption("pod/ws1");
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
 
   const remote = page.locator(".card", { hasText: "Benchmark on the pod" });
   await expect(remote).toContainText("pod/alpha", { timeout: 15_000 });
-  await expect(remote).toContainText("ws1 · pod");
+  await expect(remote.locator(".card-ws")).toHaveText("ws1");
+  await expect(remote.locator(".card-meta")).toContainText("pod");
 
   await page.keyboard.press("2");
   const decision = page.locator(".decision", { hasText: "pod/alpha" }).first();

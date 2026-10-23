@@ -242,7 +242,11 @@ export function App() {
       },
       {
         id: "agent.session",
-        label: live ? "Stop the session" : "Start the session",
+        label: live
+          ? "Stop the session"
+          : current?.task === "queued"
+            ? "Start the queued task now"
+            : "Start the session",
         group: "Selected agent",
         keys: ["s"],
         run: () => send({ type: live ? "stop" : "start", agent: name }),

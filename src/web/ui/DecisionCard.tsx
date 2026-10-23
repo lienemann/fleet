@@ -9,10 +9,11 @@ import { Markdown } from "./Markdown.tsx";
 interface Props {
   decision: Decision;
   /**
-   * "strip" sits above a tile's CLI bar and puts the command into its first line; "card" stands
-   * alone in the inbox and names the agent.
+   * "card" stands alone in the inbox and names the agent; "strip" sits above a tile's CLI bar and
+   * puts the command into its first line; "compact" sits on a board card and keeps only the
+   * command and the quick answers.
    */
-  variant?: "strip" | "card";
+  variant?: "card" | "strip" | "compact";
   /** Shown on cards; the tile already says whose decision it is. */
   agentColor?: string;
   focused?: boolean;
@@ -27,7 +28,8 @@ const KIND_LABELS: Record<DecisionKind, string> = {
 
 /** A permission prompt, a question or a review request, with the agent's explanation and risk tags. */
 export function DecisionCard({ decision, variant = "card", agentColor, focused, onAnswer }: Props) {
-  const strip = variant === "strip";
+  const inline = variant !== "card";
+  const compact = variant === "compact";
   const subject = subjectOf(decision);
   return (
     <article
@@ -41,7 +43,7 @@ export function DecisionCard({ decision, variant = "card", agentColor, focused, 
             {decision.agent}
           </strong>
         )}
-        {strip ? (
+        {inline ? (
           <code className="subject">
             {decision.decision === "permission" && decision.toolName !== "ExitPlanMode"
               ? `${decision.toolName}(${subject})`
@@ -51,9 +53,14 @@ export function DecisionCard({ decision, variant = "card", agentColor, focused, 
           <span className="tool">{decision.toolName}</span>
         )}
       </header>
-      {!strip && decision.decision === "permission" && <pre className="input">{subject}</pre>}
-      {decision.explanation && <Markdown text={decision.explanation} className="explanation" />}
-      {decision.risk.length > 0 && (
+      {!inline && decision.decision === "permission" && <pre className="input">{subject}</pre>}
+      {decision.explanation &&
+        (compact ? (
+          <p className="why">{decision.explanation.trim().split("\n")[0]}</p>
+        ) : (
+          <Markdown text={decision.explanation} className="explanation" />
+        ))}
+      {!compact && decision.risk.length > 0 && (
         <div className="risks">
           {decision.risk.map((tag) => (
             <span key={tag} className={`risk risk-${tag}`}>
@@ -63,10 +70,12 @@ export function DecisionCard({ decision, variant = "card", agentColor, focused, 
         </div>
       )}
       {decision.decision === "question" && (
-        <Questions decision={decision} inline={strip} onAnswer={onAnswer} />
+        <Questions decision={decision} inline={inline} compact={compact} onAnswer={onAnswer} />
       )}
-      {decision.decision === "review" && <Review decision={decision} onAnswer={onAnswer} />}
-      {decision.decision === "permission" && <Permission onAnswer={onAnswer} />}
+      {!compact && decision.decision === "review" && (
+        <Review decision={decision} onAnswer={onAnswer} />
+      )}
+      {decision.decision === "permission" && <Permission compact={compact} onAnswer={onAnswer} />}
     </article>
   );
 }
@@ -86,15 +95,17 @@ function subjectOf(decision: Decision): string {
   return typeof command === "string" ? command : JSON.stringify(decision.input, null, 2);
 }
 
-function Permission({ onAnswer }: Pick<Props, "onAnswer">) {
+function Permission({ compact, onAnswer }: Pick<Props, "onAnswer"> & { compact: boolean }) {
   return (
     <footer>
       <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
         Approve <kbd>a</kbd>
       </button>
-      <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
-        Always allow
-      </button>
+      {!compact && (
+        <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
+          Always allow
+        </button>
+      )}
       <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
         Reject <kbd>r</kbd>
       </button>
@@ -104,13 +115,15 @@ function Permission({ onAnswer }: Pick<Props, "onAnswer">) {
 
 /**
  * Options as buttons. A single question with a single choice is answered by its button; several
- * questions or several choices are picked first and sent with Answer.
+ * questions or several choices are picked first and sent with Answer. Compact, only the first
+ * kind is answered in place.
  */
 function Questions({
   decision,
   inline,
+  compact,
   onAnswer,
-}: Pick<Props, "decision" | "onAnswer"> & { inline: boolean }) {
+}: Pick<Props, "decision" | "onAnswer"> & { inline: boolean; compact: boolean }) {
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
   const [other, setOther] = useState<Record<string, string>>({});
   const questions = decision.questions ?? [];
@@ -137,6 +150,7 @@ function Questions({
     });
   };
 
+  if (compact && !oneClick) return null;
   return (
     <>
       {questions.map((q) => (
@@ -158,30 +172,34 @@ function Questions({
               </button>
             ))}
           </div>
-          <input
-            className="other"
-            aria-label={`Other answer to: ${q.question}`}
-            placeholder="Other answer…"
-            value={other[q.question] ?? ""}
-            onChange={(e) => setOther({ ...other, [q.question]: e.target.value })}
-          />
+          {!compact && (
+            <input
+              className="other"
+              aria-label={`Other answer to: ${q.question}`}
+              placeholder="Other answer…"
+              value={other[q.question] ?? ""}
+              onChange={(e) => setOther({ ...other, [q.question]: e.target.value })}
+            />
+          )}
         </fieldset>
       ))}
-      <footer>
-        <button
-          type="button"
-          className="primary"
-          disabled={!complete}
-          onClick={() =>
-            send(Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])))
-          }
-        >
-          Answer
-        </button>
-        <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-          Dismiss
-        </button>
-      </footer>
+      {!compact && (
+        <footer>
+          <button
+            type="button"
+            className="primary"
+            disabled={!complete}
+            onClick={() =>
+              send(Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])))
+            }
+          >
+            Answer
+          </button>
+          <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
+            Dismiss
+          </button>
+        </footer>
+      )}
     </>
   );
 }

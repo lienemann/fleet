@@ -1,9 +1,18 @@
 import { type DragEvent, useState } from "react";
 import { USER_MOVES, type UserMove } from "../../shared/events.ts";
-import { type AgentView, agentList, type Column, columnOf } from "../../shared/reducer.ts";
+import {
+  type AgentView,
+  agentList,
+  type Column,
+  columnOf,
+  openPointDocs,
+  pendingDecisions,
+  workspaceHolder,
+} from "../../shared/reducer.ts";
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { COLUMNS, duration } from "../labels.ts";
+import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { useNow } from "../useNow.ts";
 
 interface Props {
@@ -42,11 +51,12 @@ export function Board({ selected, onSelect, onMessage }: Props) {
         // Needs-you tasks still count against the running limit.
         const count =
           id === "running" ? cards.length + (byColumn.get("needs_you")?.length ?? 0) : cards.length;
+        const waiting = id === "needs_you" && cards.length > 0;
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: dropping is a mouse shortcut; the card buttons make the same moves
           <section
             key={id}
-            className={`column col-${id} ${dropTarget === id ? "drop" : ""}`}
+            className={`column col-${id} ${waiting ? "waiting" : ""} ${dropTarget === id ? "drop" : ""}`}
             onDragOver={(event) => {
               if (!isMove(id)) return;
               event.preventDefault();
@@ -55,12 +65,19 @@ export function Board({ selected, onSelect, onMessage }: Props) {
             onDragLeave={() => setDropTarget(undefined)}
             onDrop={drop(id)}
           >
-            <h2>
-              {label}
-              <span className={`count ${limit !== undefined && count > limit ? "over" : ""}`}>
-                {limit === undefined ? cards.length : `${count}/${limit}`}
-              </span>
-            </h2>
+            <header className="column-head">
+              <span className="dot" />
+              <h2>{label}</h2>
+              <span className="dim">{cards.length}</span>
+              {limit !== undefined && (
+                <span
+                  className={`wip ${count > limit ? "over" : ""}`}
+                  title="Work in progress: tasks in this column and its limit"
+                >
+                  WIP {count}/{limit}
+                </span>
+              )}
+            </header>
             {cards.map((agent) => (
               <Card
                 key={agent.name}
@@ -88,42 +105,80 @@ function Card({
   onSelect: (n: string) => void;
   onMessage: (n: string) => void;
 }) {
-  const { send, color } = useFleet();
+  const { state, send, color } = useFleet();
   const now = useNow();
   const column = columnOf(agent);
-  const done = agent.todos.filter((t) => t.status === "completed").length;
   const move = (to: UserMove) => send({ type: "move", agent: agent.name, to });
-  const subtitle = agent.reconnecting
+  const [decision] = pendingDecisions(state).filter((d) => d.agent === agent.name);
+  const done = agent.todos.filter((t) => t.status === "completed").length;
+  const current = agent.todos.find((t) => t.status === "in_progress");
+  const holder = workspaceHolder(state, agent.workspace, agent.name);
+  const doing = agent.reconnecting
     ? "reconnecting…"
-    : agent.pending > 0
-      ? "waiting for your decision"
-      : (agent.status ??
-        agent.todos.find((t) => t.status === "in_progress")?.activeForm ??
-        agent.activity);
+    : column === "queued"
+      ? `Waits for ${holder ? agent.workspace : "a running slot"}`
+      : (agent.status ?? current?.activeForm ?? current?.content ?? agent.activity);
+  const points = openPointDocs(state)
+    .filter((doc) => doc.agent === agent.name)
+    .flatMap((doc) => doc.points)
+    .filter((p) => p.answer === undefined).length;
+  const subagents = agent.subagents.filter((s) => !s.done).length;
+  const context = agent.context
+    ? Math.round((100 * agent.context.tokens) / agent.context.window)
+    : undefined;
 
   return (
     <article
-      className={`card ${selected ? "selected" : ""}`}
+      className={`card ${selected ? "selected" : ""} ${column === "needs_you" ? "waiting" : ""}`}
       style={agentStyle(agent, color)}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("text/fleet-agent", agent.name)}
     >
       <button type="button" className="card-main" onClick={() => onSelect(agent.name)}>
         <span className="card-head">
-          <strong className="name">{agent.name}</strong>
+          <span className="dot" />
+          <span className="name">{agent.name}</span>
+          <span className="card-ws">{agent.workspace}</span>
+          <span className="spacer" />
           {agent.unseen && <span className="new">new</span>}
           <span className="since">{duration(now - agent.columnSince)}</span>
         </span>
         <span className="card-title">{agent.title}</span>
-        <span className="card-sub">
-          {agent.workspace} · {agent.host}
-          {agent.todos.length > 0 && ` · ${done}/${agent.todos.length} to-dos`}
-          {agent.reviewProgress &&
-            ` · ${agent.reviewProgress.approved}/${agent.reviewProgress.total} hunks approved`}
+        <span className="card-todo">
+          ▸ {doing}
+          {agent.todos.length > 0 && ` (${done}/${agent.todos.length})`}
         </span>
-        <span className="card-status">{subtitle}</span>
       </button>
+      {decision && (
+        <DecisionCard
+          variant="compact"
+          decision={decision}
+          onAnswer={(answer) => send({ type: "answer", requestId: decision.requestId, answer })}
+        />
+      )}
+      <span className="card-meta">
+        <span>{agent.host}</span>
+        {subagents > 0 && <span>{subagents} subagents</span>}
+        {agent.reviewProgress && (
+          <span className="rev">
+            {agent.reviewProgress.approved}/{agent.reviewProgress.total} hunks approved
+          </span>
+        )}
+        {points > 0 && <span className="warn">{points} open points</span>}
+        {context !== undefined && <span>ctx {context}%</span>}
+      </span>
       <footer>
+        {column === "queued" && (
+          <button
+            type="button"
+            className="small primary"
+            disabled={holder !== undefined}
+            title={`Start now, past the WIP limit; only while ${agent.workspace} is free`}
+            onClick={() => send({ type: "start", agent: agent.name })}
+          >
+            Start now
+          </button>
+        )}
         {column !== "queued" && (
           <button
             type="button"
