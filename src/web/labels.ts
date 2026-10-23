@@ -119,16 +119,18 @@ const findModel = (models: readonly ModelChoice[], value: string): ModelChoice |
   models.find((m) => m.value === value) ??
   models.find((m) => m.value !== "default" && m.resolved === value);
 
-/** "Opus 5.5 (claude-opus-5-5)"; the default names the model it stands for. */
+/** "Opus 5.5"; the default names the model it stands for. */
 export function modelLabel(models: readonly ModelChoice[], value = "default"): string {
   const choice = findModel(models, value);
   if (!choice) return value;
-  const version =
-    choice.resolved && choice.resolved !== choice.label ? ` (${choice.resolved})` : "";
-  if (value !== "default") return `${choice.label}${version}`;
+  if (value !== "default") return choice.label;
   const named = models.find((m) => m.value !== "default" && m.resolved === choice.resolved);
-  return `Default: ${named?.label ?? choice.label}${version}`;
+  return `Default: ${named?.label ?? choice.label}`;
 }
+
+/** The exact model id, e.g. "claude-opus-5-5". */
+export const modelId = (models: readonly ModelChoice[], value = "default"): string =>
+  findModel(models, value)?.resolved ?? value;
 
 /** The effort levels a model takes; all of them while the models are not known yet. */
 export function effortsOf(

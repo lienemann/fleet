@@ -1,7 +1,8 @@
 import { EFFORT_LEVELS, type ModelChoice, PERMISSION_MODES } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { contextPercent, effortsOf, MODE_LABELS, modelLabel } from "../labels.ts";
+import { contextPercent, effortsOf, MODE_LABELS, modelId, modelLabel } from "../labels.ts";
+import { Menu } from "../ui/Menu.tsx";
 
 /** Until the daemon has asked Claude Code for its models. */
 const FALLBACK_MODELS: ModelChoice[] = ["opus", "sonnet", "haiku"].map((value) => ({
@@ -42,7 +43,8 @@ export function CliBar({ agent }: { agent: AgentView }) {
         </button>
         <select
           className="cli-pill"
-          title="Model"
+          aria-label="Model"
+          title={`Model: ${modelId(state.models, agent.model)}`}
           value={agent.model ?? ""}
           onChange={(event) => send({ type: "set_model", agent: name, model: event.target.value })}
         >
@@ -86,32 +88,6 @@ export function CliBar({ agent }: { agent: AgentView }) {
         )}
       </div>
       <div className="cli-actions">
-        <button
-          type="button"
-          className="outline"
-          disabled={!live}
-          onClick={() => send({ type: "prompt", agent: name, text: "/compact" })}
-        >
-          /compact
-        </button>
-        <button
-          type="button"
-          className="outline"
-          disabled={!canHandOver(agent)}
-          title="Continue in a fresh session: this one writes a handover, a new one reads it (Shift+H)"
-          onClick={() => send({ type: "handover", agent: name })}
-        >
-          Hand over
-        </button>
-        <button
-          type="button"
-          className="outline"
-          disabled={agent.activity !== "working"}
-          onClick={() => send({ type: "interrupt", agent: name })}
-          title="Interrupt (Esc)"
-        >
-          Interrupt
-        </button>
         {live ? (
           <button
             type="button"
@@ -130,16 +106,36 @@ export function CliBar({ agent }: { agent: AgentView }) {
             {agent.activity === "detached" ? "Take back" : "Start"}
           </button>
         )}
-        {live && agent.sessionId && (
-          <button
-            type="button"
-            className="outline"
-            title="Release the session to continue it in a terminal"
-            onClick={() => send({ type: "detach", agent: name })}
-          >
-            Terminal
-          </button>
-        )}
+        <Menu
+          label="Session actions"
+          items={[
+            {
+              label: "Interrupt",
+              title: "Esc",
+              disabled: agent.activity !== "working",
+              run: () => send({ type: "interrupt", agent: name }),
+            },
+            {
+              label: "/compact",
+              title: "Summarise the conversation to free the context window",
+              disabled: !live,
+              run: () => send({ type: "prompt", agent: name, text: "/compact" }),
+            },
+            {
+              label: "Hand over",
+              title:
+                "Continue in a fresh session: this one writes a handover, a new one reads it (Shift+H)",
+              disabled: !canHandOver(agent),
+              run: () => send({ type: "handover", agent: name }),
+            },
+            {
+              label: "Continue in a terminal",
+              title: "Release the session to continue it in a terminal",
+              disabled: !live || !agent.sessionId,
+              run: () => send({ type: "detach", agent: name }),
+            },
+          ]}
+        />
       </div>
     </div>
   );

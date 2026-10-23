@@ -509,16 +509,27 @@ test("names the model with its version, sets the effort, and shows the plan's us
   const tile = page
     .locator(".grid .tile")
     .filter({ has: page.locator("header .name", { hasText: /^director$/ }) });
-  const model = tile.getByTitle("Model");
+  const model = tile.getByLabel("Model");
   // Before its first turn the session runs the default; then it names the model it runs.
-  await expect(model.locator("option:checked")).toHaveText(
-    /^(Default: )?Opus 5\.5 \(claude-opus-5-5\)$/,
-  );
+  await expect(model.locator("option:checked")).toHaveText(/^(Default: )?Opus 5\.5$/);
+  await expect(model).toHaveAttribute("title", "Model: claude-opus-5-5");
   await expect(model.locator("option", { hasText: "Sonnet 5.5" })).toHaveCount(1);
   const effort = tile.getByTitle("Effort");
   await expect(effort).toHaveValue("");
   await effort.selectOption("xhigh");
   await expect(effort).toHaveValue("xhigh");
+
+  // The bar takes one line; the rarer actions sit behind ⋯, which Esc or a click away closes.
+  const bar = tile.locator(".cli-bar");
+  expect(await bar.evaluate((b) => b.getBoundingClientRect().height)).toBeLessThan(40);
+  const compact = tile.getByRole("menuitem", { name: "/compact" });
+  for (const close of ["Escape", "click"]) {
+    await tile.getByRole("button", { name: "Session actions" }).click();
+    await expect(compact).toBeVisible();
+    if (close === "Escape") await page.keyboard.press("Escape");
+    else await page.mouse.click(4, 4);
+    await expect(compact).toBeHidden();
+  }
 });
 
 test("can be installed as an app", async ({ page, request }) => {

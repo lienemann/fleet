@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelChoice } from "../src/shared/events.ts";
-import { effortsOf, modelLabel, usageDetails, usageText } from "../src/web/labels.ts";
+import { effortsOf, modelId, modelLabel, usageDetails, usageText } from "../src/web/labels.ts";
 
 const models: ModelChoice[] = [
   {
@@ -14,19 +14,20 @@ const models: ModelChoice[] = [
 ];
 
 describe("model labels", () => {
-  it("names the model the default stands for, with its version", () => {
-    expect(modelLabel(models)).toBe("Default: Opus 5.5 (claude-opus-5-5)");
-    expect(modelLabel(models, "opus")).toBe("Opus 5.5 (claude-opus-5-5)");
+  it("names the model the default stands for, and its exact id", () => {
+    expect(modelLabel(models)).toBe("Default: Opus 5.5");
+    expect(modelLabel(models, "opus")).toBe("Opus 5.5");
+    expect(modelId(models)).toBe("claude-opus-5-5");
   });
 
   it("recognises the full id a session reports", () => {
-    expect(modelLabel(models, "claude-opus-5-5")).toBe("Opus 5.5 (claude-opus-5-5)");
+    expect(modelLabel(models, "claude-opus-5-5")).toBe("Opus 5.5");
     expect(effortsOf(models, "claude-opus-5-5")).toEqual(["low", "max"]);
   });
 
-  it("does not repeat an id that is its own label, and keeps unknown ones", () => {
-    expect(modelLabel(models, "claude-haiku-4-5")).toBe("Haiku 4.5 (claude-haiku-4-5)");
+  it("keeps a model it does not know as it is", () => {
     expect(modelLabel(models, "claude-next")).toBe("claude-next");
+    expect(modelId(models, "claude-next")).toBe("claude-next");
     expect(modelLabel([], undefined)).toBe("default");
   });
 });

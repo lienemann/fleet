@@ -292,6 +292,18 @@ export function App() {
         run: () => current && canHandOver(current) && send({ type: "handover", agent: name }),
       },
       {
+        id: "agent.compact",
+        label: "Compact the context",
+        group: "Selected agent",
+        run: () => send({ type: "prompt", agent: name, text: "/compact" }),
+      },
+      {
+        id: "agent.terminal",
+        label: "Continue in a terminal",
+        group: "Selected agent",
+        run: () => current?.sessionId && send({ type: "detach", agent: name }),
+      },
+      {
         id: "agent.mode",
         label: "Next permission mode",
         group: "Selected agent",

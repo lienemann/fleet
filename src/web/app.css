@@ -1175,9 +1175,9 @@ button.link.accent {
   border-color: var(--strong);
 }
 /* When the bar is too narrow, the actions move to a row of their own, still on the right. */
+/* One line: the pickers shrink before the actions wrap. */
 .cli-bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 4px 6px;
   padding: 4px 10px;
@@ -1188,12 +1188,46 @@ button.link.accent {
 .cli-state,
 .cli-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
+.cli-state {
+  min-width: 0;
+}
 .cli-actions {
+  flex-shrink: 0;
   margin-left: auto;
+}
+.cli-state > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.cli-state > select {
+  flex-shrink: 1;
+  min-width: 4em;
+  text-overflow: ellipsis;
+}
+.menu-list {
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+.menu-list:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+.menu-list button {
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+}
+.menu-list button:hover:not(:disabled) {
+  background: var(--bg2);
 }
 .cli-bar .cli-pill {
   min-height: 24px;
