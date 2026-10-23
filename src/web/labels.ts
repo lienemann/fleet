@@ -1,5 +1,5 @@
 import type { Activity, PermissionMode, RiskTag } from "../shared/events.ts";
-import type { AgentView, Column } from "../shared/reducer.ts";
+import { type AgentView, type Column, columnOf, needsUser } from "../shared/reducer.ts";
 
 export const COLUMNS: Array<{ id: Column; label: string }> = [
   { id: "queued", label: "Queued" },
@@ -40,6 +40,30 @@ export const MODE_LABELS: Record<PermissionMode, string> = {
   acceptEdits: "accept edits",
   auto: "auto",
 };
+
+/**
+ * What an agent is up to in a word, and the status dot's color class. The director idles by
+ * design, so its dot only warns when it asks for something.
+ */
+export function agentStatus(agent: AgentView): { label: string; dot: Column | "idle" } {
+  const column = columnOf(agent);
+  const label = agent.reconnecting
+    ? "reconnecting"
+    : agent.task === "queued"
+      ? "queued"
+      : agent.role === "director" || agent.activity === "stopped" || agent.activity === "detached"
+        ? ACTIVITY_LABELS[agent.activity]
+        : columnLabel(column);
+  const dot =
+    agent.role !== "director"
+      ? column
+      : needsUser(agent)
+        ? "needs_you"
+        : agent.activity === "working"
+          ? "running"
+          : "idle";
+  return { label, dot };
+}
 
 /** How full the agent's context window is, in percent, once the session has reported it. */
 export function contextPercent(agent: AgentView): number | undefined {

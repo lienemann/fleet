@@ -24,6 +24,13 @@ const systemHost: PowerHost = {
   now: Date.now,
 };
 
+/** Runs nothing and reports success, so that the demo can show sleep control. */
+export const dryHost: PowerHost = {
+  spawn: () => ({ kill: () => true }),
+  run: async () => "",
+  now: Date.now,
+};
+
 /**
  * Keeps the Mac awake for the agents. While any agent works the daemon holds `caffeinate -i`;
  * lid-closed mode additionally runs `pmset disablesleep 1` through a sudoers rule allowing

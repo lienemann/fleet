@@ -128,6 +128,22 @@ test("a second task in a busy workspace waits in the queue", async ({ page }) =>
   await expect(page.locator(".workspaces")).toContainText("ws2");
 });
 
+test("lid-closed mode shows a banner while it is on, and turns off from there", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // "First in ws2" still waits for a permission, so an agent works and the mode stays on.
+  await expect(page.locator(".card", { hasText: "First in ws2" })).toBeVisible();
+  await page.keyboard.press("Shift+L");
+  const banner = page.getByRole("status").filter({ hasText: "Sleep disabled" });
+  await expect(banner).toContainText("pmset disablesleep 1");
+  await expect(page.getByRole("button", { name: "Lid-closed mode on" })).toBeVisible();
+
+  await banner.getByRole("button", { name: "Turn off" }).click();
+  await expect(banner).toBeHidden();
+  await expect(page.getByRole("button", { name: "Lid-closed mode", exact: true })).toBeVisible();
+});
+
 test("the director spawns a worker per line and reports to the user", async ({ page }) => {
   await page.goto("/");
   const dock = page.getByPlaceholder(/Message the director/);
@@ -199,6 +215,14 @@ test("everything works from the keyboard", async ({ page }) => {
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
   await page.keyboard.press("t");
   await expect(page.getByRole("button", { name: "Session" })).toHaveClass(/active/);
+
+  // Opened in the grid, the agent's tile is enlarged; x goes back to all tiles.
+  await page.keyboard.press("o");
+  const strip = page.locator(".strip");
+  await expect(strip.getByRole("button", { name: /All tiles/ })).toBeVisible();
+  await expect(strip).toContainText("director");
+  await page.keyboard.press("x");
+  await expect(page.locator(".grid .tile").first()).toBeVisible();
 });
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {

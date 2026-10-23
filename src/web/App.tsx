@@ -468,16 +468,27 @@ function walkCommands(
 
 /** Lid-closed mode is easy to forget: a banner shows while it is on, and why it went off. */
 function PowerBanner() {
-  const { state } = useFleet();
+  const { state, send } = useFleet();
   const { lidMode, since, note } = state.power;
   if (lidMode) {
     const at = since
       ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : "";
     return (
-      <div className="banner">
-        Lid-closed mode since {at}: it turns off when all agents are idle, after 2 h, or below 20 %
-        battery.
+      <div className="banner power-banner" role="status">
+        <b>Sleep disabled{at && ` since ${at}`}</b>
+        <code>pmset disablesleep 1</code>
+        <span>
+          It turns itself off when all agents are idle, after 2 h, or below 20 % battery. While the
+          lid is closed, builds on this Mac pause; Coder pods keep going.
+        </span>
+        <button
+          type="button"
+          className="turn-off"
+          onClick={() => send({ type: "set_lid_mode", on: false })}
+        >
+          Turn off
+        </button>
       </div>
     );
   }

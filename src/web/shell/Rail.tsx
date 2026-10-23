@@ -1,6 +1,6 @@
-import { type AgentView, agentList, columnOf, needsUser } from "../../shared/reducer.ts";
+import { type AgentView, agentList } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { ACTIVITY_LABELS, columnLabel } from "../labels.ts";
+import { agentStatus } from "../labels.ts";
 
 interface Props {
   selected: string | undefined;
@@ -105,23 +105,7 @@ function AgentRow({
   onSelect: (n: string) => void;
 }) {
   const { color } = useFleet();
-  const column = columnOf(agent);
-  const status = agent.reconnecting
-    ? "reconnecting"
-    : agent.task === "queued"
-      ? "queued"
-      : agent.role === "director" || agent.activity === "stopped" || agent.activity === "detached"
-        ? ACTIVITY_LABELS[agent.activity]
-        : columnLabel(column);
-  // The director idles by design; its dot only warns when it asks for something.
-  const dot =
-    agent.role !== "director"
-      ? column
-      : needsUser(agent)
-        ? "needs_you"
-        : agent.activity === "working"
-          ? "running"
-          : "idle";
+  const { label: status, dot } = agentStatus(agent);
   return (
     <button
       type="button"

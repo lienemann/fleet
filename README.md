@@ -193,7 +193,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `a`, Shift+A, `r` | approve, always allow, or reject its permission request |
 | `m r`, `m c`, `m a`, `m o` | move to review, request changes, accept, reopen |
 | `s`, Shift+M, Esc | stop or start the session (a queued task starts now if its workspace is free), next permission mode, interrupt |
-| `t`, Shift+T, `x` | next or previous drawer tab, close the drawer |
+| `t`, Shift+T, `x` | next or previous drawer tab, close the drawer (in the grid: back to all tiles) |
 | `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
 | Shift+H, Shift+F | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
 | `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, comment, edit, side by side, walkthrough or file order, reload |
