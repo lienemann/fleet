@@ -80,6 +80,14 @@ and test, and open questions. Write it for a capable colleague taking over, then
 `.trim();
 }
 
+/** The first prompt of a director started from the handover of the user's own session. */
+export function directorHandoverStart(path: string): string {
+  return `
+You take over as fleet's director from a Claude Code session that coordinated the user's work so far.
+Read ${path} first; it is that session's handover. Then carry on from there.
+`.trim();
+}
+
 /** The first prompt of the session that takes over. */
 export function handoverStart(path: string, title: string): string {
   return `

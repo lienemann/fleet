@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
@@ -407,5 +410,85 @@ describe("turns made elsewhere", () => {
     await supervisor.watchHolders();
     await until(() => calls.length === 2);
     expect(texts(agent()?.log, "From another branch.")).toBe(0);
+  });
+});
+
+describe("bringing my own director", () => {
+  async function setupDirector(writes: boolean) {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-director-"));
+    const path = join(dir, ".fleet", "director", "handover-1.md");
+    const log = new EventLog(":memory:");
+    const source: SessionSource = {
+      list: async () => [{ sessionId: ID, summary: "Coordinate", lastModified: 1 }],
+      messages: async () => [],
+    };
+    const fork = async function* () {
+      if (writes) {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, "# Handover\n");
+      }
+      yield result();
+    };
+    const fake = fakeQuery(fork, echoing(result()));
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fake.queryFn,
+      sessions: source,
+      config: {
+        workspaces: [{ name: "ws1", path: "/work/ws1", allowedTools: [] }],
+        wip: { running: 4, review: 2 },
+        host: "mac",
+        director: dir,
+      },
+    });
+    supervisor.init();
+    supervisor.handle({ type: "adopt_director", sessionId: ID, workspace: "ws1" });
+    const director = () => log.state.agents.director;
+    return { calls: fake.calls, director, path };
+  }
+
+  it("starts the director fresh from a fork of the session", async () => {
+    const { calls, director, path } = await setupDirector(true);
+    await until(() => calls.length === 2);
+    expect(calls[0]?.options).toMatchObject({
+      resume: ID,
+      forkSession: true,
+      persistSession: false,
+      cwd: "/work/ws1",
+    });
+    expect(calls[1]?.options?.resume).toBeUndefined();
+    await until(() => director()?.log.some((l) => l.role === "user") === true);
+    expect(director()?.log.find((l) => l.role === "user")?.text).toContain(
+      ".fleet/director/handover-1.md",
+    );
+    expect(director()?.handover).toBeUndefined();
+    expect(director()?.handovers).toBe(1);
+    expect(path).toBeTruthy();
+  });
+
+  it("leaves the director as it is when the fork writes nothing", async () => {
+    const { calls, director } = await setupDirector(false);
+    await until(() => director()?.handover?.state === "failed");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("lets the fork write only the handover file", async () => {
+    const { calls, path } = await setupDirector(true);
+    await until(() => calls.length >= 1);
+    const canUseTool = calls[0]?.options?.canUseTool;
+    const ask = (tool: string, input: Record<string, unknown>) =>
+      canUseTool?.(tool, input, {
+        signal: new AbortController().signal,
+        toolUseID: tool,
+        requestId: tool,
+      });
+    await expect(ask("Write", { file_path: path })).resolves.toMatchObject({ behavior: "allow" });
+    await expect(ask("Read", { file_path: "/work/ws1/lib.py" })).resolves.toMatchObject({
+      behavior: "allow",
+    });
+    await expect(ask("Write", { file_path: "/work/ws1/lib.py" })).resolves.toMatchObject({
+      behavior: "deny",
+    });
+    await expect(ask("Bash", { command: "rm -rf /" })).resolves.toMatchObject({ behavior: "deny" });
   });
 });

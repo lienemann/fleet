@@ -114,6 +114,7 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       return [{ host, message: { ...message, docId: name } }];
     }
     case "import_session":
+    case "adopt_director":
     case "create_task":
     case "release_workspace":
     case "remove_workspace": {

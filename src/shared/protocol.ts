@@ -114,6 +114,15 @@ export const CommandSchema = z.discriminatedUnion("type", [
     workspace: z.string().min(1),
     title: z.string().trim().min(1),
   }),
+  /**
+   * Starts the director fresh from a handover that a fork of an existing session writes; the
+   * session itself stays as it is.
+   */
+  z.object({
+    type: z.literal("adopt_director"),
+    sessionId: z.string().uuid(),
+    workspace: z.string().min(1),
+  }),
   /** Sends the draft comments and the user's edits as one message and moves the task to "changes requested". */
   z.object({ type: z.literal("request_changes"), agent, message: z.string().optional() }),
 ]);

@@ -46,11 +46,13 @@ import {
   readWorkspaceFile,
   resolveInside,
 } from "./files.ts";
+import { writeForkHandover } from "./forkHandover.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
 import type { Power } from "./power.ts";
 import {
   BACK_IN_FLEET,
   BRIEFING_ACK,
+  directorHandoverStart,
   directorPrompt,
   handoverRequest,
   handoverStart,
@@ -350,6 +352,9 @@ export class Supervisor implements ToolHost {
         return;
       case "import_session":
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
+        return;
+      case "adopt_director":
+        this.background(this.adoptDirector(message.sessionId, message.workspace));
         return;
       case "add_workspace":
         this.addWorkspace(message.name, message.path, message.explicit);
@@ -776,12 +781,7 @@ export class Supervisor implements ToolHost {
       return;
     }
 
-    await old?.stop();
-    this.sessions.delete(name);
-    this.append(name, { kind: "handover", state: "done", path });
-    const fresh = this.session(name);
-    fresh?.prompt(handoverStart(path, agent.title));
-    fresh?.start();
+    await this.continueFrom(name, path, handoverStart(path, agent.title));
     if (name !== DIRECTOR && this.agent(DIRECTOR)) {
       this.message(
         name,
@@ -789,6 +789,40 @@ export class Supervisor implements ToolHost {
         `I continue "${agent.title}" in a fresh session; the handover is in ${path}.`,
       );
     }
+  }
+
+  /** Ends the agent's session and starts a fresh one with `start`, which reads the handover. */
+  private async continueFrom(name: string, path: string, start: string): Promise<void> {
+    await this.sessions.get(name)?.stop();
+    this.sessions.delete(name);
+    this.append(name, { kind: "handover", state: "done", path });
+    const fresh = this.session(name);
+    fresh?.prompt(start);
+    fresh?.start();
+  }
+
+  /**
+   * Starts the director fresh from the user's own coordinating session: a fork of it writes the
+   * handover, so the session stays as it is wherever it is open.
+   */
+  private async adoptDirector(sessionId: string, workspace: string): Promise<void> {
+    const director = this.agent(DIRECTOR);
+    const cwd = this.workspaceDir(workspace);
+    if (!director || !cwd || director.handover?.state === "writing") return;
+    const path = join(".fleet", DIRECTOR, `handover-${director.handovers + 1}.md`);
+    this.append(DIRECTOR, { kind: "handover", state: "writing", path });
+    const file = join(director.cwd, path);
+    mkdirSync(dirname(file), { recursive: true });
+    if (!(await writeForkHandover(this.queryFn, { sessionId, cwd, path: file }))) {
+      this.append(DIRECTOR, {
+        kind: "handover",
+        state: "failed",
+        path,
+        note: "The session did not write the handover.",
+      });
+      return;
+    }
+    await this.continueFrom(DIRECTOR, path, directorHandoverStart(path));
   }
 
   /** Resolves once `ready` holds, checked after every event. */

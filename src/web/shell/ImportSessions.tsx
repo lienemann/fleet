@@ -25,6 +25,7 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   // Only a single session can be renamed; several keep their own titles.
   const [title, setTitle] = useState<string>();
+  const [asDirector, setAsDirector] = useState(false);
 
   useEffect(() => dialog.current?.showModal(), []);
   useEffect(() => {
@@ -52,14 +53,18 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
 
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    for (const s of chosenSessions) {
-      const renamed = s === single ? title?.trim() : undefined;
-      send({
-        type: "import_session",
-        sessionId: s.sessionId,
-        workspace,
-        title: renamed || s.title,
-      });
+    if (single && asDirector) {
+      send({ type: "adopt_director", sessionId: single.sessionId, workspace });
+    } else {
+      for (const s of chosenSessions) {
+        const renamed = s === single ? title?.trim() : undefined;
+        send({
+          type: "import_session",
+          sessionId: s.sessionId,
+          workspace,
+          title: renamed || s.title,
+        });
+      }
     }
     onClose();
   };
@@ -118,7 +123,18 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
             </label>
           ))}
         </fieldset>
-        {single && (
+        {single && info?.defaultWorkspace && (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={asDirector}
+              onChange={(e) => setAsDirector(e.target.checked)}
+            />
+            Use as director: fleet's director starts fresh from this session's handover; the session
+            itself stays as it is.
+          </label>
+        )}
+        {single && !asDirector && (
           <label>
             Title on the board
             <input value={title ?? single.title} onChange={(e) => setTitle(e.target.value)} />

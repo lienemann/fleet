@@ -429,11 +429,17 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await expect(dialog.getByLabel("Speed up the sweep loop")).toBeHidden();
   await dialog.getByLabel("Explain the scheduler").check();
   await expect(dialog.getByLabel("Title on the board")).toHaveValue("Explain the scheduler");
+  // A single session can instead hand its knowledge to a fresh director.
+  const asDirector = dialog.getByLabel(/^Use as director/);
+  await asDirector.check();
+  await expect(dialog.getByLabel("Title on the board")).toBeHidden();
+  await asDirector.uncheck();
 
   // A second pick keeps both titles; only a single session can be renamed.
   await search.clear();
   await dialog.getByLabel("Speed up the sweep loop").check();
   await expect(dialog.getByLabel("Title on the board")).toBeHidden();
+  await expect(asDirector).toBeHidden();
   await dialog.getByRole("button", { name: "Import 2", exact: true }).click();
 
   await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeVisible();

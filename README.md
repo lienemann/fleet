@@ -87,7 +87,9 @@ or "+ Add" next to the agent list, imports sessions you started in the CLI: pick
 itself), tick one or more sessions, and each becomes a task with its transcript. A session nobody has open runs in
 fleet right away and is told that it now works in fleet. One that a terminal, VS Code or the Desktop app still has
 open waits: fleet takes it once you close it there, and Attach (or a message to it) ends that client at once.
-"Continue in a terminal" under ⋯ hands a session the other way; fleet takes it back when the terminal closes.
+"Continue in a terminal" under ⋯ hands a session the other way; fleet takes it back when the terminal closes. With a
+single session ticked, "Use as director" starts fleet's director fresh from what that session knows: a copy of it
+writes a handover, and the session itself stays as it is.
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). To work in a
 jj workspace that exists already, press "+ Add" next to the workspace list: fleet lists the repo's workspaces it

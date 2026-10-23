@@ -2118,6 +2118,11 @@ button.ln:hover {
 .session-list legend {
   color: var(--muted);
 }
+.dialog .check-row {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
 .dialog .session-list .option {
   flex-direction: row;
   align-items: baseline;
