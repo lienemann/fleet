@@ -182,6 +182,7 @@ function StatusRow({ agent }: { agent: AgentView }) {
   const doing = currentWork(agent) ?? "no to-do list";
   const context = contextPercent(agent);
   const running = agent.subagents.filter((s) => !s.done).length;
+  const background = agent.backgroundTasks.filter((t) => t.backgrounded && !t.end);
   return (
     <>
       <div className="status-row">
@@ -201,8 +202,8 @@ function StatusRow({ agent }: { agent: AgentView }) {
           ${(agent.costByDay[dayOf(now)] ?? 0).toFixed(2)} today
         </span>
         {running > 0 && <span>subagents: {running}</span>}
-        {agent.backgroundTasks.length > 0 && (
-          <span>background: {agent.backgroundTasks.map((t) => t.description).join(" · ")}</span>
+        {background.length > 0 && (
+          <span>background: {background.map((t) => t.description).join(" · ")}</span>
         )}
       </div>
       {open && (

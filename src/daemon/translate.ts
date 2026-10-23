@@ -28,12 +28,33 @@ export function translate(message: SDKMessage): AgentEvent[] {
           },
         ];
       }
-      if (message.subtype === "background_tasks_changed") {
-        // Ambient tasks (live-update watchers and the like) are not activity worth showing.
-        const tasks = message.tasks
-          .filter((t) => !t.ambient)
-          .map((t) => ({ id: t.task_id, type: t.task_type, description: t.description }));
-        return [{ kind: "background_tasks", tasks }];
+      // Ambient tasks (live-update watchers and the like) are not activity worth showing.
+      if (message.subtype === "task_started" && !message.ambient && !message.skip_transcript) {
+        return [
+          {
+            kind: "background_started",
+            taskId: message.task_id,
+            toolUseId: message.tool_use_id,
+            type: message.task_type ?? "task",
+            description: message.description,
+            // Only shells and subagents can wait in their tool call.
+            backgrounded: message.is_backgrounded ?? true,
+          },
+        ];
+      }
+      if (message.subtype === "task_updated" && message.patch.is_backgrounded) {
+        return [{ kind: "background_moved", taskId: message.task_id }];
+      }
+      if (message.subtype === "task_notification") {
+        return [
+          {
+            kind: "background_ended",
+            taskId: message.task_id,
+            status: message.status,
+            summary: message.summary || undefined,
+            outputFile: message.output_file || undefined,
+          },
+        ];
       }
       if (message.subtype === "api_retry") {
         const detail = `retry ${message.attempt}/${message.max_retries}`;

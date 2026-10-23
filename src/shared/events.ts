@@ -56,11 +56,8 @@ export interface ContextCategory {
   kind: "used" | "free" | "buffer" | "deferred";
 }
 
-export interface BackgroundTask {
-  id: string;
-  type: string;
-  description: string;
-}
+/** How a background task ended. */
+export type TaskEnd = "completed" | "failed" | "stopped";
 
 export interface QuestionOption {
   label: string;
@@ -217,8 +214,33 @@ export type EventBody =
       title?: string;
     }
   | { kind: "todos"; todos: Todo[] }
-  /** Live background tasks (shells, watchers, background agents); replaces the previous list. */
-  | { kind: "background_tasks"; tasks: BackgroundTask[] }
+  /** The live tasks as older versions logged them; superseded by the events below. */
+  | { kind: "background_tasks"; tasks: unknown[] }
+  /**
+   * The session started a shell, subagent, monitor or workflow. While `backgrounded` is false,
+   * the tool call that started it waits for it.
+   */
+  | {
+      kind: "background_started";
+      taskId: string;
+      toolUseId?: string;
+      /** The SDK's task type, e.g. "local_bash" or "local_agent". */
+      type: string;
+      description: string;
+      backgrounded: boolean;
+    }
+  /** A task that held up its tool call now runs in the background. */
+  | { kind: "background_moved"; taskId: string }
+  | {
+      kind: "background_ended";
+      taskId: string;
+      status: TaskEnd;
+      summary?: string;
+      /** Where the CLI keeps the task's output. */
+      outputFile?: string;
+    }
+  /** The user cleared the finished background tasks. */
+  | { kind: "background_cleared" }
   | {
       kind: "decision_requested";
       requestId: string;

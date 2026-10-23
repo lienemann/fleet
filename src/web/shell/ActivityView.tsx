@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentView, LogLine } from "../../shared/reducer.ts";
+import { BackgroundTasks } from "./BackgroundTasks.tsx";
 
 /** Finished calls shown before "Show more". */
 const FINISHED_SHOWN = 15;
@@ -55,17 +56,7 @@ export function ActivityView({ agent }: { agent: AgentView }) {
 
   return (
     <div className="drawer-scroll activity">
-      {agent.backgroundTasks.length > 0 && (
-        <section>
-          <h3>Background</h3>
-          {agent.backgroundTasks.map((task) => (
-            <div key={task.id} className="call">
-              <span className="call-title">{task.description}</span>
-              <span className="dim">{task.type}</span>
-            </div>
-          ))}
-        </section>
-      )}
+      <BackgroundTasks agent={agent} />
       <section>
         <h3>Running</h3>
         {running.length === 0 && <p className="empty">Nothing right now.</p>}

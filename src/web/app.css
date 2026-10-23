@@ -2384,6 +2384,42 @@ button.ln:hover {
 .call-output {
   background: var(--btn);
 }
+.task summary {
+  align-items: baseline;
+}
+.task-dot {
+  flex: none;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.task.quiet .task-dot {
+  background: var(--warn);
+}
+.task.completed .task-dot,
+.task.stopped .task-dot {
+  background: var(--dim);
+}
+.task.failed .task-dot {
+  background: var(--delfg);
+}
+.task-time {
+  flex: none;
+}
+.task.quiet .task-time {
+  color: var(--warnfg);
+}
+.task-output {
+  max-height: 24em;
+}
+.background-finished {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+}
 
 .rail-head {
   display: flex;

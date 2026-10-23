@@ -28,11 +28,31 @@ export function demoQuery(delayMs = 400): QueryFn {
     let interrupted = false;
     let closed = false;
     const pause = () => new Promise((resolve) => setTimeout(resolve, delayMs));
+    /** Shells started in the background, by task id: when they started. */
+    const shells = new Map<string, number>();
+    /** Messages the CLI sends between turns, e.g. when a shell is stopped. */
+    const between: SDKMessage[] = [];
+    let wakeBetween: (() => void) | undefined;
 
     /** Runs a step; tool steps yield the call and then its result, like the CLI. */
     async function* perform(step: Step): AsyncGenerator<SDKMessage> {
       if (step.type === "say") return yield say(step.text, step.parent);
       if (step.type === "done") return yield toolResult(step.id, step.output);
+      if (step.type === "shell") {
+        const taskId = `${step.id}-task`;
+        yield use(step.id, "Bash", { command: step.command, run_in_background: true });
+        shells.set(taskId, Date.now());
+        yield msg({
+          type: "system",
+          subtype: "task_started",
+          task_id: taskId,
+          tool_use_id: step.id,
+          task_type: "local_bash",
+          description: step.description,
+          is_backgrounded: true,
+        });
+        return yield toolResult(step.id, `Command running in background with ID: ${taskId}`);
+      }
       if (step.type === "write") {
         mkdirSync(dirname(join(options.cwd ?? ".", step.path)), { recursive: true });
         writeFileSync(join(options.cwd ?? ".", step.path), step.content);
@@ -98,7 +118,51 @@ export function demoQuery(delayMs = 400): QueryFn {
       }
     }
 
-    return Object.assign(run(), {
+    /** The turns, with what arrives between them. */
+    async function* stream(): AsyncGenerator<SDKMessage> {
+      const turns = run();
+      let next = turns.next();
+      while (!closed) {
+        const woken = new Promise<undefined>((resolve) => {
+          wakeBetween = () => resolve(undefined);
+        });
+        const result = between.length > 0 ? undefined : await Promise.race([next, woken]);
+        if (result === undefined) {
+          yield* between.splice(0);
+          continue;
+        }
+        if (result.done) return;
+        yield result.value;
+        next = turns.next();
+      }
+    }
+
+    return Object.assign(stream(), {
+      // A test runner's log: a line a second for half a minute, then quiet.
+      getTaskOutput: async (taskId: string) => {
+        const started = shells.get(taskId) ?? Date.now();
+        const lines = Math.min(30, Math.floor((Date.now() - started) / 1000) + 1);
+        const output = Array.from(
+          { length: lines },
+          (_, i) =>
+            `sweep ${String(i + 1).padStart(2)}/50  ok  ${(11 + (i % 7) * 0.4).toFixed(1)} ms\n`,
+        ).join("");
+        return { output, total_bytes: output.length, truncated: false };
+      },
+      stopTask: async (taskId: string) => {
+        if (!shells.delete(taskId)) return;
+        between.push(
+          msg({
+            type: "system",
+            subtype: "task_notification",
+            task_id: taskId,
+            status: "stopped",
+            output_file: "",
+            summary: "Stopped by the user.",
+          }),
+        );
+        wakeBetween?.();
+      },
       interrupt: async () => {
         interrupted = true;
       },
@@ -187,6 +251,8 @@ type Step =
       parent?: undefined;
     }
   | { type: "write"; path: string; content: string }
+  /** A Bash command that keeps running in the background. */
+  | { type: "shell"; id: string; command: string; description: string }
   | {
       type: "fleet";
       id: string;
@@ -233,6 +299,12 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
   return [
     { type: "say", text: `Looking into: ${prompt.split("\n")[0]}` },
     { type: "tool", id: id(1), name: "TodoWrite", input: { todos }, output: "Todos updated" },
+    {
+      type: "shell",
+      id: id(9),
+      command: "tail -f runner.log",
+      description: "Follow the runner's log",
+    },
     {
       type: "tool",
       id: id(2),

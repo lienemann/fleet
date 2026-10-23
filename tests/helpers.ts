@@ -43,6 +43,10 @@ export const toolResult = (id: string, content: string, parent: string | null = 
     message: { content: [{ type: "tool_result", tool_use_id: id, content }] },
   });
 
+/** A `task_*` system message of the SDK, e.g. task_started. */
+export const task = (subtype: string, taskId: string, fields: object = {}): SDKMessage =>
+  sdk({ type: "system", subtype, task_id: taskId, ...fields });
+
 export const result = (overrides: object = {}): SDKMessage =>
   sdk({
     type: "result",
@@ -77,6 +81,9 @@ export function fakeQuery(...scripts: Script[]) {
       setModel: vi.fn(async () => undefined),
       applyFlagSettings: vi.fn(async () => undefined),
       getContextUsage: vi.fn(async () => ({ totalTokens: 1000, maxTokens: 200_000 })),
+      stopTask: vi.fn(async () => undefined),
+      backgroundTasks: vi.fn(async () => true),
+      getTaskOutput: vi.fn(async () => ({ output: "", total_bytes: 0, truncated: false })),
     }) as unknown as Query;
     queries.push(query);
     return query;

@@ -24,6 +24,7 @@ import type {
   Command,
   DirectoryInfo,
   SessionSummary,
+  TaskOutput,
 } from "../shared/protocol.ts";
 import {
   type AgentView,
@@ -43,6 +44,7 @@ import {
   listWorkspaceFiles,
   OutsideWorkspaceError,
   parseOpenPoints,
+  readOutputTail,
   readWorkspaceFile,
   resolveInside,
 } from "./files.ts";
@@ -250,6 +252,15 @@ export class Supervisor implements ToolHost {
     }
     for (const agent of this.agents) {
       if (agent.reconnecting) this.append(agent.name, { kind: "connection", reconnecting: false });
+      // The tasks of a daemon that did not stop cleanly ended with its sessions.
+      for (const task of agent.backgroundTasks.filter((t) => !t.end)) {
+        this.append(agent.name, {
+          kind: "background_ended",
+          taskId: task.id,
+          status: "stopped",
+          summary: "Ended with the session.",
+        });
+      }
     }
     const live = this.agents.filter((a) => a.activity === "working" || a.activity === "idle");
     if (this.holders) this.background(this.resumeUnlessHeld(live));
@@ -290,6 +301,15 @@ export class Supervisor implements ToolHost {
         return;
       case "interrupt":
         this.background(this.sessions.get(message.agent)?.interrupt());
+        return;
+      case "stop_task":
+        this.background(this.sessions.get(message.agent)?.stopTask(message.taskId));
+        return;
+      case "background_task":
+        this.background(this.sessions.get(message.agent)?.moveToBackground(message.taskId));
+        return;
+      case "clear_tasks":
+        if (this.agent(message.agent)) this.append(message.agent, { kind: "background_cleared" });
         return;
       case "answer":
         this.answer(message.requestId, message.answer);
@@ -413,6 +433,8 @@ export class Supervisor implements ToolHost {
         return listWorkspaceFiles(agent.cwd);
       case "notes":
         return agentNotes(agent.cwd, agent.name);
+      case "task_output":
+        return this.taskOutput(agent, call.taskId, call.all);
       case "review_load":
         return this.trackProgress(
           await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough, call.scope),
@@ -429,6 +451,16 @@ export class Supervisor implements ToolHost {
         return this.trackProgress(model);
       }
     }
+  }
+
+  /** A running task's output comes from its session, a finished one's from its file. */
+  private async taskOutput(agent: AgentView, taskId: string, all?: boolean): Promise<TaskOutput> {
+    const task = agent.backgroundTasks.find((t) => t.id === taskId);
+    if (!task) throw new Error(`${agent.name} has no task ${taskId}.`);
+    if (task.end?.outputFile) return readOutputTail(task.end.outputFile, all);
+    const session = this.sessions.get(agent.name);
+    if (!session?.isRunning) throw new Error("The output ended with the session.");
+    return session.taskOutput(taskId);
   }
 
   /** The repo's jj workspaces; the default one belongs to the director and is left out. */

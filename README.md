@@ -34,7 +34,9 @@ The screenshots come from the demo; `just screenshots` takes them again, for thi
 
 Selecting an agent opens its drawer. Besides the diff, report and messages, the Session tab shows where the agent
 runs, what fills its context window (split up the way `/context` does it) and which files it wrote. The Activity
-tab lists its tool calls with their input and output, its subagents with their steps, and its background tasks.
+tab lists its tool calls with their input and output and its subagents with their steps. Above them are the shells
+and subagents the agent left running: how long each has run, when a shell last wrote output (it turns amber after two
+quiet minutes), the end of that output, and Stop.
 
 When a session's context fills up, Hand over (Shift+H) asks it to write a handover document to
 `.fleet/<agent>/handover-N.md`. fleet then starts a fresh session under the same name, which reads the document and

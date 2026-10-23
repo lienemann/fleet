@@ -41,10 +41,12 @@ export function Drawer({ agent, tab, onTab, onOpenInGrid, onClose }: Props) {
   const messages = state.messages
     .filter((m) => m.from === agent.name || m.to === agent.name)
     .reverse();
+  // Only tasks that run on their own can be forgotten, so only they count.
+  const running = agent.backgroundTasks.filter((t) => !t.end).length;
   const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
     { id: "session", label: "Session" },
-    { id: "activity", label: "Activity" },
+    { id: "activity", label: running > 0 ? `Activity · ${running}` : "Activity" },
     { id: "files", label: "Files" },
     {
       id: "diff",

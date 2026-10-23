@@ -39,6 +39,11 @@ export const CommandSchema = z.discriminatedUnion("type", [
       .optional(),
   }),
   z.object({ type: z.literal("interrupt"), agent }),
+  /** Stops a shell, subagent or monitor the session runs. */
+  z.object({ type: z.literal("stop_task"), agent, taskId: z.string().min(1) }),
+  /** Lets the tool call that waits for a task go on while the task runs in the background. */
+  z.object({ type: z.literal("background_task"), agent, taskId: z.string().min(1) }),
+  z.object({ type: z.literal("clear_tasks"), agent }),
   z.object({ type: z.literal("answer"), requestId: z.string().min(1), answer: AnswerSchema }),
   z.object({
     type: z.literal("answer_point"),
@@ -153,6 +158,14 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inspect_directory"), id, path: z.string().min(1).max(4096) }),
   /** Claude Code sessions recorded for a workspace's directory, newest first. */
   z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
+  /** The end of a shell's or monitor's output; `all` reads more of a finished one. */
+  z.object({
+    type: z.literal("task_output"),
+    id,
+    agent,
+    taskId: z.string().min(1),
+    all: z.boolean().optional(),
+  }),
   /** Files the agent keeps for the user under .fleet/<agent>/. */
   z.object({ type: z.literal("notes"), id, agent }),
   z.object({
@@ -184,9 +197,21 @@ export interface CallResults {
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
   inspect_directory: DirectoryInfo;
   notes: Array<{ path: string; modified: number; size: number }>;
+  task_output: TaskOutput;
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;
+}
+
+/** The end of a task's output. */
+export interface TaskOutput {
+  output: string;
+  /** Size of the whole output. */
+  totalBytes: number;
+  /** `output` is only the end of it. */
+  truncated: boolean;
+  /** When the output last grew, as far as the daemon saw; absent once the task ended. */
+  lastOutputAt?: number;
 }
 
 /** A directory that could become a workspace. */

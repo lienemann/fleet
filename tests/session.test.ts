@@ -134,24 +134,6 @@ describe("AgentSession", () => {
     await session.stop();
   });
 
-  it("lists live background tasks, leaving out ambient ones", async () => {
-    const tasks = [
-      { task_id: "t1", task_type: "local_bash", description: "npm run dev" },
-      { task_id: "t2", task_type: "monitor", description: "watch CI", ambient: true },
-    ];
-    const { queryFn } = fakeQuery(
-      echoing(sdk({ type: "system", subtype: "background_tasks_changed", tasks }), result()),
-    );
-    const { session, agent } = newSession(queryFn);
-    session.start();
-    session.prompt("go");
-    await until(() => agent()?.activity === "idle");
-    expect(agent()?.backgroundTasks).toEqual([
-      { id: "t1", type: "local_bash", description: "npm run dev" },
-    ]);
-    await session.stop();
-  });
-
   it("resumes the same session with backoff after a crash", async () => {
     const sleep = vi.fn(async () => undefined);
     const { queryFn, calls } = fakeQuery(

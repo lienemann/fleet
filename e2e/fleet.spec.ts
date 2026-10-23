@@ -72,6 +72,17 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(page.locator(".report")).toContainText("zmplwqrs");
   await shot(page, "report");
 
+  // The shell the agent left running: its output, and Stop.
+  await page.getByRole("button", { name: "Activity · 1" }).click();
+  const shell = page.locator(".task", { hasText: "tail -f runner.log" });
+  await shell.locator("summary").click();
+  await expect(shell.locator(".task-output")).toContainText("sweep  1/50");
+  await expect(shell).toContainText(/output \d+s ago/);
+  await shot(page, "background");
+  await shell.getByRole("button", { name: "Stop" }).click();
+  await expect(shell).toContainText("stopped");
+  await expect(page.getByRole("button", { name: "Activity", exact: true })).toBeVisible();
+
   // Review the change hunk by hunk, comment, and send it back.
   await page.getByRole("button", { name: /^Diff/ }).click();
   const diff = page.locator(".diff");

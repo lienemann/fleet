@@ -1,11 +1,38 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OpenPoint } from "../shared/events.ts";
+import type { TaskOutput } from "../shared/protocol.ts";
 
 /** Files larger than this are not shown in the browser. */
 const MAX_BYTES = 512 * 1024;
+
+/** As much of a task's output as the CLI hands out while it runs. */
+const TAIL_BYTES = 8 * 1024;
+
+/** The end of a finished task's output file; `all` reads up to the browser's limit. */
+export function readOutputTail(path: string, all = false): TaskOutput {
+  const totalBytes = statSync(path).size;
+  const length = Math.min(totalBytes, all ? MAX_BYTES : TAIL_BYTES);
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(path, "r");
+  try {
+    readSync(fd, buffer, 0, length, totalBytes - length);
+  } finally {
+    closeSync(fd);
+  }
+  return { output: buffer.toString("utf8"), totalBytes, truncated: length < totalBytes };
+}
 
 export class OutsideWorkspaceError extends Error {}
 

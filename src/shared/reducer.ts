@@ -1,6 +1,5 @@
 import {
   type Activity,
-  type BackgroundTask,
   type ContextCategory,
   DEFAULT_PERMISSION_MODE,
   type DecisionKind,
@@ -17,6 +16,7 @@ import {
   type RiskTag,
   type Role,
   type SessionHolder,
+  type TaskEnd,
   type TaskState,
   type Tint,
   type Todo,
@@ -50,6 +50,25 @@ export interface LogLine {
   /** The state keeps only the start of long output; the event log has all of it. */
   truncated?: boolean;
 }
+
+/** A shell, subagent, monitor or workflow the session runs on its own, or ran. */
+export interface BackgroundTask {
+  id: string;
+  /** The SDK's task type, e.g. "local_bash" or "local_agent". */
+  type: string;
+  description: string;
+  toolUseId?: string;
+  /** What a shell or monitor runs, from the tool call that started it. */
+  command?: string;
+  /** False while the tool call that started it waits for it. */
+  backgrounded: boolean;
+  startedAt: number;
+  end?: { status: TaskEnd; at: number; summary?: string; outputFile?: string };
+}
+
+/** Task types the CLI keeps an output for: shells and monitors. */
+const OUTPUT_TYPES: ReadonlySet<string> = new Set(["local_bash", "monitor"]);
+export const writesOutput = (type: string): boolean => OUTPUT_TYPES.has(type);
 
 export interface Subagent {
   toolUseId: string;
@@ -213,6 +232,8 @@ export const HISTORY_LIMIT = 400;
 export const HELD_LIMIT = 50;
 /** Models offered for picking; Claude Code lists about a dozen. */
 export const MODELS_LIMIT = 40;
+/** Finished background tasks kept per agent; the oldest go first. */
+export const BACKGROUND_LIMIT = 20;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
@@ -471,7 +492,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     case "todos":
       return patch({ todos: event.todos });
     case "background_tasks":
-      return patch({ backgroundTasks: event.tasks });
+      return state;
+    case "background_started":
+    case "background_moved":
+    case "background_ended":
+    case "background_cleared":
+      return patch({ backgroundTasks: trackBackground(agent, event) });
     case "decision_requested":
       return {
         ...patch({ pending: agent.pending + 1 }),
@@ -639,6 +665,52 @@ function trackOutputs(outputs: string[], event: FleetEvent & { kind: "log" }): s
     return outputs;
   const path = event.text;
   return [path, ...outputs.filter((p) => p !== path)].slice(0, OUTPUT_LIMIT);
+}
+
+function trackBackground(agent: AgentView, event: FleetEvent): BackgroundTask[] {
+  const tasks = agent.backgroundTasks;
+  switch (event.kind) {
+    case "background_started": {
+      // A resumed task keeps its id; the new run replaces the old row.
+      const call =
+        event.type === "local_agent"
+          ? undefined
+          : agent.log.findLast((l) => l.role === "tool_use" && l.toolUseId === event.toolUseId);
+      const task: BackgroundTask = {
+        id: event.taskId,
+        type: event.type,
+        description: event.description,
+        backgrounded: event.backgrounded,
+        startedAt: event.ts,
+        ...(event.toolUseId && { toolUseId: event.toolUseId }),
+        ...(call && { command: call.text }),
+      };
+      return [...tasks.filter((t) => t.id !== event.taskId), task];
+    }
+    case "background_moved":
+      return tasks.map((t) => (t.id === event.taskId ? { ...t, backgrounded: true } : t));
+    case "background_ended": {
+      const ended = tasks.find((t) => t.id === event.taskId && !t.end);
+      if (!ended) return tasks;
+      // A task that never left its tool call is in the tool calls already.
+      if (!ended.backgrounded) return tasks.filter((t) => t !== ended);
+      const end = {
+        status: event.status,
+        at: event.ts,
+        ...(event.summary && { summary: event.summary }),
+        ...(event.outputFile && { outputFile: event.outputFile }),
+      };
+      const updated = tasks.map((t) => (t === ended ? { ...t, end } : t));
+      const finished = updated.filter((t) => t.end);
+      if (finished.length <= BACKGROUND_LIMIT) return updated;
+      const dropped = new Set(finished.slice(0, finished.length - BACKGROUND_LIMIT));
+      return updated.filter((t) => !dropped.has(t));
+    }
+    case "background_cleared":
+      return tasks.filter((t) => !t.end);
+    default:
+      return tasks;
+  }
 }
 
 // The CLI spawns subagents through a tool call; its result ends them.

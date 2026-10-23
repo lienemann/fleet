@@ -18,7 +18,8 @@ import {
   type PromptAttachment,
   type Question,
 } from "../shared/events.ts";
-import type { Answer } from "../shared/protocol.ts";
+import type { Answer, TaskOutput } from "../shared/protocol.ts";
+import { writesOutput } from "../shared/reducer.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { deriveRisk } from "./risk.ts";
 import { translate } from "./translate.ts";
@@ -63,6 +64,24 @@ const defaultSleep = (ms: number): Promise<void> =>
 /** An interrupt the CLI does not answer must not hold up a stop. */
 const INTERRUPT_TIMEOUT_MS = 5000;
 
+/** How often the session looks at its shells' output, to tell when one went quiet. */
+export const OUTPUT_SAMPLE_MS = 5000;
+
+/** The SDK answers this request but does not declare it. */
+type OutputQuery = Query & {
+  getTaskOutput?: (
+    taskId: string,
+  ) => Promise<{ output: string; total_bytes: number; truncated: boolean }>;
+};
+
+/** A task of the current process: what it is and when its output last grew. */
+interface LiveTask {
+  type: string;
+  toolUseId?: string;
+  bytes?: number;
+  lastOutputAt?: number;
+}
+
 /** Resolves when `promise` settles or after `ms`, whichever comes first; never rejects. */
 const settleWithin = (promise: Promise<unknown> | undefined, ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -103,6 +122,9 @@ export class AgentSession {
   private lastCost = 0;
   /** Text the agent wrote since its last tool result; explains the next tool call. */
   private explanation = "";
+  /** Background tasks of the current process; they end with it. */
+  private readonly tasks = new Map<string, LiveTask>();
+  private sampler: ReturnType<typeof setInterval> | undefined;
   private done: Promise<void> = Promise.resolve();
 
   constructor(options: SessionOptions) {
@@ -175,7 +197,31 @@ export class AgentSession {
     this.wake?.();
     if (interrupt) await settleWithin(query?.interrupt(), INTERRUPT_TIMEOUT_MS);
     query?.close();
+    this.endTasks();
     await done;
+  }
+
+  /** The end of a shell's or monitor's output, and when it last grew. */
+  async taskOutput(taskId: string): Promise<TaskOutput> {
+    const query = this.query as OutputQuery | undefined;
+    if (!query?.getTaskOutput) throw new Error("The session is not running.");
+    const { output, total_bytes, truncated } = await query.getTaskOutput(taskId);
+    const task = this.tasks.get(taskId);
+    if (task && task.bytes !== total_bytes) {
+      task.bytes = total_bytes;
+      task.lastOutputAt = Date.now();
+    }
+    return { output, totalBytes: total_bytes, truncated, lastOutputAt: task?.lastOutputAt };
+  }
+
+  async stopTask(taskId: string): Promise<void> {
+    if (this.tasks.has(taskId)) await this.query?.stopTask(taskId);
+  }
+
+  /** Lets the tool call that waits for a task go on, like Ctrl+B in the CLI. */
+  async moveToBackground(taskId: string): Promise<void> {
+    const toolUseId = this.tasks.get(taskId)?.toolUseId;
+    if (toolUseId) await this.query?.backgroundTasks(toolUseId);
   }
 
   /**
@@ -252,6 +298,7 @@ export class AgentSession {
         }
         if (this.current(generation)) {
           // The CLI ended the session on its own.
+          this.endTasks();
           this.running = false;
           this.setActivity("stopped");
         }
@@ -260,6 +307,7 @@ export class AgentSession {
         if (!this.current(generation)) return;
         attempt++;
         this.resolveAllStale();
+        this.endTasks();
         this.setReconnecting(true, error instanceof Error ? error.message : String(error));
         await Promise.race([
           this.sleep(backoff(attempt)),
@@ -308,8 +356,13 @@ export class AgentSession {
         if (event.role === "tool_result") this.explanation = "";
       }
       if (event.kind === "connection") this.reconnecting = event.reconnecting;
+      if (event.kind === "background_started") {
+        this.tasks.set(event.taskId, { type: event.type, toolUseId: event.toolUseId });
+      }
+      if (event.kind === "background_ended") this.tasks.delete(event.taskId);
       this.options.emit(event);
     }
+    this.watchOutputs();
 
     if (message.type === "result") {
       // total_cost_usd accumulates over the query() call.
@@ -325,6 +378,37 @@ export class AgentSession {
       // Not awaited: the answer arrives through the stream this loop is reading.
       void this.reportContext();
     }
+  }
+
+  /** Samples the shells' output while any runs, so a quiet one shows without anyone looking. */
+  private watchOutputs(): void {
+    const watching = [...this.tasks.values()].some((task) => writesOutput(task.type));
+    if (watching && !this.sampler) {
+      this.sampler = setInterval(() => this.sampleOutputs(), OUTPUT_SAMPLE_MS).unref();
+    } else if (!watching && this.sampler) {
+      clearInterval(this.sampler);
+      this.sampler = undefined;
+    }
+  }
+
+  private sampleOutputs(): void {
+    for (const [taskId, task] of this.tasks) {
+      if (writesOutput(task.type)) void this.taskOutput(taskId).catch(() => undefined);
+    }
+  }
+
+  /** A process takes its tasks with it when it ends. */
+  private endTasks(): void {
+    for (const taskId of this.tasks.keys()) {
+      this.options.emit({
+        kind: "background_ended",
+        taskId,
+        status: "stopped",
+        summary: "Ended with the session.",
+      });
+    }
+    this.tasks.clear();
+    this.watchOutputs();
   }
 
   private async reportContext(): Promise<void> {

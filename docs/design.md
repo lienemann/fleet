@@ -190,9 +190,11 @@ The Agent SDK runs the same harness as the CLI, so most capabilities exist; the 
 | Messages queued while busy             | Queue shown under the prompt                 | 3     |
 | `/btw` side questions                  | Side-question popover                        | 3     |
 | Plan mode output                       | Plan as a doc with comments, then approve    | 3     |
-| Background tasks and watchers          | Listed per tile                              | 3     |
+| Background tasks and watchers          | Activity tab: output, Stop, Ctrl+B           | 3     |
 | Cost and usage                         | Per agent, per day                           | 3     |
 | Skills, hooks, MCP, plugins            | Read-only list; manage in the CLI            | later |
+
+**Background tasks.** The Activity tab lists, above the tool calls, what a session runs on its own: shells, monitors, workflows and background subagents, from the SDK's `task_*` messages. A command that holds up its tool call is listed too while it runs, with Move to background (Ctrl+B in the CLI), and drops out of the list if it ends there. A shell's row shows its command, how long it has run and when its output last grew. Fleet cannot know whether a process hangs, so output that stays quiet for two minutes is the hint: the row turns amber. The session samples the output every 5 s while a shell runs, so the hint is right even when nobody had the tab open. Opening the row shows the end of the output (the CLI hands out the last 8 KiB), refreshed every few seconds; a finished shell's output comes from the file the CLI names when the task ends. Stop goes to the SDK's `stopTask`. Tasks end with their CLI process, so a stopped, crashed or restarted session marks them stopped. The state keeps the last 20 finished tasks per agent, and Clear drops them.
 
 **Escape hatch.** Any agent can be handed to a terminal: the daemon releases the session and prints `claude --resume <id>` for its workspace. Two processes must never write the same transcript, so while another process holds the session, the tile shows it as detached. An imported session starts the same way when something else still has it open.
 
