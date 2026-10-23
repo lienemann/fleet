@@ -1,5 +1,5 @@
 import type { Activity, PermissionMode, RiskTag } from "../shared/events.ts";
-import type { Column } from "../shared/reducer.ts";
+import type { AgentView, Column } from "../shared/reducer.ts";
 
 export const COLUMNS: Array<{ id: Column; label: string }> = [
   { id: "queued", label: "Queued" },
@@ -40,6 +40,17 @@ export const MODE_LABELS: Record<PermissionMode, string> = {
   acceptEdits: "accept edits",
   auto: "auto",
 };
+
+/** How full the agent's context window is, in percent, once the session has reported it. */
+export function contextPercent(agent: AgentView): number | undefined {
+  return agent.context && Math.round((100 * agent.context.tokens) / agent.context.window);
+}
+
+/** What the agent works on now, for the "▸" lines: its status, else its current to-do. */
+export function currentWork(agent: AgentView): string | undefined {
+  const todo = agent.todos.find((t) => t.status === "in_progress");
+  return agent.status ?? todo?.activeForm ?? todo?.content;
+}
 
 /** "6 s ago", "4 min ago", "2 h ago": how long ago something happened. */
 export function ago(ms: number): string {

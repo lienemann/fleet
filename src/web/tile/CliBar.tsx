@@ -1,7 +1,7 @@
 import { PERMISSION_MODES } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { MODE_LABELS } from "../labels.ts";
+import { contextPercent, MODE_LABELS } from "../labels.ts";
 
 const MODELS = ["opus", "sonnet", "haiku"];
 
@@ -14,9 +14,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
     PERMISSION_MODES[
       (PERMISSION_MODES.indexOf(agent.permissionMode) + 1) % PERMISSION_MODES.length
     ];
-  const percent = agent.context
-    ? Math.round((100 * agent.context.tokens) / agent.context.window)
-    : undefined;
+  const percent = contextPercent(agent);
   const models = agent.model && !MODELS.includes(agent.model) ? [agent.model, ...MODELS] : MODELS;
 
   return (

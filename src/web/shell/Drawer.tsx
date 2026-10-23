@@ -1,9 +1,13 @@
-import type { AgentView } from "../../shared/reducer.ts";
+import { type AgentView, columnOf } from "../../shared/reducer.ts";
+import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
+import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
+import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
+import { useNow } from "../useNow.ts";
 import { ActivityView } from "./ActivityView.tsx";
 import { FilesView } from "./FilesView.tsx";
 import { SessionView } from "./SessionView.tsx";
@@ -23,12 +27,17 @@ interface Props {
   agent: AgentView;
   tab: DrawerTab;
   onTab: (tab: DrawerTab) => void;
+  onOpenInGrid: () => void;
   onClose: () => void;
 }
 
 /** The selected task beside the board and inbox. */
-export function Drawer({ agent, tab, onTab, onClose }: Props) {
-  const { state } = useFleet();
+export function Drawer({ agent, tab, onTab, onOpenInGrid, onClose }: Props) {
+  const { state, color } = useFleet();
+  const now = useNow();
+  const column = columnOf(agent);
+  const context = contextPercent(agent);
+  const work = currentWork(agent);
   const messages = state.messages
     .filter((m) => m.from === agent.name || m.to === agent.name)
     .reverse();
@@ -43,41 +52,70 @@ export function Drawer({ agent, tab, onTab, onClose }: Props) {
         ? `Diff · ${agent.reviewProgress.approved}/${agent.reviewProgress.total}`
         : "Diff",
     },
-    { id: "report", label: agent.report ? "Report" : "Report (none yet)" },
-    { id: "messages", label: `Messages · ${messages.length}` },
+    { id: "report", label: "Report" },
+    { id: "messages", label: messages.length > 0 ? `Messages · ${messages.length}` : "Messages" },
   ];
 
   return (
-    <aside className={`drawer ${tab === "diff" ? "wide" : ""}`}>
+    <aside
+      className={`drawer ${tab === "diff" ? "wide" : ""}`}
+      style={agentStyle(agent, color)}
+      aria-label="Selected task"
+    >
+      <header className="drawer-head">
+        <div className="drawer-line">
+          <span className="dot" />
+          <span className="name">{agent.name}</span>
+          <span className="ws">
+            {agent.workspace} · {agent.host}
+          </span>
+          <span className={`pill col-${column}`}>
+            {agent.reconnecting ? "reconnecting" : columnLabel(column)}
+          </span>
+          <span className="spacer" />
+          <button type="button" className="link accent" onClick={onOpenInGrid}>
+            Open in grid
+          </button>
+          <button type="button" className="close" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="drawer-title">{agent.title}</div>
+        <div className="dim">
+          {duration(now - agent.columnSince)}
+          {context !== undefined && ` · ctx ${context}%`}
+          {work && ` · ▸ ${work}`}
+        </div>
+      </header>
       <nav className="tabs">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             className={tab === t.id ? "active" : ""}
+            aria-current={tab === t.id ? "page" : undefined}
             onClick={() => onTab(t.id)}
           >
             {t.label}
           </button>
         ))}
-        <button type="button" className="close" onClick={onClose} aria-label="Close">
-          ×
-        </button>
       </nav>
-      {tab === "live" && <Tile agent={agent} selected />}
-      {tab === "session" && <SessionView agent={agent} />}
-      {tab === "activity" && <ActivityView agent={agent} />}
-      {tab === "files" && <FilesView agent={agent} />}
-      {tab === "diff" && <DiffView agent={agent} />}
-      {tab === "report" && <ReportView agent={agent} />}
-      {tab === "messages" && (
-        <div className="drawer-scroll">
-          {messages.length === 0 && <p className="empty">No messages.</p>}
-          {messages.map((message) => (
-            <MessageItem key={message.seq} message={message} />
-          ))}
-        </div>
-      )}
+      <div className="drawer-body">
+        {tab === "live" && <Tile agent={agent} selected />}
+        {tab === "session" && <SessionView agent={agent} />}
+        {tab === "activity" && <ActivityView agent={agent} />}
+        {tab === "files" && <FilesView agent={agent} />}
+        {tab === "diff" && <DiffView agent={agent} />}
+        {tab === "report" && <ReportView agent={agent} />}
+        {tab === "messages" && (
+          <div className="drawer-scroll">
+            {messages.length === 0 && <p className="empty">No messages.</p>}
+            {messages.map((message) => (
+              <MessageItem key={message.seq} message={message} />
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

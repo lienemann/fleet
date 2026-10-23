@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
-import type { Decision } from "../../shared/reducer.ts";
+import type { AgentView, Decision } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { RISK_LABELS } from "../labels.ts";
+import { duration, RISK_LABELS } from "../labels.ts";
+import { useNow } from "../useNow.ts";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
@@ -14,8 +15,9 @@ interface Props {
    * command and the quick answers.
    */
   variant?: "card" | "strip" | "compact";
-  /** Shown on cards; the tile already says whose decision it is. */
-  agentColor?: string;
+  /** Named on cards, with its task and a way to open it; a tile already says whose it is. */
+  agent?: AgentView;
+  onOpen?: () => void;
   focused?: boolean;
   onAnswer: (answer: Answer) => void;
 }
@@ -27,7 +29,16 @@ const KIND_LABELS: Record<DecisionKind, string> = {
 };
 
 /** A permission prompt, a question or a review request, with the agent's explanation and risk tags. */
-export function DecisionCard({ decision, variant = "card", agentColor, focused, onAnswer }: Props) {
+export function DecisionCard({
+  decision,
+  variant = "card",
+  agent,
+  onOpen,
+  focused,
+  onAnswer,
+}: Props) {
+  const { color } = useFleet();
+  const now = useNow();
   const inline = variant !== "card";
   const compact = variant === "compact";
   const subject = subjectOf(decision);
@@ -38,22 +49,35 @@ export function DecisionCard({ decision, variant = "card", agentColor, focused, 
     >
       <header>
         <span className={`kind kind-${decision.decision}`}>{KIND_LABELS[decision.decision]}</span>
-        {agentColor && (
-          <strong className="name" style={{ color: agentColor }}>
-            {decision.agent}
-          </strong>
+        {agent && (
+          <>
+            <strong className="name" style={{ color: color(agent.color) }}>
+              {agent.name}
+            </strong>
+            <span className="dim">{agent.title}</span>
+            <span className="dim host">· {agent.host}</span>
+            <span className="spacer" />
+            <span className="dim">waiting {duration(now - decision.ts)}</span>
+            {onOpen && (
+              <button type="button" className="link accent" onClick={onOpen}>
+                Open
+              </button>
+            )}
+          </>
         )}
-        {inline ? (
+        {inline && (
           <code className="subject">
             {decision.decision === "permission" && decision.toolName !== "ExitPlanMode"
               ? `${decision.toolName}(${subject})`
               : subject}
           </code>
-        ) : (
-          <span className="tool">{decision.toolName}</span>
         )}
       </header>
-      {!inline && decision.decision === "permission" && <pre className="input">{subject}</pre>}
+      {!inline && decision.decision === "permission" && (
+        <pre className="input">
+          {decision.toolName === "ExitPlanMode" ? subject : `${decision.toolName}(${subject})`}
+        </pre>
+      )}
       {decision.explanation &&
         (compact ? (
           <p className="why">{decision.explanation.trim().split("\n")[0]}</p>

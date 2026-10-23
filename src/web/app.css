@@ -436,21 +436,91 @@ h2 {
 
 /* Drawer */
 .drawer {
-  width: min(560px, 45vw);
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  width: clamp(380px, 33vw, 470px);
+  min-width: 0;
+  background: var(--bg2);
   border-left: 1px solid var(--line);
-  background: var(--bg1);
-  padding: 8px;
+}
+.drawer-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.drawer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+.drawer-line .dot {
+  width: 9px;
+  height: 9px;
+  background: var(--agent);
+}
+.drawer-line .name {
+  color: var(--agent);
+  font-size: 13px;
+}
+.drawer-line .ws {
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.drawer-line .pill {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+button.link.accent {
+  min-height: 28px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.drawer-line .close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.drawer-title {
+  font-size: 14px;
+  font-weight: 600;
 }
 .tabs {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
 }
-.tabs .close {
-  margin-left: auto;
+.tabs button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg3);
+}
+.tabs button.active {
+  background: var(--sel);
+  color: var(--strong);
+}
+.drawer-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px;
 }
 
 /* Board */
@@ -583,18 +653,45 @@ h2 {
 
 /* Inbox and decisions */
 .inbox {
-  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+.inbox section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.inbox h2 {
+  margin: 0;
+}
+.inbox h2 .lede {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.empty-box {
+  margin: 0;
+  padding: 40px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+/* A decision on its own, in the inbox */
 .decision {
-  background: var(--card);
-  border: 1px solid var(--warnline);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 .decision.focused {
-  border-color: var(--warn);
-  box-shadow: 0 0 0 1px var(--warn);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .decision header {
   display: flex;
@@ -602,23 +699,25 @@ h2 {
   gap: 8px;
   flex-wrap: wrap;
 }
-.decision .tool {
-  font-family: var(--font-mono);
-  color: var(--tool);
+.decision .host {
+  font-size: 11.5px;
 }
 .decision .explanation {
-  margin: 8px 0;
-  color: var(--fg3);
-  white-space: pre-wrap;
+  margin: 0;
+  color: var(--fg2);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 .decision .input {
-  margin: 8px 0;
-  padding: 6px 8px;
+  margin: 0;
+  padding: 8px 10px;
   background: var(--term);
+  border: 1px solid var(--line2);
   border-radius: 6px;
-  font-size: 12px;
+  color: var(--fg);
+  font-size: 12.5px;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
   max-height: 12em;
   overflow: auto;
 }
@@ -1277,18 +1376,30 @@ h2 {
 }
 
 /* Inbox extras */
-.inbox section {
-  margin-bottom: 24px;
-}
 .points .point {
-  display: grid;
-  grid-template-columns: 1fr minmax(160px, 40%) auto;
-  gap: 8px;
-  align-items: center;
-  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 9px;
+  background: var(--bg1);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 12.5px;
 }
-.points .point > span.dim {
-  grid-column: 2 / 4;
+.point-answer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.point-answer input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12px;
+}
+.points .answered {
+  color: var(--ok);
+  font-size: 12px;
 }
 .decision .other {
   width: 100%;
@@ -2152,6 +2263,20 @@ button.ln:hover {
   background: transparent;
   border-color: var(--warnline);
   font-size: 12px;
+}
+
+/* In the inbox, risks are neutral chips and the answers full-size buttons. */
+.decision.card .risk {
+  padding: 1px 8px;
+  border-color: var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+}
+.decision.card footer button {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-weight: 500;
 }
 
 /* Agent text in the log keeps the log's typeface; Markdown wraps by itself. */

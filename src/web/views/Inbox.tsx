@@ -6,9 +6,12 @@ import { useCommands } from "../keys/keymap.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 
+/** Answers most open points get; anything else is typed. */
+const QUICK_ANSWERS = ["Yes", "No", "Defer"];
+
 /** Everything waiting on the user: decisions and permissions, open points, and messages to them. */
 export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { state, send, color } = useFleet();
+  const { state, send } = useFleet();
   const items = pendingDecisions(state);
   const docs = openPointDocs(state);
   const forMe = state.messages
@@ -65,22 +68,27 @@ export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
 
   return (
     <div className="inbox">
-      <section>
-        <h2>Decisions and permissions · {items.length}</h2>
-        {items.length === 0 && <p className="empty">Nothing waits on you.</p>}
-        {items.map((decision) => (
-          <DecisionCard
-            key={decision.requestId}
-            decision={decision}
-            agentColor={color(state.agents[decision.agent]?.color ?? "#888888")}
-            focused={decision === focused}
-            onAnswer={(a) => send({ type: "answer", requestId: decision.requestId, answer: a })}
-          />
-        ))}
-      </section>
+      {items.length === 0 && docs.length === 0 && (
+        <p className="empty-box">Nothing waits on you. Agents keep working.</p>
+      )}
+      {items.map((decision) => (
+        <DecisionCard
+          key={decision.requestId}
+          decision={decision}
+          agent={state.agents[decision.agent]}
+          onOpen={() => onOpen(decision.agent)}
+          focused={decision === focused}
+          onAnswer={(a) => send({ type: "answer", requestId: decision.requestId, answer: a })}
+        />
+      ))}
       {docs.length > 0 && (
         <section>
-          <h2>Open points</h2>
+          <h2>
+            Open points{" "}
+            <span className="lede">
+              · from the Markdown files agents wrote for you; the answers go back together
+            </span>
+          </h2>
           {docs.map((doc) => (
             <OpenPoints key={doc.docId} doc={doc} />
           ))}
@@ -113,37 +121,50 @@ function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
         </strong>
         <code className="name">{doc.path}</code>
         <span className="dim">
-          {doc.points.length - open.length}/{doc.points.length} answered; the answers go back
-          together
+          {doc.points.length - open.length}/{doc.points.length} answered
         </span>
       </header>
-      {doc.points.map((point) => (
-        <form
-          key={point.id}
-          className="point"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const answer = drafts[point.id]?.trim();
-            if (answer) send({ type: "answer_point", docId: doc.docId, pointId: point.id, answer });
-          }}
-        >
-          <span>{point.text}</span>
-          {point.answer === undefined ? (
-            <>
-              <input
-                value={drafts[point.id] ?? ""}
-                onChange={(e) => setDrafts({ ...drafts, [point.id]: e.target.value })}
-                placeholder="Your answer"
-              />
-              <button type="submit" className="small" disabled={!drafts[point.id]?.trim()}>
-                Answer
-              </button>
-            </>
-          ) : (
-            <span className="dim">→ {point.answer}</span>
-          )}
-        </form>
-      ))}
+      {doc.points.map((point) => {
+        const answer = (text: string) =>
+          send({ type: "answer_point", docId: doc.docId, pointId: point.id, answer: text });
+        return (
+          <form
+            key={point.id}
+            className="point"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const draft = drafts[point.id]?.trim();
+              if (draft) answer(draft);
+            }}
+          >
+            <span>{point.text}</span>
+            {point.answer === undefined ? (
+              <div className="point-answer">
+                {QUICK_ANSWERS.map((quick) => (
+                  <button key={quick} type="button" className="small" onClick={() => answer(quick)}>
+                    {quick}
+                  </button>
+                ))}
+                <input
+                  aria-label={`Answer to: ${point.text}`}
+                  value={drafts[point.id] ?? ""}
+                  onChange={(e) => setDrafts({ ...drafts, [point.id]: e.target.value })}
+                  placeholder="or write an answer"
+                />
+                <button
+                  type="submit"
+                  className="small primary"
+                  disabled={!drafts[point.id]?.trim()}
+                >
+                  Answer
+                </button>
+              </div>
+            ) : (
+              <span className="answered">✓ {point.answer}</span>
+            )}
+          </form>
+        );
+      })}
     </article>
   );
 }

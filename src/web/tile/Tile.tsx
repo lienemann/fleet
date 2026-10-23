@@ -10,7 +10,7 @@ import {
 } from "../../shared/reducer.ts";
 import { agentStyle, TINT_LABELS } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
-import { columnLabel, duration } from "../labels.ts";
+import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
@@ -150,13 +150,8 @@ function StatusRow({ agent }: { agent: AgentView }) {
   const now = useNow();
   const [open, setOpen] = useState(false);
   const done = agent.todos.filter((t) => t.status === "completed").length;
-  const current = agent.todos.find((t) => t.status === "in_progress");
-  const doing = current
-    ? (current.activeForm ?? current.content)
-    : (agent.status ?? "no to-do list");
-  const context = agent.context
-    ? Math.round((100 * agent.context.tokens) / agent.context.window)
-    : undefined;
+  const doing = currentWork(agent) ?? "no to-do list";
+  const context = contextPercent(agent);
   const running = agent.subagents.filter((s) => !s.done).length;
   return (
     <>

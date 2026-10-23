@@ -404,7 +404,13 @@ export function App() {
           {view === "history" && <History />}
         </main>
         {agent && view !== "grid" && (
-          <Drawer agent={agent} tab={tab} onTab={setTab} onClose={() => setSelected(undefined)} />
+          <Drawer
+            agent={agent}
+            tab={tab}
+            onTab={setTab}
+            onOpenInGrid={() => open(agent.name)}
+            onClose={() => setSelected(undefined)}
+          />
         )}
       </div>
       <DirectorDock onOpen={select} />

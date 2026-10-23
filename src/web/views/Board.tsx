@@ -11,7 +11,7 @@ import {
 } from "../../shared/reducer.ts";
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
-import { COLUMNS, duration } from "../labels.ts";
+import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { useNow } from "../useNow.ts";
 
@@ -111,21 +111,18 @@ function Card({
   const move = (to: UserMove) => send({ type: "move", agent: agent.name, to });
   const [decision] = pendingDecisions(state).filter((d) => d.agent === agent.name);
   const done = agent.todos.filter((t) => t.status === "completed").length;
-  const current = agent.todos.find((t) => t.status === "in_progress");
   const holder = workspaceHolder(state, agent.workspace, agent.name);
   const doing = agent.reconnecting
     ? "reconnecting…"
     : column === "queued"
       ? `Waits for ${holder ? agent.workspace : "a running slot"}`
-      : (agent.status ?? current?.activeForm ?? current?.content ?? agent.activity);
+      : (currentWork(agent) ?? agent.activity);
   const points = openPointDocs(state)
     .filter((doc) => doc.agent === agent.name)
     .flatMap((doc) => doc.points)
     .filter((p) => p.answer === undefined).length;
   const subagents = agent.subagents.filter((s) => !s.done).length;
-  const context = agent.context
-    ? Math.round((100 * agent.context.tokens) / agent.context.window)
-    : undefined;
+  const context = contextPercent(agent);
 
   return (
     <article

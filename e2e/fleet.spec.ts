@@ -52,9 +52,9 @@ test("a task asks for permission and a decision, hands in open points, and is re
   const answers = { "Apply the same fix": "Yes", "Keep the old tolerance": "No" };
   for (const [text, answer] of Object.entries(answers)) {
     const point = points.locator(".point", { hasText: text });
-    await point.getByPlaceholder("Your answer").fill(answer);
+    await point.getByPlaceholder("or write an answer").fill(answer);
     await point.getByRole("button", { name: "Answer" }).click();
-    await expect(point.getByPlaceholder("Your answer")).toHaveCount(0);
+    await expect(point.getByPlaceholder("or write an answer")).toHaveCount(0);
   }
   await expect(points).toHaveCount(0);
 
