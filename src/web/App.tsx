@@ -31,7 +31,9 @@ export function App() {
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
   const [tab, setTab] = useState<DrawerTab>("live");
-  const [overlay, setOverlay] = useState<Overlay>();
+  // Each opening is a new object, so "closed, then opened again" in one batch still opens it.
+  const [overlay, setOverlay] = useState<{ kind: Overlay; id: number }>();
+  const show = (kind: Overlay): void => setOverlay({ kind, id: Date.now() + Math.random() });
   const agent = selected ? state.agents[selected] : undefined;
   const agents = agentList(state);
 
@@ -71,14 +73,14 @@ export function App() {
       label: "New task",
       group: "Fleet",
       keys: ["n"],
-      run: () => setOverlay("new-task"),
+      run: () => show("new-task"),
     },
     {
       id: "task.import",
       label: "Import a Claude Code session",
       group: "Fleet",
       keys: ["i"],
-      run: () => setOverlay("import"),
+      run: () => show("import"),
     },
     {
       id: "director.message",
@@ -122,7 +124,7 @@ export function App() {
       label: "Keyboard shortcuts",
       group: "Help",
       keys: ["?"],
-      run: () => setOverlay("shortcuts"),
+      run: () => show("shortcuts"),
     },
     {
       id: "palette",
@@ -131,7 +133,7 @@ export function App() {
       keys: ["mod+k"],
       global: true,
       paletteHidden: true,
-      run: () => setOverlay("palette"),
+      run: () => show("palette"),
     },
     ...walkCommands(
       agents.map((a) => a.name),
@@ -292,8 +294,8 @@ export function App() {
       <Header
         view={view}
         onView={setView}
-        onNewTask={() => setOverlay("new-task")}
-        onHelp={() => setOverlay("shortcuts")}
+        onNewTask={() => show("new-task")}
+        onHelp={() => show("shortcuts")}
         notifications={notifications}
       />
       <Ticker />
@@ -333,14 +335,19 @@ export function App() {
       </div>
       <DirectorDock onOpen={select} />
       <ChordHint />
-      {(overlay === "new-task" || overlay === "import") && (
+      {(overlay?.kind === "new-task" || overlay?.kind === "import") && (
         <NewTask
-          mode={overlay === "import" ? "import" : "new"}
+          key={overlay.id}
+          mode={overlay.kind === "import" ? "import" : "new"}
           onClose={() => setOverlay(undefined)}
         />
       )}
-      {overlay === "shortcuts" && <Shortcuts onClose={() => setOverlay(undefined)} />}
-      {overlay === "palette" && <Palette onClose={() => setOverlay(undefined)} />}
+      {overlay?.kind === "shortcuts" && (
+        <Shortcuts key={overlay.id} onClose={() => setOverlay(undefined)} />
+      )}
+      {overlay?.kind === "palette" && (
+        <Palette key={overlay.id} onClose={() => setOverlay(undefined)} />
+      )}
     </div>
   );
 }

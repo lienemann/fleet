@@ -1327,3 +1327,9 @@ button.ln:hover {
 .session-list .option small {
   margin-left: auto;
 }
+
+.dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}

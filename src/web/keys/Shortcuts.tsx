@@ -19,9 +19,27 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
       ref={dialog}
       className="dialog shortcuts"
       onClose={onClose}
+      onKeyDown={(event) => {
+        // The key that opened the help closes it again; stopped here, so it does not reopen it.
+        if (event.key !== "?" || !dialog.current?.open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dialog.current.close();
+        onClose();
+      }}
       aria-label="Keyboard shortcuts"
     >
-      <h2>Keyboard shortcuts</h2>
+      <header className="dialog-head">
+        <h2>Keyboard shortcuts</h2>
+        <button
+          type="button"
+          className="icon"
+          aria-label="Close"
+          onClick={() => dialog.current?.close()}
+        >
+          ×
+        </button>
+      </header>
       <div className="shortcut-groups">
         {[...groups.entries()].map(([group, list]) => (
           <section key={group}>

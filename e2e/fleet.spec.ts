@@ -63,7 +63,8 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(reviewed).toBeVisible({ timeout: 10_000 });
   await reviewed.locator(".card-main").click();
   await page.getByRole("button", { name: "Report" }).click();
-  await expect(page.locator(".report")).toContainText("scaled by measured runner jitter");
+  // The first report, or already the revision that the open-point answers prompt.
+  await expect(page.locator(".report")).toContainText(/scaled by measured runner jitter|Revised after feedback/);
   await expect(page.locator(".report")).toContainText("zmplwqrs");
   await shot(page, "report");
 
@@ -129,6 +130,19 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.goto("/");
   // Keys only work once the app has mounted; the host name arrives from the daemon after that.
   await expect(page.locator(".host")).toHaveText("test");
+  // The help closes with Esc, with ? again, and with its button.
+  for (const close of ["Escape", "?"]) {
+    await page.keyboard.press("?");
+    await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+    await page.keyboard.press(close);
+    await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeHidden();
+  }
+  await page.keyboard.press("?");
+  await page
+    .getByRole("dialog", { name: "Keyboard shortcuts" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeHidden();
   await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText(
     "Request changes",

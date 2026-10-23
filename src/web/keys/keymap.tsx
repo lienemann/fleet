@@ -115,6 +115,8 @@ export function KeymapProvider({ children }: { children: ReactNode }) {
         ["shift", "control", "alt", "meta"].includes(event.key.toLowerCase())
       )
         return;
+      // An open dialog owns the keyboard: Esc closes it, and nothing behind it reacts.
+      if (document.querySelector("dialog[open]")) return;
       const typing = typingIn(event.target);
       const stroke = keyName(event);
       const sequence = pendingRef.current ? `${pendingRef.current} ${stroke}` : stroke;
