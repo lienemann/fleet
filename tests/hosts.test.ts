@@ -38,6 +38,7 @@ const pod = reduceAll(
       path: "x.md",
       points: [{ id: "p", text: "?" }],
     },
+    { kind: "disk", agent: "daemon", low: [{ names: ["ws3"], free: 1, total: 100 }] },
   ),
 );
 
@@ -59,6 +60,10 @@ describe("mergeStates", () => {
       ["alpha", "you"],
       ["pod1/alpha", "pod1/director"],
     ]);
+  });
+
+  it("names the host of a disk that runs low", () => {
+    expect(merged.disk).toEqual([{ names: ["ws3"], free: 1, total: 100, host: "pod1" }]);
   });
 });
 

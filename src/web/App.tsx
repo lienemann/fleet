@@ -6,6 +6,7 @@ import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, useCommands } from "./keys/keymap.tsx";
 import { Palette } from "./keys/Palette.tsx";
 import { Shortcuts } from "./keys/Shortcuts.tsx";
+import { lowDiskText } from "./labels.ts";
 import { AddWorkspace } from "./shell/AddWorkspace.tsx";
 import { DirectorDock } from "./shell/DirectorDock.tsx";
 import { DRAWER_TABS, Drawer, type DrawerTab } from "./shell/Drawer.tsx";
@@ -363,6 +364,12 @@ export function App() {
         </div>
       )}
       <PowerBanner />
+      {state.disk.map((volume) => (
+        <div key={`${volume.host}:${volume.names.join(",")}`} className="banner" role="alert">
+          <b>Disk almost full:</b> {lowDiskText(volume)}. Builds and agents fail once it runs out;
+          free some space there.
+        </div>
+      ))}
       {state.restartPending && (
         <div className="banner">
           fleet restarts as soon as no agent is in the middle of a turn

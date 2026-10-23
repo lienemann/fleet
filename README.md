@@ -100,6 +100,7 @@ For work on the UI, run `npm run dev:demo` (or `dev:daemon`) and `npm run dev:we
 port = 7777
 model = "opus"                          # default model, optional
 wip = { running = 4, review = 2 }
+disk = { min_free_gb = 10 }             # warn below this much free space (the default)
 allowed_tools = ["Read", "Glob", "Grep", "Bash(jj:*)", "Bash(just:*)"]  # run without asking (the default)
 
 [director]
@@ -174,6 +175,10 @@ janl ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disables
 
 Shift+N or the Notify button turns on desktop notifications; the browser asks for permission the first time.
 fleet notifies only while its window is in the background, once per agent, and a click opens that agent.
+
+Every daemon checks the free space on the volumes that hold its workspaces and its event log once a minute. When a
+volume has less than `min_free_gb` left, a banner names it and what fleet keeps there, with the pod's name for a
+remote daemon, and a notification goes out. The banner stays until the volume has a fifth more than that again.
 
 To install fleet as an app, open the daemon's address in Chrome or Edge and choose Install in the address bar, or
 use File > Add to Dock in Safari. Browsers install only from a secure context; `localhost` and `127.0.0.1` count as

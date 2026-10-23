@@ -46,6 +46,7 @@ function renameAgents(state: FleetState, host: string): FleetState {
       ]),
     ),
     claims: Object.fromEntries(Object.entries(state.claims).map(([ws, c]) => [q(ws), c])),
+    disk: state.disk.map((volume) => ({ ...volume, host })),
   };
 }
 
@@ -64,6 +65,7 @@ export function mergeStates(
       messages: [...merged.messages, ...renamed.messages].sort((a, b) => a.ts - b.ts),
       openPoints: { ...merged.openPoints, ...renamed.openPoints },
       claims: { ...merged.claims, ...renamed.claims },
+      disk: [...merged.disk, ...renamed.disk],
     };
   }
   return merged;

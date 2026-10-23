@@ -1,4 +1,4 @@
-import type { Activity, PermissionMode, RiskTag } from "../shared/events.ts";
+import type { Activity, LowDisk, PermissionMode, RiskTag } from "../shared/events.ts";
 import { type AgentView, type Column, columnOf, needsUser } from "../shared/reducer.ts";
 
 export const COLUMNS: Array<{ id: Column; label: string }> = [
@@ -63,6 +63,17 @@ export function agentStatus(agent: AgentView): { label: string; dot: Column | "i
           ? "running"
           : "idle";
   return { label, dot };
+}
+
+/** "4.2 GB free for ws1, ws2 and event log on pod1": what is short of space where. */
+export function lowDiskText(volume: LowDisk): string {
+  const gb = volume.free / 1024 ** 3;
+  const free = gb < 10 ? gb.toFixed(1) : String(Math.round(gb));
+  const names =
+    volume.names.length > 1
+      ? `${volume.names.slice(0, -1).join(", ")} and ${volume.names.at(-1)}`
+      : (volume.names[0] ?? "");
+  return `${free} GB free for ${names}${volume.host ? ` on ${volume.host}` : ""}`;
 }
 
 /** How full the agent's context window is, in percent, once the session has reported it. */

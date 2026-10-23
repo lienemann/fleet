@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { USER } from "../shared/events.ts";
+import { type LowDisk, USER } from "../shared/events.ts";
 import { type FleetState, needsUser, pendingDecisions } from "../shared/reducer.ts";
-import { columnLabel } from "./labels.ts";
+import { columnLabel, lowDiskText } from "./labels.ts";
 
 const STORAGE_KEY = "fleet.notifications";
 
@@ -15,7 +15,10 @@ export interface Notifications {
 }
 
 interface Notice {
-  agent: string;
+  /** The agent a click opens. */
+  agent?: string;
+  /** Replaces an earlier notification with the same tag; the agent's name if not set. */
+  tag?: string;
   title: string;
   body: string;
 }
@@ -36,7 +39,12 @@ const writePreference = (on: boolean): void => {
   }
 };
 
-/** What changed for the user between two states: the moments the "new" mark is set, and messages to them. */
+const diskKey = (volume: LowDisk): string => `${volume.host ?? ""}:${volume.names.join(",")}`;
+
+/**
+ * What changed for the user between two states: the moments the "new" mark is set, messages
+ * to them, and disks running low.
+ */
 export function notices(before: FleetState, after: FleetState): Notice[] {
   const result: Notice[] = [];
   for (const agent of Object.values(after.agents)) {
@@ -77,6 +85,13 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
       result.push({ agent: message.from, title: `Message from ${message.from}`, body: first });
     }
   }
+  // A volume that was fine before; one that stays low does not ask again.
+  const wasLow = new Set(before.disk.map(diskKey));
+  for (const volume of after.disk) {
+    if (!wasLow.has(diskKey(volume))) {
+      result.push({ tag: "disk", title: "Disk almost full", body: lowDiskText(volume) });
+    }
+  }
   return result;
 }
 
@@ -106,12 +121,12 @@ export function useNotifications(
       // One notification per agent: a newer one replaces what it said before.
       const notification = new Notification(notice.title, {
         body: notice.body,
-        tag: notice.agent,
+        tag: notice.tag ?? notice.agent,
         icon: "/icon-192.png",
       });
       notification.onclick = () => {
         window.focus();
-        open.current(notice.agent);
+        if (notice.agent) open.current(notice.agent);
         notification.close();
       };
     }

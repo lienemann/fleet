@@ -104,6 +104,16 @@ export const DIRECTOR = "director";
 /** Agent name of events the daemon logs about itself. */
 export const DAEMON = "daemon";
 
+/** A volume short of free space, with what fleet keeps on it: workspace names, "event log". */
+export interface LowDisk {
+  names: string[];
+  /** Bytes. */
+  free: number;
+  total: number;
+  /** The daemon it belongs to, set when the browser merges in a remote one. */
+  host?: string;
+}
+
 export type EventBody =
   | {
       kind: "agent_created";
@@ -203,6 +213,8 @@ export type EventBody =
   | { kind: "restart"; pending: boolean }
   /** The Mac's sleep settings; logged by the daemon itself. */
   | { kind: "power"; caffeinated: boolean; lidMode: boolean; since?: number; note?: string }
+  /** The volumes that are short of space now, none when all are fine; logged by the daemon. */
+  | { kind: "disk"; low: LowDisk[] }
   /**
    * A session outside fleet took a workspace (`holder` set) or gave it back (`holder` null);
    * logged by the daemon itself. No task starts in a claimed workspace.

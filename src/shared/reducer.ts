@@ -5,6 +5,7 @@ import type {
   DecisionKind,
   FleetEvent,
   LogRole,
+  LowDisk,
   OpenPoint,
   PermissionMode,
   Question,
@@ -151,6 +152,8 @@ export interface FleetState {
   /** Open-point documents with unanswered points, by doc id. */
   openPoints: Record<string, OpenPointsDoc>;
   power: PowerState;
+  /** Volumes short of space; one entry per volume, so the list stays short. */
+  disk: LowDisk[];
   /** The daemon restarts as soon as no agent is mid-turn. */
   restartPending: boolean;
   /** Workspaces that sessions outside fleet hold, by workspace name. */
@@ -242,6 +245,7 @@ export const emptyState = (): FleetState => ({
   messages: [],
   openPoints: {},
   power: { caffeinated: false, lidMode: false },
+  disk: [],
   restartPending: false,
   claims: {},
 });
@@ -292,6 +296,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     const { caffeinated, lidMode, since, note } = event;
     return { ...state, power: { caffeinated, lidMode, since, note } };
   }
+  if (event.kind === "disk") return { ...state, disk: event.low };
   if (event.kind === "workspace_claim") {
     const { [event.workspace]: _released, ...claims } = state.claims;
     if (event.holder !== null) {

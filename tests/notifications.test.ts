@@ -78,6 +78,19 @@ describe("notices", () => {
     ]);
   });
 
+  it("warns once when a disk runs low", () => {
+    const low = (free: number): NewEvent => ({
+      kind: "disk",
+      agent: "daemon",
+      low: [{ names: ["ws1", "event log"], free, total: 500 * 1024 ** 3 }],
+    });
+    const after = reduceAll(at([low(4.2 * 1024 ** 3)], 4), before);
+    expect(notices(before, after)).toEqual([
+      { tag: "disk", title: "Disk almost full", body: "4.2 GB free for ws1 and event log" },
+    ]);
+    expect(notices(after, reduceAll(at([low(3 * 1024 ** 3)], 5), after))).toEqual([]);
+  });
+
   it("does not repeat itself for an agent already marked new", () => {
     const waiting = reduceAll(
       at([{ kind: "activity", agent: "alpha", activity: "idle" }], 4),

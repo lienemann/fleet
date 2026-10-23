@@ -5,6 +5,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentEvent, DAEMON } from "../shared/events.ts";
 import { fleetHome, loadConfig } from "./config.ts";
 import { demoQuery, demoSessions } from "./demo.ts";
+import { DiskWatch } from "./disk.ts";
 import { EventLog } from "./eventLog.ts";
 import { Orbit } from "./orbit.ts";
 import { dryHost, Power } from "./power.ts";
@@ -47,6 +48,14 @@ const supervisor = new Supervisor({
 
 // Workspaces of Claude Code sessions that ended are released once nobody took them over.
 setInterval(() => supervisor.expireClaims(), 30_000).unref();
+
+const disk = new DiskWatch(
+  (event) => log.append({ ...event, agent: DAEMON }),
+  () => [...config.workspaces, { name: "event log", path: home }],
+  config.diskMinFree,
+);
+void disk.check();
+setInterval(() => void disk.check(), 60_000).unref();
 
 const orbit = config.history && new Orbit(config.history.repo, config.history.python);
 const { server, close, broadcastInfo } = createFleetServer({

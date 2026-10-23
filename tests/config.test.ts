@@ -11,6 +11,7 @@ it("falls back to the current directory as the only workspace", () => {
   expect(config.workspaces).toMatchObject([{ name: "default", path: "/work/here" }]);
   expect(config.port).toBe(7777);
   expect(config.wip).toEqual({ running: 4, review: 2 });
+  expect(config.diskMinFree).toBe(10 * 1024 ** 3);
 });
 
 it("reads workspaces and lets them override the allow list", () => {
@@ -21,6 +22,7 @@ it("reads workspaces and lets them override the allow list", () => {
 host = "mac"
 allowed_tools = ["Read"]
 wip = { running = 3 }
+disk = { min_free_gb = 2.5 }
 
 [[workspaces]]
 name = "ws1"
@@ -33,7 +35,12 @@ allowed_tools = ["Read", "Bash(uv run pytest:*)"]
 `,
   );
   const config = loadConfig(dir);
-  expect(config).toMatchObject({ port: 9000, host: "mac", wip: { running: 3, review: 2 } });
+  expect(config).toMatchObject({
+    port: 9000,
+    host: "mac",
+    wip: { running: 3, review: 2 },
+    diskMinFree: 2.5 * 1024 ** 3,
+  });
   expect(config.workspaces.map((ws) => [ws.name, ws.allowedTools.length])).toEqual([
     ["ws1", 1],
     ["ws2", 2],

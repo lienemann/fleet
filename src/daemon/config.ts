@@ -38,6 +38,8 @@ const ConfigFile = z.object({
   remotes: z
     .array(z.object({ name: z.string().regex(/^[\w.-]+$/), url: z.url({ protocol: /^https?$/ }) }))
     .default([]),
+  /** Below this much free space on a volume with a workspace or the event log, fleet warns. */
+  disk: z.object({ min_free_gb: z.number().positive().default(10) }).default({ min_free_gb: 10 }),
   /** jj orbit for the history view; the repo defaults to the director's workspace. */
   history: z
     .object({
@@ -68,6 +70,8 @@ export interface Config {
   remotes: Array<{ name: string; url: string }>;
   /** Repository the history view shows, and the Python that runs jj orbit. */
   history?: { repo: string; python: string };
+  /** Free space in bytes below which a volume counts as low. */
+  diskMinFree: number;
   workspaces: Workspace[];
 }
 
@@ -94,6 +98,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     model: parsed.model,
     director: parsed.director.enabled ? expandHome(parsed.director.path ?? fallbackCwd) : undefined,
     remotes: parsed.remotes,
+    diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
     history: parsed.history.enabled
       ? {
           repo: expandHome(
