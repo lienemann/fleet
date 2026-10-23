@@ -137,7 +137,11 @@ export type EventBody =
       host: string;
       /** The task as the user or the director stated it; the worker's first prompt. */
       prompt?: string;
+      /** An existing Claude Code session, briefed on its first turn in fleet. */
+      imported?: boolean;
     }
+  /** An imported session was told that it now runs in fleet. */
+  | { kind: "briefed" }
   | { kind: "task_state"; state: TaskState }
   /** The task was changed after it was created; the brief and workspace only while queued. */
   | { kind: "task_updated"; title?: string; prompt?: string; workspace?: string; cwd?: string }

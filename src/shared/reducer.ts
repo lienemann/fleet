@@ -142,6 +142,8 @@ export interface AgentView {
   holder?: SessionHolder | null;
   /** Why fleet does not take the detached session back by itself. */
   holderNote?: string;
+  /** An imported session is told on its first turn that it now runs in fleet. */
+  briefing?: "due" | "done";
   /** Draft review comments, not yet sent. */
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
@@ -367,6 +369,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       unseen: false,
       createdSeq: event.seq,
       columnSince: event.ts,
+      ...(event.imported && { briefing: "due" }),
     };
     return { ...state, agents: { ...state.agents, [event.agent]: agent } };
   }
@@ -408,6 +411,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         : patch({ activity: event.activity, holder: undefined, holderNote: undefined });
     case "holder":
       return patch({ holder: event.holder, holderNote: event.note });
+    case "briefed":
+      return patch({ briefing: "done" });
     case "session_started":
       return patch({
         sessionId: event.sessionId,

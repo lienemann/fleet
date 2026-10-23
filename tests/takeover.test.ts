@@ -2,6 +2,7 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { HolderHost, ProcessInfo } from "../src/daemon/holders.ts";
+import { BACK_IN_FLEET, BRIEFING_ACK } from "../src/daemon/prompts.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { echoing, fakeQuery, result, until } from "./helpers.ts";
@@ -92,9 +93,14 @@ function setup(host?: HolderHost) {
     // The import reads the transcript and the holders before it settles.
     await new Promise((resolve) => setTimeout(resolve, 10));
   };
+  // What fleet sent, without the user lines the import carried over.
   const userLines = () =>
     agent()
-      ?.log.filter((l) => l.role === "user")
+      ?.log.filter(
+        (l) =>
+          l.role === "user" &&
+          !transcript.some((m) => (m.message as { content: unknown }).content === l.text),
+      )
       .map((l) => l.text) ?? [];
   return { log, supervisor, calls: fake.calls, agent, importIt, transcript, userLines };
 }
@@ -213,5 +219,74 @@ describe("watching who holds a session", () => {
     expect(log.since(0).some((e) => e.kind === "holder")).toBe(false);
     supervisor.handle({ type: "start", agent: "alpha" });
     await until(() => calls.length === 1);
+  });
+});
+
+describe("telling a session where it is", () => {
+  it("briefs an imported session once, on its first turn in fleet", async () => {
+    const { host } = clients();
+    const { agent, calls, importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+    expect(userLines()).toHaveLength(1);
+    expect(userLines()[0]).toContain('You are "alpha"');
+    expect(userLines()[0]).toContain(BRIEFING_ACK);
+    expect(agent()?.briefing).toBe("done");
+
+    supervisor.handle({ type: "stop", agent: "alpha" });
+    await until(() => agent()?.activity === "stopped");
+    supervisor.handle({ type: "start", agent: "alpha" });
+    await until(() => calls.length === 2);
+    expect(userLines()).toHaveLength(1);
+  });
+
+  it("puts the briefing in front of what the user typed", async () => {
+    const { host, hold } = clients();
+    hold(601);
+    const { importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Go on" });
+    await until(() => userLines().length === 1);
+    expect(userLines()[0]).toMatch(/^This conversation started in another Claude Code client/);
+    expect(userLines()[0]).toMatch(/Go on$/);
+    expect(userLines()[0]).not.toContain(BRIEFING_ACK);
+  });
+
+  it("keeps agent messages for a detached session until it is back", async () => {
+    const { host, hold, release, terminated } = clients();
+    hold(602);
+    const { calls, importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    supervisor.message("bravo", "alpha", "Rebase first");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls).toHaveLength(0);
+    expect(terminated).toEqual([]);
+
+    release(602);
+    await supervisor.watchHolders();
+    await until(() => userLines().length === 1);
+    expect(userLines()[0]).toContain('You are "alpha"');
+    expect(userLines()[0]).toContain("Message from bravo:\n\nRebase first");
+  });
+
+  it("after a hand-off, sends one line with the next prompt instead of a turn of its own", async () => {
+    const { host, hold, release } = clients();
+    const { agent, calls, importIt, supervisor, userLines } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+    supervisor.handle({ type: "detach", agent: "alpha" });
+    await until(() => agent()?.activity === "detached");
+    hold(603);
+    await supervisor.watchHolders();
+    release(603);
+    await supervisor.watchHolders();
+    await until(() => calls.length === 2);
+    expect(agent()?.activity).toBe("idle");
+    expect(userLines()).toHaveLength(1);
+
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Next" });
+    await until(() => userLines().length === 2);
+    expect(userLines()[1]?.startsWith(BACK_IN_FLEET)).toBe(true);
+    expect(userLines()[1]).toMatch(/Next$/);
   });
 });

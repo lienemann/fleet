@@ -361,7 +361,9 @@ test("desktop notifications tell about agents that need you while fleet is in th
     .toContainEqual(expect.stringMatching(/needs you$/));
 });
 
-test("existing Claude Code sessions can be imported and taken back", async ({ page }) => {
+test("existing Claude Code sessions can be imported, and run in fleet when nobody has them open", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("test + 1 pod");
   await page.locator(".rail").getByTitle("Import Claude Code sessions (i)").click();
@@ -383,9 +385,10 @@ test("existing Claude Code sessions can be imported and taken back", async ({ pa
   await card.locator(".card-main").click();
   const drawer = page.locator(".drawer");
   await expect(drawer.locator(".log")).toContainText("re-uploads the waveform");
-  await expect(drawer).toContainText("claude --resume 6f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11");
-
-  await drawer.getByRole("button", { name: "Take back" }).click();
+  // No terminal has it open, so it runs in fleet at once and learns where it is now.
+  await expect(drawer.locator(".log")).toContainText(
+    "This conversation started in another Claude Code client",
+  );
   await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
 
   // Imported once, the session is marked in the list.

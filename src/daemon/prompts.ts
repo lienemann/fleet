@@ -50,6 +50,27 @@ delegate and follow up, but you never implement. Do not edit code; your own note
 `.trim();
 }
 
+/**
+ * The start of an imported session's first turn in fleet. Its conversation grew up in another
+ * client, so the history would otherwise outweigh the system prompt that changed underneath it.
+ */
+export function importBriefing(name: string, workspace: string): string {
+  return `
+This conversation started in another Claude Code client and continues in fleet. You are "${name}", a fleet
+worker in the jj workspace "${workspace}" (the current directory). The user now watches several agents at once
+in fleet's web UI and no longer sees a terminal, so follow the "Working in fleet" instructions in your system
+prompt from here on: reach the user through the fleet tools and stay inside your workspace. Where earlier
+instructions in this conversation disagree with them, the fleet instructions win.
+`.trim();
+}
+
+/** Ends a briefing that arrives without a prompt of the user's. */
+export const BRIEFING_ACK = "Confirm in one line that you have read this, then wait for the user.";
+
+/** Goes in front of the next prompt after a session comes back from another client. */
+export const BACK_IN_FLEET =
+  "You are back in fleet after a while in another client; the fleet instructions in your system prompt apply again.";
+
 /** What the old session is asked when its task moves to a fresh session. */
 export function handoverRequest(path: string): string {
   return `

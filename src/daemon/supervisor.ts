@@ -48,7 +48,15 @@ import {
 } from "./files.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
 import type { Power } from "./power.ts";
-import { directorPrompt, handoverRequest, handoverStart, workerPrompt } from "./prompts.ts";
+import {
+  BACK_IN_FLEET,
+  BRIEFING_ACK,
+  directorPrompt,
+  handoverRequest,
+  handoverStart,
+  importBriefing,
+  workerPrompt,
+} from "./prompts.ts";
 import { ReviewService } from "./review.ts";
 import { AgentSession, type QueryFn } from "./session.ts";
 import { type SessionSource, sdkSessions, sessionTitle, transcriptEvents } from "./sessions.ts";
@@ -168,6 +176,10 @@ export class Supervisor implements ToolHost {
   /** Agents that went back and forth with another client; only Attach brings them back. */
   private readonly manualOnly = new Set<string>();
   private watching = false;
+  /** Messages from agents to a detached session, sent once it runs in fleet again. */
+  private readonly held = new Map<string, string[]>();
+  /** Agents back from another client; their next prompt says so. */
+  private readonly returning = new Set<string>();
   private readonly restart: (() => void) | undefined;
   private readonly configFile: string | undefined;
   private readonly onWorkspacesChanged: (() => void) | undefined;
@@ -504,6 +516,7 @@ export class Supervisor implements ToolHost {
       workspace,
       cwd: dir,
       host: this.config.host,
+      imported: true,
     });
     this.append(name, { kind: "session_started", sessionId });
     for (const event of transcript) this.append(name, event);
@@ -523,6 +536,7 @@ export class Supervisor implements ToolHost {
     await this.sessions.get(name)?.stop("detached");
     this.seen.delete(name);
     this.manualOnly.delete(name);
+    this.returning.add(name);
   }
 
   /**
@@ -563,6 +577,7 @@ export class Supervisor implements ToolHost {
   private async stepBack(name: string, holder: SessionHolder): Promise<void> {
     await this.sessions.get(name)?.stop("detached");
     this.seen.set(name, holder.pid);
+    this.returning.add(name);
     const now = Date.now();
     const recent = [...(this.losses.get(name) ?? []), now].filter((t) => now - t < LOOP_WINDOW_MS);
     this.losses.set(name, recent);
@@ -578,9 +593,40 @@ export class Supervisor implements ToolHost {
     });
   }
 
-  /** Runs a detached session in fleet again. */
+  /**
+   * Runs a detached session in fleet again. It works only when there is something to say:
+   * a briefing that is due, or messages that waited for it.
+   */
   private async pickUp(name: string): Promise<void> {
-    this.session(name)?.start();
+    const session = this.session(name);
+    const first = this.compose(name);
+    if (first) session?.prompt(first);
+    session?.start();
+  }
+
+  /**
+   * The next prompt for `name`: the briefing an imported session is due, or the line for one
+   * back from another client, then the messages that waited for it, then the user's text.
+   * Without anything to send it returns undefined and keeps the line for later.
+   */
+  private compose(name: string, text?: string): string | undefined {
+    const agent = this.agent(name);
+    if (!agent) return text;
+    const briefing = agent.briefing === "due";
+    const lead = briefing
+      ? importBriefing(name, agent.workspace)
+      : this.returning.has(name)
+        ? BACK_IN_FLEET
+        : undefined;
+    const body = [...(this.held.get(name) ?? []), ...(text === undefined ? [] : [text])];
+    if (body.length === 0) {
+      if (!briefing) return undefined;
+      body.push(BRIEFING_ACK);
+    }
+    this.held.delete(name);
+    this.returning.delete(name);
+    if (briefing) this.append(name, { kind: "briefed" });
+    return [lead, ...body].filter((part) => part !== undefined).join("\n\n");
   }
 
   private async scan(): Promise<Holders | undefined> {
@@ -1094,13 +1140,21 @@ export class Supervisor implements ToolHost {
     const session = this.session(name);
     // Queue first, so the session starts working instead of starting idle. A detached session
     // is taken back from the terminal by sending to it.
-    session?.prompt(text + mentions, inline);
+    session?.prompt(this.compose(name, text + mentions) ?? text, inline);
     session?.start();
   }
 
-  /** A message lands in the recipient's transcript as a prompt, starting it if needed. */
+  /**
+   * A message lands in the recipient's transcript as a prompt, starting it if needed. One for
+   * a session that another client holds waits until fleet runs it again.
+   */
   private deliver(to: string, from: string, body: string): void {
-    this.prompt(to, `Message from ${from}:\n\n${body}`);
+    const text = `Message from ${from}:\n\n${body}`;
+    if (this.agent(to)?.activity === "detached") {
+      this.held.set(to, [...(this.held.get(to) ?? []), text]);
+    } else {
+      this.prompt(to, text);
+    }
   }
 
   private async move(name: string, to: TaskState): Promise<void> {
