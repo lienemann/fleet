@@ -5,6 +5,7 @@
  */
 
 import type { AppliedLines, HunkSelection } from './apply';
+import { isAppliedHeadLine } from './lineApprovals';
 import type { MoveEnd } from './movePresentation';
 import { detectMoves, type MoveDetectionOptions, type MoveDetectionResult, type MoveSource } from './moves';
 import type { FileReview } from './review';
@@ -88,14 +89,7 @@ export function moveEndLines(
 	if (end === 'from') {
 		return lines.flatMap(line => approvedLineOfBase(file, applied, line) ?? []);
 	}
-	return lines.filter(line => {
-		const hunk = file.hunks.find(h => h.head.start <= line && line < h.head.endExclusive);
-		if (!hunk) {
-			return true;
-		}
-		const selection = select(hunk);
-		return selection === 'none' || (selection !== 'all' && !selection.added.has(line - hunk.head.start));
-	});
+	return lines.filter(line => !isAppliedHeadLine(file.hunks, select, line));
 }
 
 /** Base line shown at `line` of the approved side, if it is a removed line pending review. */

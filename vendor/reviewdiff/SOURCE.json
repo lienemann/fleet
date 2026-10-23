@@ -1,7 +1,7 @@
 {
   "repository": "https://gitlab.zhinst.com/janl/reviewdiff",
   "version": "0.2.0",
-  "commit": "c2a6c3411c9035c35995a64f378a6319f10414dd",
+  "commit": "6fd140fb84b0bdf96645ffa773520c759e2d46e4",
   "files": {
     "src/core/apply.ts": "ca131da52e09c92658e6b3f2174fc4cb4762aa72693d5adaf070da1a1663bed0",
     "src/core/approvals.ts": "ebb6ae73ad378db3b761c56bf52c5923fb940e31b03882f4d32608c466b403b7",
@@ -48,7 +48,7 @@
     "src/core/diff/vendor/vs/editor/common/diff/rangeMapping.ts": "0e8d8dd193f9212f11d1e0eaee24f411edd0bc868094892809eec6f6a3cb3716",
     "src/core/formatting.ts": "bb5b6de1a7844f3d81d7695dde5c3f80f63159b344c5b1c6f186ee9b79a5eafa",
     "src/core/hunks.ts": "f5cd991405850b31d271aa90b5344c45b14aec94243ee66020cd331584a5d9dd",
-    "src/core/lineApprovals.ts": "ce02d0b1783c0325abcc27c2d71d2e6b25cf94197b016ac99ec55a1164812eb9",
+    "src/core/lineApprovals.ts": "e651176704b0d6823dffd62f2f310bd76065ec9778e8954bb0f56b9ef5d2badf",
     "src/core/lineMapping.ts": "5cbba8dd8c33a9684421f46e83d5613525ab4989ebcce928d3dd6302bfe74e16",
     "src/core/markdown.ts": "49460c866bffd9ab29b1c6585b3c6c4ee6ec6559fb000dbe689b5b44acfaf081",
     "src/core/moveGlyphs.ts": "34939d844fceb90074dbeba87648d0b3b906f7f228f4057a9c55136498fd2731",
@@ -57,7 +57,7 @@
     "src/core/navigation.ts": "51c88b59ebb8bc0f3f18e3f6e82776c8d333d7c531a46271cafb3011eb8fcb90",
     "src/core/range.ts": "6d209eda17cc1d20bc7db86cbac910b77fdf06694bec98494e942c67e7628e97",
     "src/core/review.ts": "27623b3b4ca41dca941ab4a063a575b7d76a8b1a0aa2effd05c8dd914c2907a4",
-    "src/core/reviewMoves.ts": "cdc50d3cf2345ce35c818856a99b6e62f723405a85c7ee51793b2d2f652cb52a",
+    "src/core/reviewMoves.ts": "c3b3c392ad537da423b58eac7baadccffe491ae962066f2881e4093ae860d9c6",
     "src/core/revisions.ts": "492a79045e4f32a7e95b3ed5f6d9b40c3e71c52b3cac36f0473485105ccee129",
     "src/core/tokens/cpp.ts": "c941356378c9413d22f849fdfcc3f16307a41e0e7cac71ddeb26e71d0e01b0fb",
     "src/core/tokens/csharp.ts": "06bdd4d8f5943b29e17d5ab4c1ec7a69441e71ef76f1376323d8e1d9dfb6873e",

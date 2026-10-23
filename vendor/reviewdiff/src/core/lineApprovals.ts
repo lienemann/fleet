@@ -159,6 +159,21 @@ export function shownHeadStart(hunk: Hunk, applied: HunkSelection): number {
 	return shownHeadLineFrom(hunk, applied, hunk.head.start);
 }
 
+/**
+ * Line `line` (1-based) of the head side is an added line of one of `hunks` that is applied to the
+ * approved side, so the diff folds it away.
+ *
+ * @param applied how much of a hunk is applied to the approved side
+ */
+export function isAppliedHeadLine(hunks: readonly Hunk[], applied: (hunk: Hunk) => HunkSelection, line: number): boolean {
+	const hunk = hunks.find(h => h.head.start <= line && line < h.head.endExclusive);
+	if (!hunk) {
+		return false;
+	}
+	const selection = applied(hunk);
+	return selection === 'all' || (selection !== 'none' && selection.added.has(line - hunk.head.start));
+}
+
 /** Approved and total number of non-blank lines of a hunk, for progress displays. */
 export function lineProgress(hunk: Hunk, lines: LineSelection): { approved: number; total: number } {
 	const count = (side: readonly string[], selected: ReadonlySet<number>) => {
