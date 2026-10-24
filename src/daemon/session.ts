@@ -89,6 +89,9 @@ interface LiveTask {
   sampling?: boolean;
 }
 
+/** For a call the SDK dropped: fleet uses some it has but does not declare. */
+const MISSING = "This version of the Agent SDK cannot do that; fleet needs an update for it.";
+
 /** A side question the CLI does not answer must not leave the browser waiting. */
 const SIDE_QUESTION_TIMEOUT_MS = 120_000;
 
@@ -217,7 +220,8 @@ export class AgentSession {
   /** The end of a shell's or monitor's output, and when it last grew. */
   async taskOutput(taskId: string): Promise<TaskOutput> {
     const query = this.query as OutputQuery | undefined;
-    if (!query?.getTaskOutput) throw new Error("The session is not running.");
+    if (!query) throw new Error("The session is not running.");
+    if (!query.getTaskOutput) throw new Error(MISSING);
     const { output, total_bytes, truncated } = await query.getTaskOutput(taskId);
     const task = this.tasks.get(taskId);
     if (task && task.bytes !== total_bytes) {
@@ -231,7 +235,8 @@ export class AgentSession {
   /** Asks about the session without adding to it, like /btw in the CLI. */
   async askSideQuestion(question: string): Promise<string | null> {
     const query = this.query as SideQuery | undefined;
-    if (!query?.askSideQuestion) throw new Error("The session is not running.");
+    if (!query) throw new Error("The session is not running.");
+    if (!query.askSideQuestion) throw new Error(MISSING);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
