@@ -40,14 +40,15 @@ A daemon on each host runs all Claude Code sessions through the Agent SDK and ow
 
 ## Agents and roles
 
-The director is my single point of contact; it plans and delegates but never implements. Workers do the work in their own jj workspace and spawn subagents as they see fit.
+The fleet director is my single point of contact. Each project has a director of its own that plans and delegates there; no director implements. Workers do the work in their own jj workspace and spawn subagents as they see fit.
 
 | Role       | Count                       | Runs where                              | Can do                                                                                                                   | Cannot do                                   |
 | ---------- | --------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| Director   | 1                           | Mac, default workspace                  | Spawn and stop workers, pass context packs, keep the ledger, collect reports, answer workers' questions it is sure about | Edit code; answer permission prompts for me |
-| Worker     | up to 4 running (WIP limit) | Mac or Coder pod, one jj workspace each | Edit, run tests, spawn subagents, ask me, report                                                                         | Touch other workspaces; rewrite trunk       |
+| Fleet director | 1                       | Mac, no repo of its own                 | Everything I can do in the UI except the inbox: tasks in any project, moves, settings, workspaces, projects; coordinate projects, link tasks across them | Edit code; answer permission prompts, decisions or reviews for me |
+| Director   | 1 per project               | Mac, the project's default workspace    | Spawn and stop workers, pass context packs, keep the ledger, collect reports, answer workers' questions it is sure about | Edit code; answer permission prompts for me |
+| Worker     | up to 4 running per project | Mac or Coder pod, one jj workspace each | Edit, run tests, spawn subagents, ask me, report                                                                         | Touch other workspaces; rewrite trunk       |
 | Subagent   | per worker                  | inside its worker's session             | Explore, write tests, review                                                                                             | Talk to me directly                         |
-| Side agent | one per worker              | inside its worker's session             | Leave notes ("You should know")                                                                                          | Act on anything                             |
+| Side agent | one per worker, opt-in      | a side question to the worker's session | Leave notes ("You should know")                                                                                          | Act on anything                             |
 
 Every task follows one lifecycle. The daemon moves it on its own; only two states wait on me, and the board's columns are these states.
 
@@ -55,6 +56,22 @@ Every task follows one lifecycle. The daemon moves it on its own; only two state
 - A permission prompt or question moves a running task to Needs you; my answer moves it back.
 - `report_result` moves it to Review. Accept moves it on; Request changes sends my comments and it revises.
 - Stop keeps the session; Start resumes it. WIP limits: 4 running, 2 in review; the director spawns nothing new while Review is full.
+
+## Projects
+
+I work on more than one repo at a time, LabOne Q and fleet for example, and sometimes one change needs two of them (fleet with ReviewDiff or jj orbit). One fleet runs all of them.
+
+**A project is one jj repo:** its default workspace, its worker workspaces, the repos its agents may read but not change, and its own WIP limits. A fleet-wide limit on running workers and tasks in review sits on top; a queued task starts when both its project and the fleet have room, and either limit can be set to unlimited. Directors count toward neither. `config.toml` lists them under `[[projects]]`, each with a name, the default workspace's path, `[[projects.workspaces]]` and `read_only`. A config from before projects is read as one project named after its directory, and fleet writes it back in the new form the next time it changes the config. "+ Add project" in the rail takes a directory, finds the jj repo and its workspaces, and offers them; the project's director starts at once.
+
+**Directors.** Each project has a director in its default workspace, with that repo's CLAUDE.md and context. Above them, the fleet director has no repo. It runs in fleet's own state directory and reaches the projects through fleet's tools. It knows every project and what runs where, reads every project's code without changing it, starts work in any project, moves cards, changes settings, adds workspaces and projects, and coordinates work that spans repos. A task belongs to its project's director whoever created it, as one I create in the UI does today, so reports and questions from its worker go there. The fleet director gets a short list of tools rather than every command of the UI. It does not touch the inbox: permission prompts, decisions and reviews stay mine, and so do Accept and Request changes, permission modes, allowed tools and auth. Removing a task whose workspace holds work asks me first, as it does in the UI. The dock talks to the fleet director; a picker in the dock switches to a project's director.
+
+**Messages between projects.** An agent sees and messages the agents of its own project. A message to an agent of another project is refused with a hint to ask its director. Directors, the fleet director included, message anyone. For work across repos a director links a task of its project to a task of another project, without asking that project's director; from then on the two find each other in `list_agents` and message each other, and the link ends when either task is accepted or removed. A link opens messages only; it does not show one task the other's report or diff. The bus shows both projects on a message between them, and each card shows its links.
+
+**Reading other repos.** A project's `read_only` repos, such as the HDL and LabOne repos next to LabOne Q, go to the SDK as `additionalDirectories`, so its agents read them without asking. Writing there still goes to the inbox.
+
+**One view.** Board, grid, inbox, timeline and flow show the agents of all projects. Each card and tile carries its project's name, the rail groups agents and workspaces by project, and a filter narrows every view to one project. The history view shows one repo at a time and picks the project. Pods keep their own daemons and projects; the browser merges them as before, and the fleet director acts on this daemon's projects only. The `/mcp` endpoint for sessions outside fleet picks the project from the caller's directory.
+
+**Turning directors off.** A project's director can be switched off in its config, as today; the fleet director always runs, since it is also how the app gets configured by talking to it. A config from before projects keeps its director setting.
 
 ## Protocol
 
@@ -79,7 +96,7 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 
 **Walkthroughs.** `report_result` includes a walkthrough written with the AI instructions from the ReviewDiff README, with permalinks pinned to change ids. Hunks the walkthrough doesn't cover are flagged in review.
 
-**Side agent.** Claude Code's built-in "You should know" mod runs per worker session. Its notes appear above the tile's prompt and in the inbox's FYI section; "Tell agent" forwards a note as a user message.
+**Side agent.** Claude Code's "You should know" plugin runs only in its terminal UI, so fleet does the same thing itself, switched on per agent: after each turn it asks the session a side question, without tools, whether there is something I should know but might miss. A note appears above the tile's prompt and in the inbox's FYI section; "Tell agent" forwards it as a user message.
 
 ## Event model and storage
 
