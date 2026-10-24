@@ -153,7 +153,7 @@ describe("scanHolders", () => {
     expect((await client("claude-vscode"))?.client).toBe("vscode");
     expect((await client("claude-desktop"))?.client).toBe("desktop");
     expect((await client("sdk-py"))?.client).toBe("other");
-    expect((await client("cli", "shell"))?.busy).toBe(false);
+    expect((await client("cli", "shell"))?.busy).toBe(true);
   });
 
   it("prefers an interactive holder when two files name a session", async () => {

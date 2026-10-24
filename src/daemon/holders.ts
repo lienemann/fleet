@@ -130,7 +130,8 @@ export async function scanHolders(host: HolderHost): Promise<Holders | undefined
       pid: file.pid,
       client: CLIENTS[file.entrypoint] ?? "other",
       cwd: file.cwd,
-      busy: file.status === "busy",
+      // "shell": waiting for a shell command, which is as busy as a turn.
+      busy: file.status === "busy" || file.status === "shell",
       background: file.kind !== "interactive",
       verified,
     };
