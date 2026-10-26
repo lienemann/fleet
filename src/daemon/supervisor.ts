@@ -77,10 +77,13 @@ import {
   BRIEFING_ACK,
   directorHandoverStart,
   directorPrompt,
+  directorSetup,
   fleetPrompt,
+  fleetSetup,
   handoverRequest,
   handoverStart,
   importBriefing,
+  SETUP_CHANGED,
   workerPrompt,
 } from "./prompts.ts";
 import { ReviewService } from "./review.ts";
@@ -640,8 +643,7 @@ export class Supervisor implements ToolHost {
       ...project.workspaces.filter((ws) => !unused(ws)),
       { name, path, project: project.name, allowedTools, explicit: explicit || checkout },
     ];
-    if (this.configFile) writeConfig(this.configFile, this.config);
-    this.onWorkspacesChanged?.();
+    this.configChanged([project]);
     this.schedule();
     return `Added the workspace ${name} to ${project.name}.`;
   }
@@ -693,9 +695,8 @@ export class Supervisor implements ToolHost {
     }
     project.workspaces.push(standIn(project));
     this.config.projects.push(project);
-    if (this.configFile) writeConfig(this.configFile, this.config);
+    this.configChanged([]);
     this.startDirector(project);
-    this.onWorkspacesChanged?.();
     return project;
   }
 
@@ -719,7 +720,13 @@ export class Supervisor implements ToolHost {
         : workspaceInUse(workspaceUse(this.log.state, name));
     if (reason) throw new Error(`${name} stays: ${reason}.`);
     project.workspaces = project.workspaces.filter((ws) => ws.name !== name);
+    this.configChanged([project]);
+  }
+
+  /** Writes the config, and tells the pages and the directors of `projects` what changed. */
+  private configChanged(projects: Project[]): void {
     if (this.configFile) writeConfig(this.configFile, this.config);
+    this.retellSetup(projects);
     this.onWorkspacesChanged?.();
   }
 
@@ -1005,6 +1012,24 @@ export class Supervisor implements ToolHost {
   }
 
   /** Keeps a prompt until fleet runs the detached session again. */
+  /**
+   * After projects, workspaces or limits changed: the fleet director and the directors of
+   * `projects` learn how things are now with their next prompt. A session not started yet gets
+   * it in its instructions instead.
+   */
+  private retellSetup(projects: Project[]): void {
+    const tell = (name: string, setup: string) => {
+      if (!this.sessions.has(name)) return;
+      // Only the latest setup counts.
+      const held = (this.agent(name)?.held ?? []).filter((t) => !t.startsWith(SETUP_CHANGED));
+      this.append(name, { kind: "held", texts: [...held, `${SETUP_CHANGED}\n${setup}`] });
+    };
+    tell(FLEET_DIRECTOR, fleetSetup(this.config.projects, this.config.wip));
+    for (const project of projects.filter((p) => p.director)) {
+      tell(this.directorName(project), directorSetup(project, this.config.wip));
+    }
+  }
+
   private hold(name: string, text: string): void {
     this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), text] });
   }
@@ -1588,8 +1613,7 @@ export class Supervisor implements ToolHost {
     }
     if (project) project.wip = limits;
     else this.config.wip = limits;
-    if (this.configFile) writeConfig(this.configFile, this.config);
-    this.onWorkspacesChanged?.();
+    this.configChanged(project ? [project] : this.config.projects);
     this.schedule();
     const say = (n: number | undefined) => (n === undefined ? "any number" : `at most ${n}`);
     return `${named ?? "The fleet"}: ${say(limits.running)} running, ${say(limits.review)} in review.`;

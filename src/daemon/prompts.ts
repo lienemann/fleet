@@ -30,7 +30,12 @@ rewrite trunk. Keep notes and files meant for the user under .fleet/${name}/.
 `.trim();
 }
 
-export function directorPrompt(name: string, project: Project, fleet: Limits): string {
+/** Leads the current setup in a director's next prompt once projects, workspaces or limits changed. */
+export const SETUP_CHANGED =
+  "fleet's setup changed since your instructions were written; this is how it is now:";
+
+/** A director's workspaces, limits and read-only repos, as bullet lines. */
+export function directorSetup(project: Project, fleet: Limits): string {
   const workspaces = project.workspaces.filter((w) => !w.explicit).map((w) => w.name);
   const across = [
     fleet.running !== undefined && `${fleet.running} running`,
@@ -43,10 +48,17 @@ export function directorPrompt(name: string, project: Project, fleet: Limits): s
       `At most ${project.wip.review} wait in review; while review is full, spawn nothing new.`,
     across.length > 0 && `Across all projects, at most ${across.join(" and ")}.`,
   ].filter(Boolean);
-  const readOnly =
-    project.readOnly.length > 0
-      ? `- You and the workers read ${project.readOnly.join(", ")} without asking, but do not change them.\n`
-      : "";
+  return [
+    `- Workspaces: ${workspaces.join(", ")}. A task in a busy workspace waits in the queue.`,
+    limits.length > 0 && `- ${limits.join(" ")}`,
+    project.readOnly.length > 0 &&
+      `- You and the workers read ${project.readOnly.join(", ")} without asking, but do not change them.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function directorPrompt(name: string, project: Project, fleet: Limits): string {
   return `
 # Directing in fleet
 
@@ -56,8 +68,8 @@ delegate and follow up for the user, but you never implement. Do not edit code; 
 
 - Split work into tasks a worker can finish alone and start each with spawn_task. The context you pass is all
   the worker knows: goal, constraints, relevant files, how to test, and what done means.
-- Workspaces: ${workspaces.join(", ")}. A task in a busy workspace waits in the queue.
-${limits.length > 0 ? `- ${limits.join(" ")}\n` : ""}${readOnly}- Call ledger to see your project's tasks; call it with an agent and a note to record what matters to you about
+${directorSetup(project, fleet)}
+- Call ledger to see your project's tasks; call it with an agent and a note to record what matters to you about
   a task.
 - You may message any agent. For work that spans projects, link_tasks lets a task of yours and a task of
   another project message each other; the link ends when either is accepted or removed.
@@ -73,7 +85,8 @@ ${limits.length > 0 ? `- ${limits.join(" ")}\n` : ""}${readOnly}- Call ledger to
 const limitText = ({ running, review }: Limits): string =>
   `${running === undefined ? "any number" : `at most ${running}`} running, ${review === undefined ? "any number" : `at most ${review}`} in review`;
 
-export function fleetPrompt(projects: Project[], wip: Limits): string {
+/** Every project with its director, workspaces and limits, and the fleet's limits. */
+export function fleetSetup(projects: Project[], wip: Limits): string {
   const list = projects
     .map((project) => {
       const director = project.director
@@ -83,6 +96,10 @@ export function fleetPrompt(projects: Project[], wip: Limits): string {
       return `- ${project.name}: ${project.path}; ${director}; workspaces ${workspaces}; ${limitText(project.wip)}.`;
     })
     .join("\n");
+  return `Projects:\n${list}\nAcross all projects: ${limitText(wip)}.`;
+}
+
+export function fleetPrompt(projects: Project[], wip: Limits): string {
   return `
 # Coordinating fleet
 
@@ -91,9 +108,7 @@ agents across several projects. Each project is a jj repo with a director of its
 there. You coordinate the projects and configure fleet, but you never implement and never edit code; your own
 notes go under .fleet/${FLEET_DIRECTOR}/.
 
-Projects:
-${list}
-Across all projects: ${limitText(wip)}.
+${fleetSetup(projects, wip)}
 
 - spawn_task starts work in a project. The task belongs to that project's director, who hears its report; for
   work within one project, asking its director with send_message is often better.

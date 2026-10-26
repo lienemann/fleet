@@ -646,6 +646,32 @@ describe("fleet director", () => {
     ]);
   });
 
+  it("tells running directors what changed in the projects, workspaces and limits", async () => {
+    const { root, log, supervisor, calls } = fleet();
+    const lastPrompt = (agent: string) =>
+      log.state.agents[agent]?.log.findLast((line) => line.role === "user")?.text ?? "";
+    for (const agent of [FLEET_DIRECTOR, DIRECTOR]) {
+      supervisor.handle({ type: "prompt", agent, text: "Hello" });
+    }
+    await until(() => calls.length === 2);
+    mkdirSync(join(root, "ws9"));
+    supervisor.addWorkspace("ws9", join(root, "ws9"), false, "test");
+    supervisor.setLimits({ project: "test", running: 2 });
+    // The site's director has no session yet; it starts with the new setup in its instructions.
+    expect(log.state.agents["director-site"]?.held).toBeUndefined();
+
+    for (const agent of [FLEET_DIRECTOR, DIRECTOR]) {
+      supervisor.handle({ type: "prompt", agent, text: "Go on" });
+    }
+    await until(() => lastPrompt(DIRECTOR).includes("Go on"));
+    expect(lastPrompt(DIRECTOR)).toContain("Workspaces: ws1, ws9.");
+    expect(lastPrompt(DIRECTOR)).toContain("At most 2 of this project's tasks run at once.");
+    await until(() => lastPrompt(FLEET_DIRECTOR).includes("Go on"));
+    expect(lastPrompt(FLEET_DIRECTOR)).toContain("workspaces ws1, ws9; at most 2 running");
+    // Only the latest setup goes along.
+    expect(lastPrompt(FLEET_DIRECTOR).match(/setup changed/g)).toHaveLength(1);
+  });
+
   it("leaves the inbox, the verdicts and the permissions to the user", () => {
     const { supervisor } = fleet();
     const names = toolsOf(fleetServer(FLEET_DIRECTOR, "fleet-director", supervisor)).map(
