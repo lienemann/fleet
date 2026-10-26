@@ -1,5 +1,52 @@
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { jjPolicy } from "../src/daemon/policy.ts";
+import { jjPolicy, readPolicy } from "../src/daemon/policy.ts";
+
+describe("readPolicy", () => {
+  const root = mkdtempSync(join(tmpdir(), "fleet-reads-"));
+  const ws = join(root, "ws1");
+  const other = join(root, "hdl");
+  const outside = join(root, "elsewhere");
+  for (const dir of [ws, other, outside]) mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(ws, "src", "lib.py"), "");
+  symlinkSync(outside, join(ws, "escape"));
+  const roots = [ws, other];
+
+  it.each([
+    ["Read", { file_path: join(ws, "src", "lib.py") }],
+    ["Read", { file_path: "src/lib.py" }],
+    ["Read", { file_path: join(other, "src", "top.vhd") }],
+    ["Glob", { pattern: "**/*.py" }],
+    ["Glob", { pattern: "src/**/*.py", path: ws }],
+    ["Glob", { pattern: `${other}/src/*.vhd` }],
+    ["Grep", { pattern: "todo" }],
+    ["Grep", { pattern: "todo", path: join(other, "src"), glob: "*.vhd" }],
+  ])("approves %s %j", (tool, input) => {
+    expect(readPolicy(ws, roots, tool, input)).toMatchObject({ behavior: "allow" });
+  });
+
+  it.each([
+    ["Read", { file_path: join(outside, "notes.md") }],
+    ["Read", { file_path: "../elsewhere/notes.md" }],
+    ["Read", { file_path: join(ws, "escape", "notes.md") }],
+    ["Read", {}],
+    ["Glob", { pattern: "**/*", path: outside }],
+    ["Glob", { pattern: `${outside}/**` }],
+    ["Glob", { pattern: "../elsewhere/**" }],
+    ["Glob", { pattern: "{src,../elsewhere}/*" }],
+    ["Glob", { pattern: "/*" }],
+    ["Glob", { pattern: "~/**" }],
+    ["Read", { file_path: "~/.ssh/id_ed25519" }],
+    ["Grep", { pattern: "todo", path: "~" }],
+    ["Grep", { pattern: "todo", path: "/" }],
+    ["Grep", { pattern: "todo", path: join(ws, "escape") }],
+    ["Write", { file_path: join(ws, "src", "lib.py") }],
+  ])("leaves %s %j to the user", (tool, input) => {
+    expect(readPolicy(ws, roots, tool, input)).toBeUndefined();
+  });
+});
 
 describe("jjPolicy", () => {
   it.each([

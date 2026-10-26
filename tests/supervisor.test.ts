@@ -414,14 +414,21 @@ describe("a project without workspaces", () => {
 });
 
 describe("what agents do without asking", () => {
+  const root = mkdtempSync(join(tmpdir(), "fleet-asking-"));
+  const ws = join(root, "ws1");
+  const hdl = join(root, "hdl");
+  for (const dir of [ws, hdl]) mkdirSync(dir);
+
   async function agent() {
     const log = new EventLog(":memory:");
     const fake = fakeQuery(echoing(assistantText("ok"), result()));
-    const ws = { name: "ws1", path: "/work/ws1", allowedTools: [] };
     const supervisor = new Supervisor({
       log,
       queryFn: fake.queryFn,
-      config: testConfig({ workspaces: [ws] }),
+      config: testConfig({
+        workspaces: [{ name: "ws1", path: ws, allowedTools: [] }],
+        readOnly: [hdl],
+      }),
     });
     supervisor.init();
     supervisor.createTask("Look around", "x", "ws1");
@@ -454,5 +461,17 @@ describe("what agents do without asking", () => {
     );
     await asks("Bash", { command: "jj new" });
     await asks("Bash", { command: "just test" });
+  });
+
+  it("reads its workspace and the project's read-only repos, and asks for anything else", async () => {
+    const { decide, asks } = await agent();
+    for (const file of [join(ws, "lib.py"), join(hdl, "top.vhd")]) {
+      await expect(decide("Read", { file_path: file })).resolves.toMatchObject({
+        behavior: "allow",
+      });
+    }
+    await expect(decide("Grep", { pattern: "todo" })).resolves.toMatchObject({ behavior: "allow" });
+    await asks("Read", { file_path: join(root, "notes.md") });
+    await asks("Glob", { pattern: "**/*", path: root });
   });
 });

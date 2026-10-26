@@ -154,7 +154,7 @@ port = 7777
 model = "opus"                          # default model, optional
 wip = { running = 6, review = 3 }       # for all projects together; leave it out for no limit
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
-allowed_tools = ["Read", "Glob", "Grep"]  # run without asking (the default)
+allowed_tools = ["Bash(uv run pytest:*)"]  # also run without asking; none by default
 
 [[projects]]
 name = "foo"
@@ -178,7 +178,9 @@ url = "http://127.0.0.1:7801"
 # python = "python3"
 ```
 
-Agents run jj's read-only commands, such as `jj log`, `jj diff` or `jj file show`, without asking. fleet refuses
+Agents read files in their workspace and in their project's `read_only` repos without asking; directors read their
+project's repo, and the fleet director reads every project's. Reading anywhere else waits in the inbox. Agents
+also run jj's read-only commands, such as `jj log`, `jj diff` or `jj file show`, without asking. fleet refuses
 jj commands that could start another program: `--config`, `--config-file`, `--tool`, `config set`, `fix`, `run`,
 `util`, and whatever opens a diff or merge editor. Everything else waits in the inbox, `just` included, unless
 `allowed_tools` lets it run.

@@ -1,4 +1,70 @@
+import { resolve } from "node:path";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { resolveInside } from "./files.ts";
+
+/**
+ * The daemon's verdict on Read, Glob and Grep: approved when everything they look at lies in one
+ * of `roots`, the agent's workspace and the repos it may read. Anything else is left to the user.
+ */
+export function readPolicy(
+  cwd: string,
+  roots: string[],
+  tool: string,
+  input: Record<string, unknown>,
+): PermissionResult | undefined {
+  const targets = readTargets(cwd, tool, input);
+  const inside = (path: string) => roots.some((root) => isInside(root, path));
+  return targets?.every(inside) ? { behavior: "allow", updatedInput: input } : undefined;
+}
+
+const text = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+/** The paths a read tool looks at, or undefined when that is not plain. */
+function readTargets(
+  cwd: string,
+  tool: string,
+  input: Record<string, unknown>,
+): string[] | undefined {
+  // The tools may take a leading ~ as the home directory.
+  const paths = [input.file_path, input.path, tool === "Glob" ? input.pattern : undefined];
+  if (paths.some((path) => text(path)?.startsWith("~"))) return undefined;
+  switch (tool) {
+    case "Read": {
+      const file = text(input.file_path);
+      return file === undefined ? undefined : [resolve(cwd, file)];
+    }
+    case "Grep":
+      // Its glob only filters the files under the path.
+      return [resolve(cwd, text(input.path) ?? ".")];
+    case "Glob": {
+      const pattern = text(input.pattern) ?? "";
+      // `..` climbs out of wherever the pattern seems to start, also inside braces.
+      if (pattern.includes("..")) return undefined;
+      const base = resolve(cwd, text(input.path) ?? ".");
+      return [base, resolve(base, fixedPart(pattern))];
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The directories a glob pattern starts with, before its first wildcard. */
+const fixedPart = (pattern: string): string => {
+  const parts = pattern.split("/");
+  const wild = parts.findIndex((part) => /[*?[{]/.test(part));
+  const fixed = (wild < 0 ? parts : parts.slice(0, wild)).join("/");
+  return fixed || (pattern.startsWith("/") ? "/" : ".");
+};
+
+const isInside = (root: string, path: string): boolean => {
+  try {
+    resolveInside(root, path);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * jj commands that only read, as their first word and, for commands with subcommands, the

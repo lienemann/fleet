@@ -7,9 +7,6 @@ import type { Limits } from "../shared/protocol.ts";
 
 export type { Limits };
 
-// Anything else goes to the inbox. jj's read-only commands need no rule: the daemon approves them.
-const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep"];
-
 /** The limits of the one project fleet runs without a config. */
 const DEFAULT_LIMITS = { running: 4, review: 2 };
 
@@ -47,7 +44,11 @@ const ConfigFile = z.object({
   /** Extra origins and Host names the daemon accepts, e.g. for a tunnel under another name. */
   allowed_origins: z.array(z.string()).default([]),
   allowed_hosts: z.array(z.string()).default([]),
-  allowed_tools: z.array(z.string()).default(DEFAULT_ALLOWED_TOOLS),
+  /**
+   * What agents run without asking, besides what the daemon approves itself: reading their
+   * workspace and read-only repos, and jj's read-only commands.
+   */
+  allowed_tools: z.array(z.string()).default([]),
   /** Only the owner of ~/.fleet/secret gets in; false lets every user of this computer in. */
   auth: z.boolean().default(true),
   /** false runs no fleet director, as on a pod whose directors live on another machine. */

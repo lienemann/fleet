@@ -70,7 +70,7 @@ import {
 } from "./files.ts";
 import { writeForkHandover } from "./forkHandover.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
-import { jjPolicy } from "./policy.ts";
+import { jjPolicy, readPolicy } from "./policy.ts";
 import type { Power } from "./power.ts";
 import {
   BACK_IN_FLEET,
@@ -1923,23 +1923,25 @@ export class Supervisor implements ToolHost {
     // An agent of a project that left the config carries on with the first project's settings.
     const project = fleet ? undefined : (this.projectOf(agent) ?? this.home);
     keepNotesOutOfVcs(agent.cwd);
-    const allowed = director
-      ? ["Read", "Glob", "Grep"]
-      : (this.workspace(agent.workspace)?.allowedTools ?? []);
+    const allowed = director ? [] : (this.workspace(agent.workspace)?.allowedTools ?? []);
+    // Repos the agent reads besides its own directory: every project's for the fleet director.
+    const readable = fleet ? this.config.projects.map((p) => p.path) : (project?.readOnly ?? []);
     // Bare tool names in allowedTools would skip canUseTool with an SDK warning, so the
     // daemon approves those itself; only rules with a pattern go to the CLI.
     const approved = new Set(allowed.filter((rule) => !rule.includes("(")));
     const autoDecide = (
       tool: string,
       input: Record<string, unknown>,
-    ): PermissionResult | undefined =>
-      approved.has(tool) || tool.startsWith(`mcp__${SERVER}__`)
-        ? { behavior: "allow", updatedInput: input }
-        : tool === "Bash"
-          ? jjPolicy(String(input.command ?? ""))
-          : director
-            ? directorPolicy(agent.cwd, name, tool, input)
-            : undefined;
+    ): PermissionResult | undefined => {
+      if (approved.has(tool) || tool.startsWith(`mcp__${SERVER}__`)) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      if (tool === "Bash") return jjPolicy(String(input.command ?? ""));
+      return (
+        readPolicy(agent.cwd, [agent.cwd, ...readable], tool, input) ??
+        (director ? directorPolicy(agent.cwd, name, tool, input) : undefined)
+      );
+    };
     const session = new AgentSession({
       cwd: agent.cwd,
       emit: (event) => this.append(name, event),
@@ -1949,7 +1951,7 @@ export class Supervisor implements ToolHost {
       effort: agent.effort,
       permissionMode: agent.permissionMode,
       allowedTools: allowed.filter((rule) => rule.includes("(")),
-      additionalDirectories: fleet ? this.config.projects.map((p) => p.path) : project?.readOnly,
+      additionalDirectories: readable,
       mcpServers: { [SERVER]: fleetServer(name, agent.role, this) },
       // The session hooks from the README skip fleet's own sessions by this.
       env: { FLEET_AGENT: name },
