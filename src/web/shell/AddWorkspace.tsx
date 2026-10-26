@@ -61,7 +61,7 @@ export function AddWorkspace({ project, onClose }: { project?: string; onClose: 
 
 /** The jj workspaces of a project's repo besides the default one, each with a button to add it. */
 export function WorkspaceOffers({ project }: { project: string }) {
-  const { call, send } = useFleet();
+  const { call, send, info } = useFleet();
   const [offers, setOffers] = useState<Offer[]>();
   const [error, setError] = useState<string>();
 
@@ -71,12 +71,12 @@ export function WorkspaceOffers({ project }: { project: string }) {
     );
   }, [call, project]);
 
-  const add = (offer: Offer): void => {
+  // Added once the daemon lists it, not when the button is pressed: adding may fail.
+  const added = (offer: Offer): boolean =>
+    offer.added ||
+    (info?.workspaces.some((ws) => ws.project === project && ws.path === offer.path) ?? false);
+  const add = (offer: Offer): void =>
     send({ type: "add_workspace", project, name: offer.name, path: offer.path });
-    setOffers((current) =>
-      current?.map((o) => (o.path === offer.path ? { ...o, added: true } : o)),
-    );
-  };
 
   return (
     <>
@@ -95,7 +95,7 @@ export function WorkspaceOffers({ project }: { project: string }) {
               <strong className="name">{offer.name}</strong>{" "}
               <code className="dim">{offer.path}</code>
             </span>
-            {offer.added ? (
+            {added(offer) ? (
               <span className="dim">added</span>
             ) : (
               <button type="button" className="small primary" onClick={() => add(offer)}>
