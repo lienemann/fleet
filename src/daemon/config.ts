@@ -102,6 +102,8 @@ export interface Config {
   allowedHosts: string[];
   /** Whether the fleet director runs. */
   fleetDirector: boolean;
+  /** What projects allow unless they say otherwise. */
+  allowedTools: string[];
   /** Limits of the whole fleet, on top of each project's. */
   wip: Limits;
   model?: string;
@@ -212,6 +214,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     allowedOrigins: parsed.allowed_origins,
     allowedHosts: parsed.allowed_hosts,
     fleetDirector: parsed.fleet_director,
+    allowedTools: parsed.allowed_tools,
     wip: parsed.wip,
     model: parsed.model,
     projects,

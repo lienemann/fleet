@@ -96,7 +96,7 @@ import {
   ToolError,
   type ToolHost,
 } from "./tools.ts";
-import { listJjWorkspaces } from "./workspaces.ts";
+import { jjRoot, listJjWorkspaces } from "./workspaces.ts";
 
 const NAMES = [
   "alpha",
@@ -177,7 +177,7 @@ export interface SessionHook {
 export interface SupervisorOptions {
   log: EventLog;
   queryFn: QueryFn;
-  config: Pick<Config, "projects" | "wip" | "model" | "host">;
+  config: Pick<Config, "projects" | "wip" | "model" | "host" | "allowedTools">;
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
   sessions?: SessionSource;
@@ -615,8 +615,9 @@ export class Supervisor implements ToolHost {
   }
 
   /** Adds a workspace to a project and to config.toml. */
-  addWorkspace(name: string, path: string, explicit: boolean, projectName: string): string {
+  addWorkspace(name: string, dir: string, explicit: boolean, projectName: string): string {
     const project = this.projectNamed(projectName);
+    const path = expandHome(dir);
     if (!NAME.test(name)) {
       throw new ToolError(`"${name}" is not a fit name; use letters, digits, ".", "_" and "-".`);
     }
@@ -633,9 +634,11 @@ export class Supervisor implements ToolHost {
     const unused = (ws: Workspace) =>
       ws.fallback && !workspaceInUse(workspaceUse(this.log.state, ws.name));
     const { allowedTools } = project;
+    // A project's own checkout is its director's too: tasks go there only when they name it.
+    const checkout = this.config.projects.some((p) => p.path === path);
     project.workspaces = [
       ...project.workspaces.filter((ws) => !unused(ws)),
-      { name, path, project: project.name, allowedTools, explicit },
+      { name, path, project: project.name, allowedTools, explicit: explicit || checkout },
     ];
     if (this.configFile) writeConfig(this.configFile, this.config);
     this.onWorkspacesChanged?.();
@@ -664,8 +667,9 @@ export class Supervisor implements ToolHost {
     const start = expandHome(dir);
     let repo: string;
     try {
+      // The checkout the repo was made in; without one, the workspace that holds `dir`.
       const workspaces = listJjWorkspaces(start);
-      repo = workspaces.find((ws) => ws.name === "default")?.path ?? start;
+      repo = workspaces.find((ws) => ws.name === "default")?.path ?? jjRoot(start);
     } catch {
       throw new ToolError(`${dir} is not in a jj repo.`);
     }
@@ -677,7 +681,7 @@ export class Supervisor implements ToolHost {
       director: true,
       readOnly: [],
       wip: {},
-      allowedTools: this.home?.allowedTools ?? [],
+      allowedTools: this.config.allowedTools,
       workspaces: [],
     };
     const taken = new Set([

@@ -719,6 +719,47 @@ describe("fleet director", () => {
     expect(loadConfig(home).projects[2]?.workspaces.map((w) => w.name)).toEqual(["d1"]);
   });
 
+  it("adds a project at the workspace given when its repo has no default workspace", () => {
+    const { root, supervisor } = fleet();
+    const repo = join(root, "docs");
+    execFileSync("jj", ["git", "init", repo], { env: jjEnv });
+    execFileSync("jj", ["workspace", "add", "--name", "d1", join(root, "docs-d1")], {
+      cwd: repo,
+      env: jjEnv,
+    });
+    execFileSync("jj", ["workspace", "forget", "default"], { cwd: repo, env: jjEnv });
+    mkdirSync(join(root, "docs-d1", "src"));
+    supervisor.addProject(join(root, "docs-d1", "src"), "docs");
+    expect(supervisor.daemonInfo().projects[2]?.path).toBe(join(root, "docs-d1"));
+  });
+
+  it("gives a new project the tools the config allows, not another project's", () => {
+    const { root, config, supervisor } = fleet();
+    config.allowedTools = ["Bash(make:*)"];
+    const first = config.projects[0];
+    if (first) first.allowedTools = ["Bash(cargo test:*)"];
+    const repo = join(root, "docs");
+    execFileSync("jj", ["git", "init", repo], { env: jjEnv });
+    supervisor.addProject(repo);
+    expect(config.projects[2]?.allowedTools).toEqual(["Bash(make:*)"]);
+  });
+
+  it("adds a workspace under its full path and only once, however it is spelled", () => {
+    const { root, supervisor } = fleet();
+    mkdirSync(join(root, "s2"));
+    supervisor.addWorkspace("s2", `${root}/./s2/`, false, "site");
+    expect(supervisor.workspaceList().find((ws) => ws.name === "s2")?.path).toBe(join(root, "s2"));
+    expect(() => supervisor.addWorkspace("s3", join(root, "s2"), false, "site")).toThrow(
+      "in fleet already",
+    );
+  });
+
+  it("takes tasks into a project's own checkout only when they name it", () => {
+    const { root, supervisor } = fleet();
+    supervisor.addWorkspace("main", join(root, "site"), false, "site");
+    expect(supervisor.workspaceList().find((ws) => ws.name === "main")?.explicit).toBe(true);
+  });
+
   it("tells the browser each project with its director, default workspace and limits", () => {
     const { root, supervisor } = fleet();
     const info = supervisor.daemonInfo();

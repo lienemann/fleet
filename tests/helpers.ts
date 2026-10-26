@@ -142,6 +142,7 @@ export const testConfig = (
 ): SupervisorOptions["config"] => ({
   host: "mac",
   wip: {},
+  allowedTools: [],
   projects: [testProject("test", first), ...others],
 });
 

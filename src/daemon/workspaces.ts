@@ -5,6 +5,15 @@ export interface JjWorkspace {
   path: string;
 }
 
+/** The root of the jj workspace containing `dir`. */
+export function jjRoot(dir: string): string {
+  return execFileSync("jj", ["workspace", "root", "--ignore-working-copy"], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
 /** The workspaces of the jj repo containing `dir`, with their directories. */
 export function listJjWorkspaces(dir: string): JjWorkspace[] {
   const out = execFileSync(
