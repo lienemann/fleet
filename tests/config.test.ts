@@ -15,6 +15,7 @@ it("falls back to the current directory as the only project and workspace", () =
     { name: "here", path: "/work/here", project: "here", explicit: true, fallback: true },
   ]);
   expect(config.port).toBe(7777);
+  expect(config.fleetDirector).toBe(true);
   expect(config.wip).toEqual({});
   expect(config.diskMinFree).toBe(10 * 1024 ** 3);
 });
@@ -25,6 +26,7 @@ it("reads workspaces and lets them override the allow list", () => {
     join(dir, "config.toml"),
     `port = 9000
 host = "mac"
+fleet_director = false
 allowed_tools = ["Read"]
 wip = { running = 3 }
 disk = { min_free_gb = 2.5 }
@@ -47,6 +49,7 @@ allowed_tools = ["Read", "Bash(uv run pytest:*)"]
   expect(config).toMatchObject({
     port: 9000,
     host: "mac",
+    fleetDirector: false,
     diskMinFree: 2.5 * 1024 ** 3,
     wip: { running: 3 },
   });

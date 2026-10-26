@@ -150,6 +150,7 @@ The header and `fleet --version` show the version from `package.json`. To releas
 ```toml
 port = 7777
 # auth = false                          # no login, for a computer nobody else uses
+# fleet_director = false                # no fleet director
 model = "opus"                          # default model, optional
 wip = { running = 6, review = 3 }       # for all projects together; leave it out for no limit
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
@@ -181,7 +182,8 @@ Workspace names must differ across all projects. fleet writes `config.toml` itse
 project, or when the fleet director changes a limit. It keeps the comments at the top of the file and loses the
 others.
 
-On a pod, run the same daemon with its own projects, each with `director = false`, then forward its port with
+On a pod, run the same daemon with `fleet_director = false` and its own projects, each with `director = false`, so
+that the directors on your Mac stay the only ones. Then forward its port with
 `coder port-forward <pod> --tcp 7801:7777` or `ssh -L 7801:127.0.0.1:7777 <pod>`.
 
 ## Claude Code sessions outside fleet

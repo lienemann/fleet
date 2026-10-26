@@ -47,7 +47,7 @@ const supervisor = new Supervisor({
   // Only the `fleet` command starts the daemon again after it exits for a restart.
   restart: process.env.FLEET_SUPERVISED ? () => void shutdown(RESTART_EXIT_CODE) : undefined,
   configFile: join(home, "config.toml"),
-  fleetDir: join(home, "fleet-director"),
+  fleetDir: config.fleetDirector ? join(home, "fleet-director") : undefined,
   onWorkspacesChanged: () => broadcastInfo(),
 });
 

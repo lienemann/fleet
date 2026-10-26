@@ -602,13 +602,20 @@ describe("fleet director", () => {
       supervisor.init();
       return supervisor;
     };
-    return { root, home, log, supervisor: start(), restart: start, calls: fake.calls };
+    return { root, home, log, config, supervisor: start(), restart: start, calls: fake.calls };
   }
 
   it("keeps the fleet director out of every project across restarts", () => {
     const { log, restart } = fleet();
     restart();
     expect(log.state.agents[FLEET_DIRECTOR]?.project).toBeUndefined();
+  });
+
+  it("goes once the config switches it off", () => {
+    const { log, config } = fleet();
+    new Supervisor({ log, queryFn: fakeQuery(echoing(result())).queryFn, config }).init();
+    expect(log.state.agents[FLEET_DIRECTOR]).toBeUndefined();
+    expect(log.state.agents[DIRECTOR]).toBeDefined();
   });
 
   it("keeps each director with its project when the config lists them in another order", () => {

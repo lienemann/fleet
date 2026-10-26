@@ -52,7 +52,7 @@ const daemon = (director: boolean) =>
 let config: string;
 if (isPod) {
   // A pod has workers only; the directors live on the Mac.
-  config = `port = ${port}\nhost = "pod"\n\n[history]\nenabled = false\n\n${daemon(false)}`;
+  config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${daemon(false)}`;
 } else {
   const site = repo("site");
   execFileSync("jj", ["workspace", "add", "--name", "pages", join(home, "pages")], {

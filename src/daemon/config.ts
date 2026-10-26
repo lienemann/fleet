@@ -50,6 +50,8 @@ const ConfigFile = z.object({
   allowed_tools: z.array(z.string()).default(DEFAULT_ALLOWED_TOOLS),
   /** Only the owner of ~/.fleet/secret gets in; false lets every user of this computer in. */
   auth: z.boolean().default(true),
+  /** false runs no fleet director, as on a pod whose directors live on another machine. */
+  fleet_director: z.boolean().default(true),
   /** Limits of the whole fleet, on top of each project's. */
   wip: LimitsConfig.default({}),
   model: z.string().optional(),
@@ -97,6 +99,8 @@ export interface Config {
   host: string;
   allowedOrigins: string[];
   allowedHosts: string[];
+  /** Whether the fleet director runs. */
+  fleetDirector: boolean;
   /** Limits of the whole fleet, on top of each project's. */
   wip: Limits;
   model?: string;
@@ -206,6 +210,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     host: parsed.host ?? hostname().replace(/\.local$/, ""),
     allowedOrigins: parsed.allowed_origins,
     allowedHosts: parsed.allowed_hosts,
+    fleetDirector: parsed.fleet_director,
     wip: parsed.wip,
     model: parsed.model,
     projects,

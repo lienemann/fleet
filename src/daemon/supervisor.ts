@@ -371,6 +371,9 @@ export class Supervisor implements ToolHost {
         cwd: this.fleetDir,
         host: this.config.host,
       });
+    } else if (!this.fleetDir && this.agent(FLEET_DIRECTOR)) {
+      // Switched off since the last run: reports go to the user then, not to an idle director.
+      this.append(FLEET_DIRECTOR, { kind: "task_removed" });
     }
     for (const project of this.config.projects) this.startDirector(project);
     for (const decision of Object.values(this.log.state.decisions)) {
