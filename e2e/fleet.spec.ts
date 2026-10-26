@@ -279,9 +279,11 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
   await page.keyboard.press("Enter");
   await expect(page.locator(".card", { hasText: "Fix the flaky replay test" })).toBeVisible();
 
-  // A project folds away in the rail.
+  // A project folds away in the rail, from the palette or by its name.
   const header = site.getByRole("button", { name: "site", exact: true });
-  await header.click();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("textbox", { name: "Command" }).fill("Fold site in the rail");
+  await page.keyboard.press("Enter");
   await expect(header).toHaveAttribute("aria-expanded", "false");
   await expect(site).not.toContainText("Polish the homepage");
   await header.click();

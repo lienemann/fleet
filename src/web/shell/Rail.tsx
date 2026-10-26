@@ -10,6 +10,7 @@ import {
   workspaceUse,
 } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { type Command, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
 import { useProjects } from "../projects.tsx";
 import { useNow } from "../useNow.ts";
@@ -68,6 +69,18 @@ export function Rail({
   const [folded, toggle] = useFolded();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const grouped = projects.length > 1;
+  useCommands(
+    grouped
+      ? projects.map(
+          ({ name }): Command => ({
+            id: `rail.fold.${name}`,
+            label: `${folded.has(name) ? "Unfold" : "Fold"} ${name} in the rail`,
+            group: "Projects",
+            run: () => toggle(name),
+          }),
+        )
+      : [],
+  );
   const inProject = (project: string) => agents.filter((a) => a.project === project);
   const tree = (list: AgentView[]) => (
     <AgentTree agents={list} selected={selected} onSelect={onSelect} onRemove={onRemove} />
