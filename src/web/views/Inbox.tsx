@@ -12,7 +12,7 @@ const QUICK_ANSWERS = ["Yes", "No", "Defer"];
 
 /** Everything waiting on the user: decisions and permissions, open points, and messages to them. */
 export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { send } = useFleet();
+  const { send, state: all } = useFleet();
   const state = useShownState();
   const items = pendingDecisions(state);
   const docs = openPointDocs(state);
@@ -77,7 +77,7 @@ export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
         <DecisionCard
           key={decision.requestId}
           decision={decision}
-          agent={state.agents[decision.agent]}
+          agent={all.agents[decision.agent]}
           onOpen={() => onOpen(decision.agent)}
           focused={decision === focused}
           onAnswer={(a) => send({ type: "answer", requestId: decision.requestId, answer: a })}

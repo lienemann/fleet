@@ -57,22 +57,23 @@ export function useShownState(): FleetState {
   return useMemo(() => narrow(state, project), [state, project]);
 }
 
-function narrow(state: FleetState, project: string | undefined): FleetState {
+/** `state` with only the agents of `project`, their traffic, and what waits on the user. */
+export function narrow(state: FleetState, project: string | undefined): FleetState {
   if (project === undefined) return state;
   const agents = Object.fromEntries(
     Object.entries(state.agents).filter(([, agent]) => agent.project === project),
   );
   const shown = (name: string) => name in agents;
+  // The fleet director works for every project, so what it waits for shows under any filter.
+  const asks = (name: string) => shown(name) || state.agents[name]?.role === "fleet-director";
   return {
     ...state,
     agents,
-    decisions: Object.fromEntries(
-      Object.entries(state.decisions).filter(([, d]) => shown(d.agent)),
-    ),
+    decisions: Object.fromEntries(Object.entries(state.decisions).filter(([, d]) => asks(d.agent))),
     // A message between two projects shows in both.
     messages: state.messages.filter((m) => shown(m.from) || shown(m.to)),
     openPoints: Object.fromEntries(
-      Object.entries(state.openPoints).filter(([, doc]) => shown(doc.agent)),
+      Object.entries(state.openPoints).filter(([, doc]) => asks(doc.agent)),
     ),
   };
 }

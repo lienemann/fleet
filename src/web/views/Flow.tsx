@@ -55,10 +55,12 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
   const { project } = useProjectFilter();
   const middle =
     project === undefined && projects.length > 1 ? undefined : (project ?? projects[0]?.name);
-  // A project without a director reports to the fleet director.
-  const hub =
+  // A project without a director reports to the fleet director; with neither shown, the middle
+  // stays empty.
+  const director =
     (middle === undefined ? undefined : projects.find((p) => p.name === middle)?.director) ??
     FLEET_DIRECTOR;
+  const hub = director in state.agents ? director : undefined;
 
   const { positions, subs, parents } = useMemo(() => {
     const directors = new Map(projects.map((p) => [p.name, p.director]));
@@ -69,10 +71,8 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
       (a) =>
         (a.role === "worker" && a.task !== "accepted") || (a.role === "director" && a.name !== hub),
     );
-    const positions = new Map<string, Point>([
-      [hub, { x: CENTER, y: CENTER }],
-      [USER, { x: CENTER, y: 36 }],
-    ]);
+    const positions = new Map<string, Point>([[USER, { x: CENTER, y: 36 }]]);
+    if (hub) positions.set(hub, { x: CENTER, y: CENTER });
     const subs: SubNode[] = [];
     // The ellipse is flatter than the circle, so that the user fits above it.
     const place = (angle: number, radius: number): Point => ({
@@ -85,7 +85,8 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
         -Math.PI / 2 + TOP_GAP + ((2 * Math.PI - 2 * TOP_GAP) * (i + 0.5)) / ring.length;
       positions.set(worker.name, place(angle, RADIUS));
       const own = directors.get(worker.project ?? "");
-      parents.set(worker.name, own && own !== worker.name && own in state.agents ? own : hub);
+      const parent = own && own !== worker.name && own in state.agents ? own : hub;
+      if (parent) parents.set(worker.name, parent);
       const running = worker.subagents.flatMap((s, n) => (s.done ? [] : [{ ...s, n: n + 1 }]));
       // Off the line through the director, where the worker's labels are.
       const shift = running.length % 2 === 1 ? SUB_SPREAD / 2 : 0;
