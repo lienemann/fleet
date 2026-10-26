@@ -7,8 +7,8 @@ import type { Limits } from "../shared/protocol.ts";
 
 export type { Limits };
 
-// Anything else goes to the inbox. Read-only tools and the usual toolchain are safe to run.
-const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Bash(jj:*)", "Bash(just:*)"];
+// Anything else goes to the inbox. jj's read-only commands need no rule: the daemon approves them.
+const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep"];
 
 /** The limits of the one project fleet runs without a config. */
 const DEFAULT_LIMITS = { running: 4, review: 2 };

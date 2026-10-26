@@ -154,7 +154,7 @@ port = 7777
 model = "opus"                          # default model, optional
 wip = { running = 6, review = 3 }       # for all projects together; leave it out for no limit
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
-allowed_tools = ["Read", "Glob", "Grep", "Bash(jj:*)", "Bash(just:*)"]  # run without asking (the default)
+allowed_tools = ["Read", "Glob", "Grep"]  # run without asking (the default)
 
 [[projects]]
 name = "foo"
@@ -177,6 +177,11 @@ url = "http://127.0.0.1:7801"
 # enabled = false                       # no history view
 # python = "python3"
 ```
+
+Agents run jj's read-only commands, such as `jj log`, `jj diff` or `jj file show`, without asking. fleet refuses
+jj commands that could start another program: `--config`, `--config-file`, `--tool`, `config set`, `fix`, `run`,
+`util`, and whatever opens a diff or merge editor. Everything else waits in the inbox, `just` included, unless
+`allowed_tools` lets it run.
 
 Workspace names must differ across all projects. fleet writes `config.toml` itself when you add a workspace or a
 project, or when the fleet director changes a limit. It keeps the comments at the top of the file and loses the

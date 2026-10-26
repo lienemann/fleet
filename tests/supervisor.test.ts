@@ -412,3 +412,47 @@ describe("a project without workspaces", () => {
     expect(log.state.agents.alpha?.task).toBe("running");
   });
 });
+
+describe("what agents do without asking", () => {
+  async function agent() {
+    const log = new EventLog(":memory:");
+    const fake = fakeQuery(echoing(assistantText("ok"), result()));
+    const ws = { name: "ws1", path: "/work/ws1", allowedTools: [] };
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fake.queryFn,
+      config: testConfig({ workspaces: [ws] }),
+    });
+    supervisor.init();
+    supervisor.createTask("Look around", "x", "ws1");
+    await until(() => fake.calls.length === 1);
+    const canUseTool = fake.calls[0]?.options?.canUseTool;
+    let calls = 0;
+    const decide = (tool: string, input: Record<string, unknown>) => {
+      const id = `call-${++calls}`;
+      return canUseTool?.(tool, input, {
+        signal: new AbortController().signal,
+        toolUseID: id,
+        requestId: id,
+      });
+    };
+    const asks = async (tool: string, input: Record<string, unknown>) => {
+      const before = pendingDecisions(log.state).length;
+      void decide(tool, input);
+      await until(() => pendingDecisions(log.state).length === before + 1);
+    };
+    return { decide, asks };
+  }
+
+  it("runs jj's read-only commands, refuses ones that start a program, and asks for the rest", async () => {
+    const { decide, asks } = await agent();
+    await expect(decide("Bash", { command: "jj log -r @" })).resolves.toMatchObject({
+      behavior: "allow",
+    });
+    await expect(decide("Bash", { command: "jj --config ui.pager=x diff" })).resolves.toMatchObject(
+      { behavior: "deny" },
+    );
+    await asks("Bash", { command: "jj new" });
+    await asks("Bash", { command: "just test" });
+  });
+});

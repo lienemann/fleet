@@ -70,6 +70,7 @@ import {
 } from "./files.ts";
 import { writeForkHandover } from "./forkHandover.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
+import { jjPolicy } from "./policy.ts";
 import type { Power } from "./power.ts";
 import {
   BACK_IN_FLEET,
@@ -1934,9 +1935,11 @@ export class Supervisor implements ToolHost {
     ): PermissionResult | undefined =>
       approved.has(tool) || tool.startsWith(`mcp__${SERVER}__`)
         ? { behavior: "allow", updatedInput: input }
-        : director
-          ? directorPolicy(agent.cwd, name, tool, input)
-          : undefined;
+        : tool === "Bash"
+          ? jjPolicy(String(input.command ?? ""))
+          : director
+            ? directorPolicy(agent.cwd, name, tool, input)
+            : undefined;
     const session = new AgentSession({
       cwd: agent.cwd,
       emit: (event) => this.append(name, event),
