@@ -182,8 +182,23 @@ Agents read files in their workspace and in their project's `read_only` repos wi
 project's repo, and the fleet director reads every project's. Reading anywhere else waits in the inbox. Agents
 also run jj's read-only commands, such as `jj log`, `jj diff` or `jj file show`, without asking. fleet refuses
 jj commands that could start another program: `--config`, `--config-file`, `--tool`, `config set`, `fix`, `run`,
-`util`, and whatever opens a diff or merge editor. Everything else waits in the inbox, `just` included, unless
-`allowed_tools` lets it run.
+`util`, and whatever opens a diff or merge editor. Everything else waits in the inbox unless `allowed_tools` or
+your Claude Code settings let it run.
+
+Agents run with the same Claude Code settings as the CLI, from `~/.claude/settings.json` and the repo's `.claude/`
+directory. An allow rule there lets a command run without asking, a deny rule refuses it, and an ask rule sends it
+to the inbox in every permission mode. Combined, they let you allow a command whose behavior lives in a file the
+agent could change. Allowing `just test` is safe only while the agent can't rewrite the recipe, so editing a
+justfile asks first:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(just test:*)"],
+    "ask": ["Edit(**/justfile)", "Edit(**/Justfile)", "Edit(**/.justfile)", "Edit(**/*.just)"]
+  }
+}
+```
 
 Workspace names must differ across all projects. fleet writes `config.toml` itself when you add a workspace or a
 project, or when the fleet director changes a limit. It keeps the comments at the top of the file and loses the
