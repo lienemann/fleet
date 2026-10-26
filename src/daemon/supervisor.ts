@@ -1622,9 +1622,7 @@ export class Supervisor implements ToolHost {
     project?: Project,
   ): { name: string; path: string } {
     const list = this.workspaceList(name === undefined ? project : undefined);
-    const status = name
-      ? list.find((ws) => ws.name === name)
-      : list.find((ws) => !ws.explicit && !ws.claim && ws.tasks.length === 0 && ws.queued === 0);
+    const status = name ? list.find((ws) => ws.name === name) : list.find(isFree);
     if (!status) {
       throw new ToolError(
         name
@@ -1677,7 +1675,7 @@ export class Supervisor implements ToolHost {
     const project = projectAt(this.config, cwd);
     if (!project) return "";
     const free = this.workspaceList(project)
-      .filter((ws) => !ws.explicit && !ws.claim && ws.tasks.length === 0)
+      .filter(isFree)
       .map((ws) => ws.name);
     const claimHint = `claim a free workspace of ${project.name}${free.length > 0 ? ` (${free.join(", ")})` : ""} with fleet's claim_workspace tool as ${holder}, giving your working directory as cwd; the claim ends with this session`;
     const ws = project.workspaces.find((w) => isWithin(cwd, w.path));
@@ -1997,6 +1995,10 @@ export class Supervisor implements ToolHost {
     this.log.append({ ...event, agent });
   }
 }
+
+/** A workspace a session outside fleet may claim without naming it: nothing holds or awaits it. */
+const isFree = (ws: WorkspaceStatus): boolean =>
+  !ws.explicit && !ws.claim && ws.tasks.length === 0 && ws.queued === 0;
 
 /** A director plans and delegates; the only files it writes are its own notes. */
 export function directorPolicy(

@@ -182,6 +182,20 @@ describe("session hooks", () => {
     expect(Object.keys(log.state.claims)).toEqual(["ws1"]);
   });
 
+  it("offer no workspace that a queued task waits for", () => {
+    const supervisor = new Supervisor({
+      log: new EventLog(":memory:"),
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: testConfig({ workspaces, director: root, running: 1 }),
+    });
+    supervisor.init();
+    supervisor.createTask("Running", "x", "ws1");
+    supervisor.createTask("Waits for room", "y", "ws2");
+    expect(supervisor.sessionHook(start("aaaaaaaa-1", root))).toContain(
+      "claim a free workspace of test with",
+    );
+  });
+
   it("a session hook in project b claims only b's workspaces", async () => {
     const { log, supervisor } = setup(undefined, true);
     const hint = supervisor.sessionHook(start("aaaaaaaa-1", repoB));
