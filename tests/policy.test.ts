@@ -7,7 +7,7 @@ import { jjPolicy, readPolicy } from "../src/daemon/policy.ts";
 describe("readPolicy", () => {
   const root = mkdtempSync(join(tmpdir(), "fleet-reads-"));
   const ws = join(root, "ws1");
-  const other = join(root, "hdl");
+  const other = join(root, "reviewdiff");
   const outside = join(root, "elsewhere");
   for (const dir of [ws, other, outside]) mkdirSync(join(dir, "src"), { recursive: true });
   writeFileSync(join(ws, "src", "lib.py"), "");
@@ -17,12 +17,12 @@ describe("readPolicy", () => {
   it.each([
     ["Read", { file_path: join(ws, "src", "lib.py") }],
     ["Read", { file_path: "src/lib.py" }],
-    ["Read", { file_path: join(other, "src", "top.vhd") }],
+    ["Read", { file_path: join(other, "src", "core.ts") }],
     ["Glob", { pattern: "**/*.py" }],
     ["Glob", { pattern: "src/**/*.py", path: ws }],
-    ["Glob", { pattern: `${other}/src/*.vhd` }],
+    ["Glob", { pattern: `${other}/src/*.ts` }],
     ["Grep", { pattern: "todo" }],
-    ["Grep", { pattern: "todo", path: join(other, "src"), glob: "*.vhd" }],
+    ["Grep", { pattern: "todo", path: join(other, "src"), glob: "*.ts" }],
   ])("approves %s %j", (tool, input) => {
     expect(readPolicy(ws, roots, tool, input)).toMatchObject({ behavior: "allow" });
   });

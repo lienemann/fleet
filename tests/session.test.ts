@@ -39,10 +39,10 @@ const ask = (
 describe("AgentSession", () => {
   it("lets the session read the repos it is given without asking", async () => {
     const { queryFn, calls } = fakeQuery(echoing(init(), result()));
-    const { session } = newSession(queryFn, { additionalDirectories: ["/r/hdl"] });
+    const { session } = newSession(queryFn, { additionalDirectories: ["/r/reviewdiff"] });
     session.start();
     await until(() => calls.length === 1);
-    expect(calls[0]?.options?.additionalDirectories).toEqual(["/r/hdl"]);
+    expect(calls[0]?.options?.additionalDirectories).toEqual(["/r/reviewdiff"]);
   });
 
   it("logs a turn, its cost and context, then goes idle", async () => {

@@ -59,7 +59,7 @@ Every task follows one lifecycle. The daemon moves it on its own; only two state
 
 ## Projects
 
-I work on more than one repo at a time, LabOne Q and fleet for example, and sometimes one change needs two of them (fleet with ReviewDiff or jj orbit). One fleet runs all of them.
+I work on more than one repo at a time, fleet, ReviewDiff and jj orbit for example, and sometimes one change needs two of them. One fleet runs all of them.
 
 **A project is one jj repo:** its default workspace, its worker workspaces, the repos its agents may read but not change, and its own WIP limits. A fleet-wide limit on running workers and tasks in review sits on top; a queued task starts when both its project and the fleet have room, and either limit can be set to unlimited. Directors count toward neither. `config.toml` lists them under `[[projects]]`, each with a name, the default workspace's path, `[[projects.workspaces]]` and `read_only`. "+ Add project" in the rail takes a directory, finds the jj repo and its workspaces, and offers them; the project's director starts at once.
 
@@ -67,7 +67,7 @@ I work on more than one repo at a time, LabOne Q and fleet for example, and some
 
 **Messages between projects.** An agent sees and messages the agents of its own project. A message to an agent of another project is refused with a hint to ask its director. Directors, the fleet director included, message anyone. For work across repos a director links a task of its project to a task of another project, without asking that project's director; from then on the two find each other in `list_agents` and message each other, and the link ends when either task is accepted or removed. A link opens messages only; it does not show one task the other's report or diff. The bus shows both projects on a message between them, and each card shows its links.
 
-**Reading other repos.** A project's `read_only` repos, such as the HDL and LabOne repos next to LabOne Q, go to the SDK as `additionalDirectories`, so its agents read them without asking. Writing there still goes to the inbox.
+**Reading other repos.** A project's `read_only` repos, such as ReviewDiff's next to fleet, go to the SDK as `additionalDirectories`, and its agents read them without asking, as they read their own workspace. Reading anywhere else and writing there still go to the inbox.
 
 **One view.** Board, grid, inbox, timeline and flow show the agents of all projects. Each card and tile carries its project's name, the rail groups agents and workspaces by project, and a filter narrows every view to one project. The history view shows one repo at a time and picks the project. Pods keep their own daemons and projects; the browser merges them as before, and the fleet director acts on this daemon's projects only. The `/mcp` endpoint for sessions outside fleet picks the project from the caller's directory.
 

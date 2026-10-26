@@ -25,7 +25,7 @@ button,input{font-family:inherit}
   <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg2)">
     <div style="display: flex; align-items: baseline; gap: 10px">
       <span style="font-weight: 700; font-size: 17px; letter-spacing: 0.02em; font-family: var(--title); color: var(--accent)">fleet</span>
-      <span style="color: var(--muted); font-size: 12px; font-family: 'JetBrains Mono', monospace">MacBook + 2 Coder pods · laboneq</span>
+      <span style="color: var(--muted); font-size: 12px; font-family: 'JetBrains Mono', monospace">MacBook + 2 Coder pods · fleet</span>
     </div>
     <nav aria-label="Views" style="display: flex; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; flex-wrap: wrap">
       <sc-for list="{{views}}" as="v" hint-placeholder-count="6">
@@ -657,45 +657,45 @@ class Component extends DCLogic {
       { k: 'tool', t: 'ledger.status()' },
       { k: 'out', t: 'bravo working · delta working · alpha needs Jan · charlie in review' },
       { k: 'text', t: 'Holding echo until ws1 is free.' },
-      { msg: { to: 'delta', t: 'Reminder: skip hardware-dependent cases.' } },
-      { k: 'tool', t: 'ledger.update("bravo", "property tests in progress")' },
-      { msg: { to: 'bravo', t: 'Two things:\n1. Keep the Python API stable; the docs depend on it.\n2. Before you finish, compare against the Python reference on the example suite.' } },
+      { msg: { to: 'delta', t: 'Reminder: keep the 100k-event fixture out of the repo.' } },
+      { k: 'tool', t: 'ledger.update("bravo", "ordering tests in progress")' },
+      { msg: { to: 'bravo', t: 'Two things:\n1. Keep the EventLog API stable; the supervisor depends on it.\n2. Before you finish, replay a recorded log through both write paths and compare.' } },
       { loop: 0 }
     ];
     const bravoQ = [
-      { k: 'tool', t: 'Read(laboneq/compiler/pulse_sheet.py)' },
-      { k: 'sub', w: 'explore#1', t: 'Grep("PulseSheet", laboneq/) → call sites in 9 files' },
-      { k: 'text', t: 'Only three call sites touch the hot loop. Keeping the Python wrapper, moving the core.' },
-      { note: 'explore#1 found a call site in laboneq/dsl that bravo’s plan does not mention.' },
-      { k: 'sub', w: 'test-writer#2', t: 'Write(rust/pulse_sheet/tests/props.rs) +64' },
-      { k: 'tool', t: 'Bash(cargo test -p pulse_sheet)' },
-      { k: 'out', t: 'test result: ok' },
-      { k: 'sub', w: 'explore#1', t: 'Read(docs/design/pulse_sheet.md)' },
-      { msg: { to: 'director', t: 'Status:\n- core loop ported to Rust\n- property tests in progress (3 of 5)\n- open points written to docs/design/pulse_sheet_open.md' } },
-      { doc: { path: 'docs/design/pulse_sheet_open.md', points: [{ id: 'b1', text: 'Keep the Python fallback path for one release, or drop it now?' }, { id: 'b2', text: 'Ship the Rust pass behind a feature flag in the next release?' }] }, k: 'text', t: 'I’ve written the open points to docs/design/pulse_sheet_open.md for you to check and decide.' },
-      { k: 'tool', t: 'Edit(laboneq/compiler/pulse_sheet.py) +12 −88' },
-      { k: 'sub', w: 'test-writer#2', t: 'Bash(cargo test props) → new cases pass' },
-      { k: 'text', t: 'Next: compare outputs with the Python reference on the example suite.' },
-      { k: 'tool', t: 'Bash(uv run pytest tests/compiler -k pulse_sheet)' },
+      { k: 'tool', t: 'Read(src/daemon/eventLog.ts)' },
+      { k: 'sub', w: 'explore#1', t: 'Grep("log.append", src/) → call sites in 9 files' },
+      { k: 'text', t: 'Only three call sites append in a hot loop. Keeping the EventLog API, batching underneath.' },
+      { note: 'explore#1 found a call site in src/daemon/restart.ts that bravo’s plan does not mention.' },
+      { k: 'sub', w: 'test-writer#2', t: 'Write(tests/writeBatch.test.ts) +64' },
+      { k: 'tool', t: 'Bash(npx vitest run tests/writeBatch.test.ts)' },
+      { k: 'out', t: '3 passed' },
+      { k: 'sub', w: 'explore#1', t: 'Read(docs/design.md)' },
+      { msg: { to: 'director', t: 'Status:\n- writes batched per transaction\n- ordering tests in progress (3 of 5)\n- open points written to .fleet/bravo/open-points.md' } },
+      { doc: { path: '.fleet/bravo/open-points.md', points: [{ id: 'b1', text: 'Flush the batch on shutdown, or accept losing the last few events?' }, { id: 'b2', text: 'Flush every 5 ms, or only when the batch reaches 100 events?' }] }, k: 'text', t: 'I’ve written the open points to .fleet/bravo/open-points.md for you to check and decide.' },
+      { k: 'tool', t: 'Edit(src/daemon/eventLog.ts) +24 −31' },
+      { k: 'sub', w: 'test-writer#2', t: 'Bash(npx vitest run -t ordering) → new cases pass' },
+      { k: 'text', t: 'Next: replay a recorded log through both write paths and compare.' },
+      { k: 'tool', t: 'Bash(npx vitest run tests/eventLog.test.ts)' },
       { k: 'out', t: 'passed' },
       { loop: 10 }
     ];
     const deltaQ = [
-      { k: 'tool', t: 'Bash(just bench codegen --quick)' },
+      { k: 'tool', t: 'Bash(npx vitest bench --run bench/replay.bench.ts)' },
       { k: 'out', t: 'no baseline found' },
       { k: 'text', t: 'I need a baseline before I can compare anything.' },
-      { decision: { kind: 'Question', text: 'Which baseline should the codegen benchmark compare against?', context: 'Comparing against main isolates the effect of the open changes but hides any drift since the last release.\nThe release tag shows what users would notice. Both doubles the benchmark time.', risk: ['no side effects', 'affects run time only'], options: [{ id: 'main', label: 'main today', primary: true }, { id: 'rel', label: 'Last release tag' }, { id: 'both', label: 'Both' }] } },
+      { decision: { kind: 'Question', text: 'Which baseline should the replay benchmark compare against?', context: 'Comparing against main isolates the effect of the open changes but hides any drift since the last release.\nThe release tag shows what users would notice. Both doubles the benchmark time.', risk: ['no side effects', 'affects run time only'], options: [{ id: 'main', label: 'main today', primary: true }, { id: 'rel', label: 'Last release tag' }, { id: 'both', label: 'Both' }] } },
       { k: 'tool', t: 'Bash(jj new main -m "bench baseline")' },
-      { k: 'tool', t: 'Bash(just bench codegen --save-baseline)' },
+      { k: 'tool', t: 'Bash(npx vitest bench --run --outputJson bench/baseline.json)' },
       { k: 'out', t: 'baseline stored' },
-      { note: 'The baseline was built in debug mode; release-build numbers will differ.' },
-      { k: 'sub', w: 'explore#3', t: 'Grep("emit_seqc", laboneq/) → hot paths listed' },
+      { note: 'The baseline ran under --inspect; numbers without the debugger will differ.' },
+      { k: 'sub', w: 'explore#3', t: 'Grep("reduce(", src/shared/) → hot paths listed' },
       { k: 'text', t: 'Profiling the two slowest cases.' },
       { msg: { to: 'director', t: 'Baseline stored; profiling now.' } },
       { loop: 8 }
     ];
     this.alphaAfter = [
-      { k: 'tool', t: 'Bash(uv run pytest tests/sweep -x --count=50)' },
+      { k: 'tool', t: 'Bash(npx vitest run replay --repeats 50)' },
       { k: 'out', t: '50 passed' },
       { k: 'text', t: 'Flake gone: the tolerance now scales with measured runner jitter.' },
       { files: [{ n: '.fleet/alpha/report.md', k: 'for you', d: 'report' }] },
@@ -711,80 +711,80 @@ class Component extends DCLogic {
         lines: [
           L('user', 'Plan this week’s tasks, one worker per jj workspace. Max 4 running, 2 in review.'),
           L('text', 'Splitting into 6 tasks and spawning workers with context packs.'),
-          L('tool', 'spawn_task("Fix flaky sweep timing test", ws1) → alpha'),
-          L('tool', 'spawn_task("Port pulse-sheet pass to Rust", ws2, host=coder) → bravo'),
-          L('tool', 'spawn_task("Migration guide for v3 API", ws3) → charlie'),
-          L('tool', 'spawn_task("Benchmark seqc codegen", ws4, host=coder) → delta'),
+          L('tool', 'spawn_task("Fix the flaky replay test", ws1) → alpha'),
+          L('tool', 'spawn_task("Batch the event log writes", ws2, host=coder) → bravo'),
+          L('tool', 'spawn_task("Document the MCP tools", ws3) → charlie'),
+          L('tool', 'spawn_task("Benchmark the event log replay", ws4, host=coder) → delta'),
           L('text', 'echo waits for ws1. foxtrot is accepted.')
         ]
       },
       alpha: {
-        color: '#4fd1c5', ws: 'ws1', host: 'mac', title: 'Fix flaky sweep timing test', state: 'needs', ctx: '63%', elapsed: '18m', todo: 'Waiting for your permission', waiting: '4m',
+        color: '#4fd1c5', ws: 'ws1', host: 'mac', title: 'Fix the flaky replay test', state: 'needs', ctx: '63%', elapsed: '18m', todo: 'Waiting for your permission', waiting: '4m',
         subs: ['explore#1'], unseen: true, queue: [], qi: 0, after: this.alphaAfter, todoAfter: 'Confirming the fix (50 runs)',
-        notes: ['Two other tests in tests/sweep use the same fixed 1 ms tolerance.'],
-        decision: { kind: 'Permission', text: 'Bash(uv run pytest tests/sweep -x --count=50)', context: 'The fix changes a tolerance, so a single green run proves little. 50 repetitions take about a minute.\nIt only runs the tests in tests/sweep: no network, and it writes nothing outside .pytest_cache.', risk: ['local only', 'no network', 'writes .pytest_cache', '~1 min'], options: [{ id: 'once', label: 'Allow once', primary: true }, { id: 'always', label: 'Always in ws1' }, { id: 'deny', label: 'Deny' }] },
-        files: [{ n: 'tests/sweep/test_timing.py', k: 'modified', d: '+6 −3' }],
-        diff: ['@@ tests/sweep/test_timing.py @@', ' def test_sweep_timing(runner, sweep):', '     dt = run_and_measure(runner, sweep)', '-    assert abs(dt - sweep.expected) < 1e-3', '+    # CI runners jitter more than 1 ms', '+    tol = max(1e-3, 4 * runner.jitter())', '+    assert abs(dt - sweep.expected) < tol'],
+        notes: ['Two other tests in tests/replay.test.ts use the same fixed 1 ms tolerance.'],
+        decision: { kind: 'Permission', text: 'Bash(npx vitest run replay --repeats 50)', context: 'The fix changes a tolerance, so a single green run proves little. 50 repetitions take about a minute.\nIt only runs the replay tests: no network, and it writes nothing outside node_modules/.vite.', risk: ['local only', 'no network', 'writes node_modules/.vite', '~1 min'], options: [{ id: 'once', label: 'Allow once', primary: true }, { id: 'always', label: 'Always in ws1' }, { id: 'deny', label: 'Deny' }] },
+        files: [{ n: 'tests/replay.test.ts', k: 'modified', d: '+6 −3' }],
+        diff: ['@@ tests/replay.test.ts @@', ' test("replay keeps task timings", async () => {', '   const dt = await replayAndMeasure(log, task);', '-  expect(Math.abs(dt - task.expected)).toBeLessThan(1);', '+  // CI runners jitter more than 1 ms', '+  const tol = Math.max(1, 4 * runnerJitter());', '+  expect(Math.abs(dt - task.expected)).toBeLessThan(tol);'],
         report: null, rd: { total: 2, approved: 0, moves: 0, fmt: 0, wt: false },
-        reportAfter: { summary: 'Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.', change: 'jj zmplwqrs · ws1', tests: '50 of 50 repetitions green', open: ['Apply the same fix to the two similar sweep tests?'] },
+        reportAfter: { summary: 'Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.', change: 'jj zmplwqrs · ws1', tests: '50 of 50 repetitions green', open: ['Apply the same fix to the two similar replay tests?'] },
         hist: [{ st: 'running', t: -1080 }, { st: 'needs', t: -240 }], docs: [],
         todos: [{ t: 'Reproduce the flake', s: 'done' }, { t: 'Find the root cause', s: 'done' }, { t: 'Fix the tolerance', s: 'done' }, { t: 'Confirm with 50 runs', s: 'active' }, { t: 'Write the report', s: 'open' }],
         lines: [
-          L('user', 'Fix the flaky test in tests/sweep/test_timing.py. It fails about 1 in 5 on CI.'),
+          L('user', 'Fix the flaky test in tests/replay.test.ts. It fails about 1 in 5 on CI.'),
           L('text', 'I’ll reproduce it first, then look at the timing assertions.'),
-          L('tool', 'Bash(uv run pytest tests/sweep/test_timing.py --count=20)'),
+          L('tool', 'Bash(npx vitest run tests/replay.test.ts --repeats 20)'),
           L('out', '3 failed, 17 passed'),
-          L('sub', 'Task: find all uses of wait_until in tests/', 'explore#1'),
-          L('sub', 'Grep("wait_until", tests/) → 14 matches', 'explore#1'),
+          L('sub', 'Task: find all uses of waitUntil in tests/', 'explore#1'),
+          L('sub', 'Grep("waitUntil", tests/) → 14 matches', 'explore#1'),
           L('text', 'The assertion uses a fixed 1 ms tolerance; CI runners jitter more than that.'),
-          L('tool', 'Edit(tests/sweep/test_timing.py) +6 −3'),
-          L('text', 'Before I report, I want to run the sweep tests 50 times. A single green run proves little for a flake.'),
-          L('sys', 'Permission needed: Bash(uv run pytest tests/sweep -x --count=50)')
+          L('tool', 'Edit(tests/replay.test.ts) +6 −3'),
+          L('text', 'Before I report, I want to run the replay tests 50 times. A single green run proves little for a flake.'),
+          L('sys', 'Permission needed: Bash(npx vitest run replay --repeats 50)')
         ]
       },
       bravo: {
-        color: '#f6c453', ws: 'ws2', host: 'coder · jan-ws2', title: 'Port pulse-sheet pass to Rust', state: 'running', ctx: '37%', elapsed: '46m', todo: 'Property tests', waiting: '',
+        color: '#f6c453', ws: 'ws2', host: 'coder · jan-ws2', title: 'Batch the event log writes', state: 'running', ctx: '37%', elapsed: '46m', todo: 'Ordering tests', waiting: '',
         subs: ['explore#1', 'test-writer#2'], notes: [], unseen: false, queue: bravoQ, qi: 0, report: null, rd: { total: 14, approved: 0, moves: 3, fmt: 2, wt: false },
         hist: [{ st: 'running', t: -2760 }], docs: [],
-        todos: [{ t: 'Map call sites', s: 'done' }, { t: 'Port the core loop', s: 'done' }, { t: 'Property tests', s: 'active' }, { t: 'Compare with the Python reference', s: 'open' }, { t: 'Report', s: 'open' }],
-        files: [{ n: 'rust/pulse_sheet/src/lib.rs', k: 'created', d: '+212' }, { n: 'rust/pulse_sheet/tests/props.rs', k: 'created', d: '+64' }],
-        diff: ['@@ laboneq/compiler/pulse_sheet.py @@', '-def build_pulse_sheet(events):', '-    sheet = PulseSheet()', '-    for ev in sorted(events, key=lambda e: e.time):', '+from laboneq._rust import pulse_sheet as _ps', '+', '+def build_pulse_sheet(events):', '+    return _ps.build(events)'],
+        todos: [{ t: 'Map call sites', s: 'done' }, { t: 'Batch the writes', s: 'done' }, { t: 'Ordering tests', s: 'active' }, { t: 'Compare with the unbatched log', s: 'open' }, { t: 'Report', s: 'open' }],
+        files: [{ n: 'src/daemon/writeBatch.ts', k: 'created', d: '+212' }, { n: 'tests/writeBatch.test.ts', k: 'created', d: '+64' }],
+        diff: ['@@ src/daemon/eventLog.ts @@', '-  append(event: NewEvent): FleetEvent {', '-    const stored = this.insert(event);', '-    this.deliver(stored);', '+  private readonly batch = new WriteBatch(this.db);', '+', '+  append(event: NewEvent): FleetEvent {', '+    return this.batch.push(event);'],
         lines: [
-          L('user', 'Port the pulse-sheet pass to Rust. Keep the Python API stable.'),
-          L('text', 'Spawning an explorer for call sites and a test writer for property tests.'),
-          L('sub', 'Task: map all PulseSheet call sites', 'explore#1'),
-          L('sub', 'Task: property tests for ordering invariants', 'test-writer#2'),
-          L('tool', 'Write(rust/pulse_sheet/src/lib.rs) +212')
+          L('user', 'Batch the event log writes. Keep the EventLog API stable.'),
+          L('text', 'Spawning an explorer for call sites and a test writer for ordering tests.'),
+          L('sub', 'Task: map all EventLog.append call sites', 'explore#1'),
+          L('sub', 'Task: tests for ordering invariants', 'test-writer#2'),
+          L('tool', 'Write(src/daemon/writeBatch.ts) +212')
         ]
       },
       charlie: {
-        color: '#f78fb3', ws: 'ws3', host: 'mac', title: 'Migration guide for the v3 API', state: 'review', ctx: '55%', elapsed: '31m', todo: 'Done — report ready', waiting: '12m',
+        color: '#f78fb3', ws: 'ws3', host: 'mac', title: 'Document the MCP tools', state: 'review', ctx: '55%', elapsed: '31m', todo: 'Done — report ready', waiting: '12m',
         subs: [], notes: [], unseen: true, queue: [], qi: 0,
         hist: [{ st: 'running', t: -1860 }, { st: 'needs', t: -1500 }, { st: 'running', t: -1380 }, { st: 'review', t: -720 }],
-        todos: [{ t: 'Collect renamed and removed symbols', s: 'done' }, { t: 'Draft the guide', s: 'done' }, { t: 'Build the docs', s: 'done' }, { t: 'Write open points for Jan', s: 'done' }],
-        docs: [{ path: '.fleet/charlie/open-points.md', points: [{ id: 'c1', text: 'Cover the v2 compatibility shim here, or link out to the API docs?' }, { id: 'c2', text: 'Should the code samples run in CI? It adds a few minutes per run.' }, { id: 'c3', text: 'Target 3.0 only, or also list the 3.1 deprecations?' }] }],
-        files: [{ n: 'docs/migration-v3.md', k: 'for you', d: '+184' }, { n: '.fleet/charlie/report.md', k: 'for you', d: 'report' }, { n: '.fleet/charlie/open-points.md', k: 'decide', d: '3 points' }],
-        diff: ['@@ docs/migration-v3.md (new file) @@', '+# Migrating to the v3 API', '+', '+## Renamed symbols', '+Most renames are mechanical: [SEARCH-AND-REPLACE TABLE]', '+', '+## Removed features', '+[LIST OF REMOVED SYMBOLS WITH REPLACEMENTS]'],
+        todos: [{ t: 'Collect the tool definitions', s: 'done' }, { t: 'Draft the reference', s: 'done' }, { t: 'Run the tool tests', s: 'done' }, { t: 'Write open points for Jan', s: 'done' }],
+        docs: [{ path: '.fleet/charlie/open-points.md', points: [{ id: 'c1', text: 'Cover the director-only tools here, or on a page of their own?' }, { id: 'c2', text: 'Should a test check the examples against the zod schemas? It adds a few seconds per run.' }, { id: 'c3', text: 'Show every input in full, or only the required ones?' }] }],
+        files: [{ n: 'docs/mcp-tools.md', k: 'for you', d: '+184' }, { n: '.fleet/charlie/report.md', k: 'for you', d: 'report' }, { n: '.fleet/charlie/open-points.md', k: 'decide', d: '3 points' }],
+        diff: ['@@ docs/mcp-tools.md (new file) @@', '+# The MCP tools fleet gives its agents', '+', '+## Tools every agent gets', '+report_status, report_result, send_message: [ONE LINE EACH]', '+', '+## Tools only the director gets', '+[SPAWN_TASK, ADD_WORKSPACE AND ADD_PROJECT WITH THEIR INPUTS]'],
         rd: { total: 9, approved: 3, moves: 0, fmt: 1, wt: true },
-        report: { summary: 'Guide drafted from the changelog and the deprecation list.', change: 'jj ykvzqtmo · ws3', tests: 'Docs build passes', open: ['Cover the v2 compatibility shim here, or link out?', 'Should the code samples run in CI?'] },
+        report: { summary: 'Reference drafted from the tool definitions and docs/design.md.', change: 'jj ykvzqtmo · ws3', tests: 'Tool tests pass', open: ['Director-only tools here, or on a page of their own?', 'Should a test check the examples?'] },
         lines: [
-          L('user', 'Write a migration guide for the v3 API from the changelog and the deprecation list.'),
-          L('tool', 'Read(CHANGELOG.md)'),
-          L('tool', 'Read(docs/deprecations.md)'),
-          L('sub', 'Task: collect renamed and removed symbols', 'explore#1'),
-          L('sub', 'Collected renamed and removed symbols', 'explore#1'),
-          L('tool', 'Write(docs/migration-v3.md) +184'),
-          L('tool', 'Bash(just docs)'),
-          L('out', 'build succeeded'),
+          L('user', 'Write a reference for the MCP tools from src/daemon/tools.ts and docs/design.md.'),
+          L('tool', 'Read(src/daemon/tools.ts)'),
+          L('tool', 'Read(docs/design.md)'),
+          L('sub', 'Task: collect every tool and its inputs', 'explore#1'),
+          L('sub', 'Collected every tool and its inputs', 'explore#1'),
+          L('tool', 'Write(docs/mcp-tools.md) +184'),
+          L('tool', 'Bash(npx vitest run tests/tools.test.ts tests/mcp.test.ts)'),
+          L('out', 'all tests passed'),
           L('msg', '→ director: Report ready, 2 open questions.')
         ]
       },
       delta: {
-        color: '#74b9ff', ws: 'ws4', host: 'coder · jan-bench', title: 'Benchmark seqc codegen', state: 'running', ctx: '22%', elapsed: '9m', todo: 'Measuring', waiting: '',
+        color: '#74b9ff', ws: 'ws4', host: 'coder · jan-bench', title: 'Benchmark the event log replay', state: 'running', ctx: '22%', elapsed: '9m', todo: 'Measuring', waiting: '',
         subs: [], notes: [], unseen: false, queue: deltaQ, qi: 0, files: [], diff: [], report: null, todoAfter: 'Profiling',
         hist: [{ st: 'running', t: -540 }], docs: [],
         todos: [{ t: 'Quick run', s: 'done' }, { t: 'Get a baseline', s: 'active' }, { t: 'Profile the slowest cases', s: 'open' }, { t: 'Report', s: 'open' }],
-        lines: [L('user', 'Benchmark seqc codegen on the example suite and flag regressions.')]
+        lines: [L('user', 'Benchmark how fast the reducer replays a 100k-event log and flag regressions.')]
       },
       echo: {
         color: '#a3e635', ws: 'ws1', host: 'mac', title: 'Triage nightly CI failures', state: 'queued', ctx: '—', elapsed: '—', todo: 'Waits for ws1', waiting: '',
@@ -800,16 +800,16 @@ class Component extends DCLogic {
       }
     };
     this.COMMITS = [
-      { id: 'zmplwqrs', lane: 1, parents: ['tnvslqmz'], desc: 'tests: jitter-aware tolerance in sweep timing', ws: 'ws1', agent: 'alpha', wc: true, op: 9, gen: 3 },
+      { id: 'zmplwqrs', lane: 1, parents: ['tnvslqmz'], desc: 'tests: jitter-aware tolerance in replay timing', ws: 'ws1', agent: 'alpha', wc: true, op: 9, gen: 3 },
       { id: 'wxlmpnqo', lane: 2, parents: ['vqtwmrxk'], desc: '(no description set)', ws: 'ws2', agent: 'bravo', wc: true, empty: true, op: 6, gen: 5 },
-      { id: 'vqtwmrxk', lane: 2, parents: ['rkpltnoz'], desc: 'pulse_sheet: thin Python wrapper', agent: 'bravo', op: 6, gen: 4 },
-      { id: 'rkpltnoz', lane: 2, parents: ['tnvslqmz'], desc: 'pulse_sheet: Rust core', agent: 'bravo', op: 3, gen: 3 },
-      { id: 'ykvzqtmo', lane: 3, parents: ['tnvslqmz'], desc: 'docs: v3 migration guide', ws: 'ws3', agent: 'charlie', wc: true, op: 4, gen: 3 },
+      { id: 'vqtwmrxk', lane: 2, parents: ['rkpltnoz'], desc: 'eventLog: append through the write batch', agent: 'bravo', op: 6, gen: 4 },
+      { id: 'rkpltnoz', lane: 2, parents: ['tnvslqmz'], desc: 'eventLog: write batch', agent: 'bravo', op: 3, gen: 3 },
+      { id: 'ykvzqtmo', lane: 3, parents: ['tnvslqmz'], desc: 'docs: MCP tools reference', ws: 'ws3', agent: 'charlie', wc: true, op: 4, gen: 3 },
       { id: 'snkwpqxl', lane: 4, parents: ['oqrmnzts'], desc: '(no description set)', ws: 'ws4', agent: 'delta', wc: true, empty: true, op: 8, gen: 4 },
-      { id: 'oqrmnzts', lane: 4, parents: ['tnvslqmz'], desc: 'bench: codegen baseline', agent: 'delta', op: 7, gen: 3 },
+      { id: 'oqrmnzts', lane: 4, parents: ['tnvslqmz'], desc: 'bench: replay baseline', agent: 'delta', op: 7, gen: 3 },
       { id: 'qtlnrmvo', lane: 5, parents: ['tnvslqmz'], desc: 'tools: towncrier shim for jj workspaces', agent: 'foxtrot', bm: ['agent/foxtrot'], op: 2, gen: 3 },
-      { id: 'tnvslqmz', lane: 0, parents: ['ypwqkxlo'], desc: 'compiler: tidy pass order', bm: ['main'], immutable: true, op: 0, gen: 2 },
-      { id: 'ypwqkxlo', lane: 0, parents: ['lmrtqzvw'], desc: 'Merge !412: sweep scheduler fixes', immutable: true, op: 0, gen: 1 },
+      { id: 'tnvslqmz', lane: 0, parents: ['ypwqkxlo'], desc: 'reducer: bound the activity history', bm: ['main'], immutable: true, op: 0, gen: 2 },
+      { id: 'ypwqkxlo', lane: 0, parents: ['lmrtqzvw'], desc: 'supervisor: queue tasks that share a workspace', immutable: true, op: 0, gen: 1 },
       { id: 'lmrtqzvw', lane: 0, parents: [], desc: 'release 2.61', immutable: true, tag: '2.61.0', op: 0, gen: 0 }
     ];
     this.OPS = [
@@ -830,10 +830,10 @@ class Component extends DCLogic {
       order: ['director', 'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'],
       agents: agents,
       msgs: [
-        { id: 'i1', from: 'director', to: 'bravo', text: 'Context for the pulse-sheet port:\n- design notes: docs/design/pulse_sheet.md\n- keep the Python API stable\n- report through report_result when done', at: -40 },
+        { id: 'i1', from: 'director', to: 'bravo', text: 'Context for the event log batching:\n- design notes: docs/design.md\n- keep the EventLog API stable\n- report through report_result when done', at: -40 },
         { id: 'i2', from: 'bravo', to: 'director', text: 'Started; spawned explore#1 and test-writer#2.', at: -34 },
         { id: 'i3', from: 'charlie', to: 'director', text: 'Report ready.\nI’ve put the open points in .fleet/charlie/open-points.md for Jan to check and decide (3 items).', at: -9 },
-        { id: 'i4', from: 'director', to: 'delta', text: 'Benchmark only seqc codegen; skip hardware-dependent cases.', at: -4 }
+        { id: 'i4', from: 'director', to: 'delta', text: 'Benchmark only the reducer replay; skip the browser rendering.', at: -4 }
       ]
     };
   }

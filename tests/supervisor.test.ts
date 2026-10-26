@@ -272,7 +272,7 @@ describe("a director per project", () => {
         { workspaces, director: "/work/test" },
         testProject("site", {
           director: "/work/site",
-          readOnly: ["/work/hdl"],
+          readOnly: ["/work/reviewdiff"],
           workspaces: [site("s1"), site("s2")],
         }),
         testProject("docs", { workspaces: [{ name: "d1", path: "/work/d1", allowedTools: [] }] }),
@@ -313,7 +313,7 @@ describe("a director per project", () => {
     const { supervisor, calls } = directed();
     supervisor.createTask("Fix the site", "x", "s1");
     await until(() => calls.length === 1);
-    expect(calls[0]?.options?.additionalDirectories).toEqual(["/work/hdl"]);
+    expect(calls[0]?.options?.additionalDirectories).toEqual(["/work/reviewdiff"]);
   });
 });
 
@@ -416,8 +416,8 @@ describe("a project without workspaces", () => {
 describe("what agents do without asking", () => {
   const root = mkdtempSync(join(tmpdir(), "fleet-asking-"));
   const ws = join(root, "ws1");
-  const hdl = join(root, "hdl");
-  for (const dir of [ws, hdl]) mkdirSync(dir);
+  const reviewdiff = join(root, "reviewdiff");
+  for (const dir of [ws, reviewdiff]) mkdirSync(dir);
 
   async function agent() {
     const log = new EventLog(":memory:");
@@ -427,7 +427,7 @@ describe("what agents do without asking", () => {
       queryFn: fake.queryFn,
       config: testConfig({
         workspaces: [{ name: "ws1", path: ws, allowedTools: [] }],
-        readOnly: [hdl],
+        readOnly: [reviewdiff],
       }),
     });
     supervisor.init();
@@ -465,7 +465,7 @@ describe("what agents do without asking", () => {
 
   it("reads its workspace and the project's read-only repos, and asks for anything else", async () => {
     const { decide, asks } = await agent();
-    for (const file of [join(ws, "lib.py"), join(hdl, "top.vhd")]) {
+    for (const file of [join(ws, "lib.py"), join(reviewdiff, "src", "core.ts")]) {
       await expect(decide("Read", { file_path: file })).resolves.toMatchObject({
         behavior: "allow",
       });

@@ -74,18 +74,18 @@ for (const button of document.querySelectorAll("[data-mail]")) {
 // Hero: a terminal full of output, and the questions in it arriving in the inbox
 
 const NOISE = [
-  ["", "⏺ Read(src/readout/loop.py)"],
+  ["", "⏺ Read(src/replay/loop.py)"],
   ["dim", "  ⎿  Read 214 lines"],
-  ["sub", "  ⏺ Task(Find every caller of sweep())"],
-  ["sub", '    ⎿  Search(pattern: "sweep\\(", path: "src")'],
+  ["sub", "  ⏺ Task(Find every caller of replay())"],
+  ["sub", '    ⎿  Search(pattern: "replay\\(", path: "src")'],
   ["sub", "    ⎿  Found 12 files"],
-  ["", "⏺ Bash(uv run pytest -x tests/sweep)"],
+  ["", "⏺ Bash(uv run pytest -x tests/replay)"],
   ["dim", "  ⎿  41 passed, 1 failed in 12.31s"],
   ["", "⏺ The failure comes from the tolerance, which is fixed while the run count grows."],
-  ["tool", "⏺ Update(src/sweep/tolerance.py)"],
-  ["dim", "  ⎿  Updated src/sweep/tolerance.py with 3 additions and 1 removal"],
+  ["tool", "⏺ Update(src/replay/tolerance.py)"],
+  ["dim", "  ⎿  Updated src/replay/tolerance.py with 3 additions and 1 removal"],
   ["sub", "  ⏺ Task(Check the docs for the old signature)"],
-  ["sub", "    ⎿  Read(docs/sweep.md)"],
+  ["sub", "    ⎿  Read(docs/replay.md)"],
   ["", "⏺ Bash(jj diff --stat)"],
   ["dim", "  ⎿  2 files changed, 14 insertions(+), 3 deletions(-)"],
   ["", "⏺ Let me look at how the buffer is allocated before batching."],
@@ -96,7 +96,7 @@ const NOISE = [
   ["dim", "  ⎿  ☒ Reproduce the flaky test   ☐ Scale the tolerance   ☐ Run the suite"],
   ["", "✻ Thinking…"],
   ["", "⏺ Read(pyproject.toml)"],
-  ["sub", "  ⏺ Task(Summarize the readout timing)"],
+  ["sub", "  ⏺ Task(Summarize the replay timing)"],
   ["dim", "  ⎿  Done (9 tool uses · 31.2k tokens · 48s)"],
 ];
 
@@ -110,20 +110,20 @@ const ASKS = [
   {
     who: "echo",
     verb: "wants to write outside its workspace",
-    what: "~/.config/sweep/defaults.toml",
+    what: "~/.config/replay/defaults.toml",
     why: "The default tolerance is read from this file.",
   },
   {
     who: "alpha",
     verb: "wants to run",
-    what: "uv run pytest -x tests/sweep",
+    what: "uv run pytest -x tests/replay",
     why: "Before changing anything I want to see which tests fail now.",
   },
   {
     who: "bravo",
     verb: "wants to fetch",
     what: "docs.python.org/3/library/asyncio",
-    why: "To check what asyncio.timeout raises when the readout stalls.",
+    why: "To check what asyncio.timeout raises when the replay stalls.",
   },
 ];
 
@@ -179,12 +179,12 @@ const COLORS = {
 };
 
 const TITLES = [
-  ["Document the sweep API", "Reading the docstrings"],
+  ["Document the replay API", "Reading the docstrings"],
   ["Bump numpy to 2.3", "Running the tests"],
-  ["Retry a timed-out sweep", "Writing a test first"],
-  ["Split the instrument config", "Moving the defaults"],
+  ["Retry a timed-out replay", "Writing a test first"],
+  ["Split the server config", "Moving the defaults"],
   ["Port the settings parser", "Comparing the two parsers"],
-  ["Speed up the readout loop", "Timing the loop"],
+  ["Speed up the replay loop", "Timing the loop"],
 ];
 
 const PROMPTS = [
@@ -195,7 +195,7 @@ const PROMPTS = [
 ];
 
 const tasks = [
-  { name: "echo", col: "queued", title: "Document the sweep API", line: "Waits for a workspace" },
+  { name: "echo", col: "queued", title: "Document the replay API", line: "Waits for a workspace" },
   { name: "golf", col: "queued", title: "Bump numpy to 2.3", line: "Waits for a workspace" },
   {
     name: "charlie",
@@ -206,18 +206,18 @@ const tasks = [
   {
     name: "foxtrot",
     col: "running",
-    title: "Retry a timed-out sweep",
+    title: "Retry a timed-out replay",
     line: "Writing a test first",
   },
   {
     name: "hotel",
     col: "running",
-    title: "Split the instrument config",
+    title: "Split the server config",
     line: "Moving the defaults",
   },
-  { name: "alpha", col: "needs", title: "Fix the flaky sweep test", prompt: PROMPTS[0] },
-  { name: "bravo", col: "needs", title: "Speed up the readout loop", prompt: PROMPTS[1] },
-  { name: "delta", col: "review", title: "Batch the readout", line: "3 commits, 2 files" },
+  { name: "alpha", col: "needs", title: "Fix the flaky replay test", prompt: PROMPTS[0] },
+  { name: "bravo", col: "needs", title: "Speed up the replay loop", prompt: PROMPTS[1] },
+  { name: "delta", col: "review", title: "Batch the log writes", line: "3 commits, 2 files" },
 ];
 
 const board = document.querySelector("[data-board]");
