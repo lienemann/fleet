@@ -187,9 +187,8 @@ your Claude Code settings let it run.
 
 Agents run with the same Claude Code settings as the CLI, from `~/.claude/settings.json` and the repo's `.claude/`
 directory. An allow rule there lets a command run without asking, a deny rule refuses it, and an ask rule sends it
-to the inbox in every permission mode. Combined, they let you allow a command whose behavior lives in a file the
-agent could change. Allowing `just test` is safe only while the agent can't rewrite the recipe, so editing a
-justfile asks first:
+to the inbox in every permission mode. Combined, they keep an allowed command what you allowed: `just test` runs
+whatever its recipe says, so editing a justfile asks first:
 
 ```json
 {
@@ -199,6 +198,10 @@ justfile asks first:
   }
 }
 ```
+
+That fixes the recipe, not what it runs. The tests, `conftest.py` and whatever else they import are files the
+agent writes without asking, so allowing a test command, like `uv run pytest` in `allowed_tools`, lets the agent
+run code of its own with your rights.
 
 Workspace names must differ across all projects. fleet writes `config.toml` itself when you add a workspace or a
 project, or when the fleet director changes a limit. It keeps the comments at the top of the file and loses the
