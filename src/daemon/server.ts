@@ -1,0 +1,387 @@
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import {
+  createServer,
+  type IncomingMessage,
+  request,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { extname, join, normalize, sep } from "node:path";
+import { WebSocket, WebSocketServer } from "ws";
+import type { FleetEvent } from "../shared/events.ts";
+import {
+  CallSchema,
+  CommandSchema,
+  type DaemonInfo,
+  type ServerMessage,
+} from "../shared/protocol.ts";
+import type { Auth } from "./auth.ts";
+import type { EventLog } from "./eventLog.ts";
+import { handleHook } from "./hooks.ts";
+import { handleMcp, type McpHost } from "./mcp.ts";
+import type { Orbit } from "./orbit.ts";
+import type { SessionHook, Supervisor } from "./supervisor.ts";
+
+export interface ServerOptions {
+  log: EventLog;
+  supervisor: Pick<Supervisor, "handle" | "call">;
+  /** Read on every connect, so changes (an added workspace) reach new pages. */
+  info: () => DaemonInfo;
+  /** Directory with the built web UI. */
+  staticDir: string;
+  allowedOrigins: string[];
+  allowedHosts: string[];
+  /** The history view of each project, proxied under /orbit/<project>/. */
+  orbits?: OrbitSource;
+  /** Daemons on other hosts, relayed at /remote/<name>/ws, with the secret each one wants. */
+  remotes?: Array<{ name: string; url: string; secret?: string }>;
+  /** Lets only the owner in; without it, any local user may connect. */
+  auth?: Auth;
+  /** Serves fleet's tools to Claude Code sessions outside fleet at /mcp. */
+  mcp?: McpHost;
+  /** Takes the SessionStart and SessionEnd hooks of those sessions at /hooks/claude. */
+  hooks?: (hook: SessionHook) => string;
+}
+
+/** A client further behind than this gets a snapshot instead of a replay. */
+const REPLAY_LIMIT = 2000;
+const REPLAY_CHUNK = 500;
+const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".json": "application/json",
+  ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
+};
+
+/**
+ * The daemon makes agents run commands, so only local pages may talk to it. The Host
+ * check stops DNS rebinding (a foreign page whose name resolves to 127.0.0.1); the
+ * Origin check stops other local origins from opening the socket.
+ */
+export function isAllowedRequest(
+  headers: { host?: string; origin?: string },
+  allowedHosts: string[],
+  allowedOrigins: string[],
+): boolean {
+  const host = parseHost(headers.host);
+  if (!host || ![...LOOPBACK, ...allowedHosts].includes(host.hostname)) return false;
+  if (headers.origin === undefined) return true; // not a browser
+  if (allowedOrigins.includes(headers.origin)) return true;
+  return parseHost(headers.origin.replace(/^https?:\/\//, ""))?.host === host.host;
+}
+
+function parseHost(value: string | undefined): URL | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(`http://${value}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export function createFleetServer(options: ServerOptions): {
+  server: Server;
+  close: () => void;
+  /** Sends the current daemon info to every page connected to this daemon. */
+  broadcastInfo: () => void;
+} {
+  const {
+    log,
+    supervisor,
+    info,
+    staticDir,
+    allowedHosts,
+    allowedOrigins,
+    orbits,
+    mcp,
+    hooks,
+    auth,
+  } = options;
+  const remotes = options.remotes ?? [];
+  const allowed = (req: IncomingMessage): boolean =>
+    isAllowedRequest(req.headers, allowedHosts, allowedOrigins);
+
+  const server = createServer((req, res) => {
+    if (!allowed(req)) {
+      res.writeHead(403).end();
+      return;
+    }
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (auth && (path === "/login" || !auth.allows(req))) {
+      auth.login(req, res).catch((error: unknown) => {
+        console.error("fleet: login:", error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      return;
+    }
+    if (orbits && (req.url === "/orbit" || req.url?.startsWith("/orbit/"))) {
+      void proxyOrbit(orbits, req, res);
+      return;
+    }
+    if (hooks && path === "/hooks/claude") {
+      handleHook(hooks, req, res).catch((error: unknown) => {
+        console.error("fleet: hook:", error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      return;
+    }
+    if (mcp && path === "/mcp") {
+      handleMcp(mcp, req, res).catch((error: unknown) => {
+        console.error("fleet: mcp:", error);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      return;
+    }
+    serveStatic(staticDir, req, res);
+  });
+  // Room for a prompt with a few pasted screenshots.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 40 << 20 });
+
+  server.on("upgrade", (req, socket, head) => {
+    const remote = remotes.find((r) => req.url === `/remote/${r.name}/ws`);
+    if ((req.url !== "/ws" && !remote) || !allowed(req)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
+    if (auth && !auth.allows(req)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => (remote ? relay(ws, remote) : attach(ws)));
+  });
+
+  // Pages talking to this daemon; relayed sockets to remote daemons are not among them.
+  const pages = new Set<WebSocket>();
+
+  const attach = (ws: WebSocket): void => {
+    let unsubscribe: (() => void) | undefined;
+    pages.add(ws);
+    ws.on("close", () => {
+      pages.delete(ws);
+      unsubscribe?.();
+    });
+    ws.on("message", (data) => {
+      const parsed = parseJson(data.toString());
+      const call = CallSchema.safeParse(parsed);
+      if (call.success) {
+        const { id } = call.data;
+        supervisor.call(call.data).then(
+          (value) => send(ws, { type: "reply", id, value }),
+          (error: unknown) => send(ws, { type: "reply", id, error: errorText(error) }),
+        );
+        return;
+      }
+      const command = CommandSchema.safeParse(parsed);
+      if (!command.success) {
+        const reason = command.error.issues[0]?.message ?? "invalid";
+        send(ws, { type: "error", message: `rejected message: ${reason}` });
+        return;
+      }
+      if (command.data.type === "subscribe") {
+        unsubscribe?.();
+        unsubscribe = subscribe(ws, command.data.since);
+        return;
+      }
+      try {
+        supervisor.handle(command.data);
+      } catch (error) {
+        send(ws, { type: "error", message: errorText(error) });
+      }
+    });
+  };
+
+  /**
+   * Brings the client up to date, then streams. Subscribing before reading the backlog
+   * means nothing appended in between is lost; `sent` drops the overlap.
+   */
+  const subscribe = (ws: WebSocket, since: number): (() => void) => {
+    let sent = since;
+    const forward = (events: FleetEvent[]): void => {
+      const fresh = events.filter((event) => event.seq > sent);
+      const last = fresh.at(-1);
+      if (!last) return;
+      sent = last.seq;
+      send(ws, { type: "events", events: fresh });
+    };
+    const off = log.subscribe((event) => forward([event]));
+    send(ws, { type: "info", info: { ...info(), build: servedBuild(staticDir) } });
+
+    // A client ahead of the log saw a database that no longer exists.
+    if (since === 0 || since > log.lastSeq || log.lastSeq - since > REPLAY_LIMIT) {
+      send(ws, { type: "snapshot", state: log.state });
+      sent = log.lastSeq;
+    } else {
+      const backlog = log.since(since);
+      for (let i = 0; i < backlog.length; i += REPLAY_CHUNK)
+        forward(backlog.slice(i, i + REPLAY_CHUNK));
+    }
+    return off;
+  };
+
+  return {
+    server,
+    broadcastInfo: () => {
+      for (const page of pages)
+        send(page, { type: "info", info: { ...info(), build: servedBuild(staticDir) } });
+    },
+    close: () => {
+      for (const client of wss.clients) client.close();
+      wss.close();
+      server.close();
+    },
+  };
+}
+
+const send = (ws: WebSocket, message: ServerMessage): void => {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+};
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function serveStatic(root: string, req: IncomingMessage, res: ServerResponse): void {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+  } catch {
+    res.writeHead(400).end();
+    return;
+  }
+  const requested = normalize(join(root, pathname));
+  const isFile =
+    requested.startsWith(root + sep) && existsSync(requested) && statSync(requested).isFile();
+  // Unknown paths get the app, which routes on the client.
+  const file = isFile ? requested : join(root, "index.html");
+  if (!existsSync(file)) {
+    res.writeHead(404).end("web UI not built; run `npm run build:web`");
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": MIME[extname(file)] ?? "application/octet-stream",
+    "x-content-type-options": "nosniff",
+    // Only Vite's hashed bundles may be cached for good; the shell, sw.js and icons must stay fresh.
+    "cache-control": pathname.startsWith("/assets/") ? "max-age=31536000, immutable" : "no-cache",
+  });
+  createReadStream(file).pipe(res);
+}
+
+/** The projects' jj orbits, as far as the server needs them. */
+export interface OrbitSource {
+  get(project: string): Pick<Orbit, "port"> | undefined;
+  /** The project whose history /orbit/ shows. */
+  first(): string | undefined;
+}
+
+/**
+ * Streams a request to a project's jj orbit and back, server-sent events included. /orbit/
+ * goes to the first project's.
+ */
+async function proxyOrbit(
+  orbits: OrbitSource,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const [, project = "", rest] = req.url?.match(/^\/orbit\/?([^/?]*)(.*)$/) ?? [];
+  if (!project) {
+    const first = orbits.first();
+    if (first) res.writeHead(302, { location: `/orbit/${first}/` }).end();
+    else res.writeHead(404, { "content-type": "text/plain" }).end("No project has a history.");
+    return;
+  }
+  const orbit = orbits.get(project);
+  if (!orbit) {
+    res.writeHead(404, { "content-type": "text/plain" }).end(`No project "${project}".`);
+    return;
+  }
+  // Orbit's page loads what it needs relative to its own address, which must end in a slash.
+  if (!rest?.startsWith("/")) {
+    res.writeHead(301, { location: `/orbit/${project}/${rest ?? ""}` }).end();
+    return;
+  }
+  let port: number;
+  try {
+    port = await orbit.port();
+  } catch (error) {
+    res.writeHead(502, { "content-type": "text/plain" }).end(errorText(error));
+    return;
+  }
+  const upstream = request(
+    {
+      host: "127.0.0.1",
+      port,
+      method: req.method,
+      path: rest,
+      headers: { ...req.headers, host: `127.0.0.1:${port}` },
+    },
+    (response) => {
+      res.writeHead(response.statusCode ?? 502, response.headers);
+      response.pipe(res);
+    },
+  );
+  upstream.on("error", (error) => {
+    if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
+    res.end(errorText(error));
+  });
+  res.on("close", () => upstream.destroy());
+  req.pipe(upstream);
+}
+
+/**
+ * Connects a browser socket to a remote daemon's socket, so the UI reaches every daemon
+ * through this one. The remote sees a non-browser client on its loopback tunnel, which logs
+ * in with the remote's secret.
+ */
+function relay(browser: WebSocket, { url, secret }: { url: string; secret?: string }): void {
+  const remote = new WebSocket(`${url.replace(/^http/, "ws").replace(/\/$/, "")}/ws`, {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  });
+  const queued: string[] = [];
+  browser.on("message", (data) => {
+    const text = data.toString();
+    if (remote.readyState === WebSocket.OPEN) remote.send(text);
+    else queued.push(text);
+  });
+  remote.on("open", () => {
+    for (const text of queued.splice(0)) remote.send(text);
+  });
+  remote.on("message", (data) => {
+    if (browser.readyState === WebSocket.OPEN) browser.send(data.toString());
+  });
+  // Either side ending ends both; the browser reconnects and replays from its last event.
+  const closeBoth = () => {
+    browser.close();
+    remote.terminate();
+  };
+  remote.on("close", closeBoth);
+  remote.on("error", closeBoth);
+  browser.on("close", closeBoth);
+}
+
+/** The build number of the web UI on disk, read on every connect, so a rebuild shows at once. */
+function servedBuild(staticDir: string): number | undefined {
+  try {
+    const { build } = JSON.parse(readFileSync(join(staticDir, "version.json"), "utf8")) as {
+      build?: unknown;
+    };
+    return typeof build === "number" ? build : undefined;
+  } catch {
+    return undefined;
+  }
+}

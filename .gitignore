@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.fleet/
+*.db
+*.db-*
+test-results/
+playwright-report/
+vendor/reviewdiff/dist/

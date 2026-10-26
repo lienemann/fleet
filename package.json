@@ -1,0 +1,62 @@
+{
+  "name": "fleet",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Jan Lienemann",
+  "type": "module",
+  "description": "Personal supervisor UI and daemon for parallel Claude Code agents",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:daemon": "node --watch src/daemon/main.ts",
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "start": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "dev:demo": "FLEET_DEMO=1 node --watch src/daemon/main.ts",
+    "postinstall": "npm run build -w @zhinst/reviewdiff-core"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.308",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@zhinst/reviewdiff-core": "0.2.0",
+    "better-sqlite3": "^13.0.3",
+    "highlight.js": "^11.11.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "smol-toml": "^1.9.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
+    "@playwright/test": "^1.64.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.1.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "workspaces": [
+    "vendor/reviewdiff"
+  ],
+  "bin": {
+    "fleet": "src/cli.ts"
+  }
+}

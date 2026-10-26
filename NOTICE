@@ -1,0 +1,15 @@
+fleet
+Copyright (C) 2026 Jan Lienemann
+
+fleet is free software: you can redistribute it and/or modify it under the terms of the GNU Affero
+General Public License as published by the Free Software Foundation, either version 3 of the License,
+or (at your option) any later version. See LICENSE for the full text.
+
+fleet is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Additional term under section 7(b) of the license: the attribution "fleet by Jan Lienemann" must be
+kept in the Appropriate Legal Notices that the work and works based on it display, and in the notices
+of any copy of their source code.
+
+vendor/reviewdiff is ReviewDiff by Zurich Instruments AG, under the MIT license in vendor/reviewdiff/LICENSE.

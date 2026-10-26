@@ -1,0 +1,287 @@
+# fleet — design for an agent supervisor around Claude Code
+
+Oct 22, 2026 · @Jan Lienemann
+
+## Goal and scope
+
+fleet is a personal web UI and daemon that let one engineer run 4–8 Claude Code agents in parallel, with a director session as the single point of contact. It replaces today's tmux grid: readable output, one place for everything that waits on me, and review built in.
+
+**Problems it solves**
+- I can't see at a glance who is blocked on me, who is working and who is done.
+- Decisions, permissions and "I wrote a Markdown file with open points for you" are scattered across terminals.
+- Coordination is manual: I spawn sessions, paste context, collect results and re-review whole diffs after every revision.
+- Review is the bottleneck, not code generation.
+
+**In scope**
+- A daemon that runs Claude Code sessions through the Agent SDK, on the Mac first and on Coder pods later.
+- A director session that plans, spawns workers with context, tracks a task ledger and collects results.
+- A web UI with board, inbox, grid, timeline, flow and jj history views.
+- An own diff view built on reviewdiff-core, with hunk approvals, small edits and line comments that go back to agents.
+- jj workspaces as the isolation unit; jj orbit for history.
+
+**Non-goals**
+- A product for other people. It is a personal tool; colleagues would run their own instance with their own login.
+- VS Code integration. Not needed; the web diff view covers review.
+- Supporting agents other than Claude Code.
+- A cloud service. Everything runs on my Mac or my Coder pods, reached through tunnels.
+
+**UI reference:** the clickable mockup on the Agent Supervisor UI canvas (light and dark theme, all six views).
+
+## Architecture
+
+A daemon on each host runs all Claude Code sessions through the Agent SDK and owns the event log; the web UI is a disposable view that reconnects and replays.
+
+&#91;embedded content: architecture · Mac and optional Coder pod\]
+- **Daemon** (TypeScript, Agent SDK): one `query()` per session with streaming input; routes `canUseTool` to the inbox; serves the custom tools in-process; writes every event to SQLite; serves the web UI, jj orbit and the diff view on `127.0.0.1`.
+- **Sessions:** the director plus one worker per jj workspace. Workers spawn their own subagents; Claude Code's "You should know" side agent runs alongside each worker.
+- **Web UI:** connects over a WebSocket and asks for events since its last sequence number. Closing the tab, losing Wi-Fi or a daemon restart costs no agent work.
+- **Coder pods:** run the same daemon. The UI on the Mac connects to every daemon through ssh or Coder port forwarding and merges their events. Pods don't sleep, so long builds and benchmarks go there.
+- **Resilience:** a watchdog spots failed turns (API or network errors), backs off and resumes the session; the UI shows "reconnecting", not "failed".
+
+## Agents and roles
+
+The fleet director is my single point of contact. Each project has a director of its own that plans and delegates there; no director implements. Workers do the work in their own jj workspace and spawn subagents as they see fit.
+
+| Role       | Count                       | Runs where                              | Can do                                                                                                                   | Cannot do                                   |
+| ---------- | --------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| Fleet director | 1                       | Mac, no repo of its own                 | Everything I can do in the UI except the inbox: tasks in any project, moves, settings, workspaces, projects; coordinate projects, link tasks across them | Edit code; answer permission prompts, decisions or reviews for me |
+| Director   | 1 per project               | Mac, the project's default workspace    | Spawn and stop workers, pass context packs, keep the ledger, collect reports, answer workers' questions it is sure about | Edit code; answer permission prompts for me |
+| Worker     | up to 4 running per project | Mac or Coder pod, one jj workspace each | Edit, run tests, spawn subagents, ask me, report                                                                         | Touch other workspaces; rewrite trunk       |
+| Subagent   | per worker                  | inside its worker's session             | Explore, write tests, review                                                                                             | Talk to me directly                         |
+| Side agent | one per worker, opt-in      | a side question to the worker's session | Leave notes ("You should know")                                                                                          | Act on anything                             |
+
+Every task follows one lifecycle. The daemon moves it on its own; only two states wait on me, and the board's columns are these states.
+
+&#91;embedded content: task lifecycle · 7 states, 2 wait on me\]
+- A permission prompt or question moves a running task to Needs you; my answer moves it back.
+- `report_result` moves it to Review. Accept moves it on; Request changes sends my comments and it revises.
+- Stop keeps the session; Start resumes it. WIP limits: 4 running, 2 in review; the director spawns nothing new while Review is full.
+
+## Projects
+
+I work on more than one repo at a time, LabOne Q and fleet for example, and sometimes one change needs two of them (fleet with ReviewDiff or jj orbit). One fleet runs all of them.
+
+**A project is one jj repo:** its default workspace, its worker workspaces, the repos its agents may read but not change, and its own WIP limits. A fleet-wide limit on running workers and tasks in review sits on top; a queued task starts when both its project and the fleet have room, and either limit can be set to unlimited. Directors count toward neither. `config.toml` lists them under `[[projects]]`, each with a name, the default workspace's path, `[[projects.workspaces]]` and `read_only`. "+ Add project" in the rail takes a directory, finds the jj repo and its workspaces, and offers them; the project's director starts at once.
+
+**Directors.** Each project has a director in its default workspace, with that repo's CLAUDE.md and context. Above them, the fleet director has no repo. It runs in fleet's own state directory and reaches the projects through fleet's tools. It knows every project and what runs where, reads every project's code without changing it, starts work in any project, moves cards, changes settings, adds workspaces and projects, and coordinates work that spans repos. A task belongs to its project's director whoever created it, as one I create in the UI does today, so reports and questions from its worker go there. The fleet director gets a short list of tools rather than every command of the UI. It does not touch the inbox: permission prompts, decisions and reviews stay mine, and so do Accept and Request changes, permission modes, allowed tools and auth. Removing a task whose workspace holds work asks me first, as it does in the UI. The dock talks to the fleet director; a picker in the dock switches to a project's director.
+
+**Messages between projects.** An agent sees and messages the agents of its own project. A message to an agent of another project is refused with a hint to ask its director. Directors, the fleet director included, message anyone. For work across repos a director links a task of its project to a task of another project, without asking that project's director; from then on the two find each other in `list_agents` and message each other, and the link ends when either task is accepted or removed. A link opens messages only; it does not show one task the other's report or diff. The bus shows both projects on a message between them, and each card shows its links.
+
+**Reading other repos.** A project's `read_only` repos, such as the HDL and LabOne repos next to LabOne Q, go to the SDK as `additionalDirectories`, so its agents read them without asking. Writing there still goes to the inbox.
+
+**One view.** Board, grid, inbox, timeline and flow show the agents of all projects. Each card and tile carries its project's name, the rail groups agents and workspaces by project, and a filter narrows every view to one project. The history view shows one repo at a time and picks the project. Pods keep their own daemons and projects; the browser merges them as before, and the fleet director acts on this daemon's projects only. The `/mcp` endpoint for sessions outside fleet picks the project from the caller's directory.
+
+**Turning directors off.** A project's director can be switched off in its config, as today; the fleet director always runs, since it is also how the app gets configured by talking to it.
+
+## Protocol
+
+Agents never format their replies as JSON. Structure comes from three sources: the SDK event stream, the SDK permission callback, and a small set of custom tools served in-process by the daemon. Tool calls are schema-validated, so the agent's prose stays natural.
+
+| Tool                 | Who calls it  | Payload                                                    | What the UI does                                                                   |
+| -------------------- | ------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `request_decision`   | any worker    | question, context (multi-line), options, risk tags         | Inbox item and decision bar on the tile; the answer is the tool result             |
+| `request_review`     | any worker    | path, kind (plan, doc, mockup)                             | Review item; opens the file in the viewer                                          |
+| `submit_open_points` | any worker    | path of a Markdown file with `- [ ]` items                 | Points parsed into the inbox; answers go back as one message once all are answered |
+| `report_result`      | any worker    | summary, jj change ids, tests, open questions, walkthrough | Card moves to Review; report tab filled                                            |
+| `report_status`      | any worker    | one-line status, to-do progress                            | Card subtitle and timeline                                                         |
+| `send_message`       | any agent     | to, body (multi-line)                                      | Message bus, flow view, both transcripts                                           |
+| `spawn_task`         | director only | title, context pack, workspace, host                       | New worker on the board                                                            |
+| `ledger`             | director only | read or update tasks                                       | Director's view of the board                                                       |
+
+**Decisions and permissions.** `canUseTool` turns every permission prompt and every `AskUserQuestion` into an inbox item. Each item carries Claude's explanation: the text it wrote just before the call, taken from the stream, plus risk tags the daemon derives from the command (network, writes outside the workspace, runtime).
+
+**Open-point documents.** When a worker writes "I've put the open points in X.md for you", the prompt contract makes it call `submit_open_points`. As a fallback the daemon also watches for new `.md` files under `.fleet/<agent>/` and parses `- [ ]` items.
+
+**Messages.** All agent-to-agent traffic goes through `send_message`, never Claude Code's built-in cross-session messaging, so the daemon sees and logs every message. Bodies are multi-line Markdown.
+
+**Walkthroughs.** `report_result` includes a walkthrough written with the AI instructions from the ReviewDiff README, with permalinks pinned to change ids. Hunks the walkthrough doesn't cover are flagged in review.
+
+**Side agent.** Claude Code's "You should know" plugin runs only in its terminal UI, so fleet does the same thing itself, switched on per agent: after each turn it asks the session a side question, without tools, whether there is something I should know but might miss. A note appears above the tile's prompt and in the inbox's FYI section; "Tell agent" forwards it as a user message.
+
+## Event model and storage
+
+The daemon is the only stateful component: one append-only SQLite event log per host, from which every view is derived. The browser holds no state of its own.
+
+**Event log.** Every SDK message, permission request, custom-tool call, state change, message and user action becomes a row: `seq`, `ts`, `agent`, `parent` (for subagents, from the SDK's parent tool-use id), `kind`, `payload` (JSON). The UI connects over a WebSocket and asks for events since its last `seq`; the daemon replays what it missed, then streams.
+
+**Derived state.** Agent state, the task ledger, inbox items, open points, unseen marks and timeline segments are projections of the log, rebuilt on start and updated incrementally. The director's ledger is the same projection, served to it through the `ledger` tool.
+
+**Sessions.** Claude Code keeps its own transcripts; the daemon stores each agent's session id and resumes with it after a restart. A request that was pending during a restart is marked stale; the agent asks again after resuming.
+
+**Unseen.** An agent is marked new when its outcome changes: it needs me, it reaches review, it creates a file for me, or the side agent leaves a note. New log lines don't count. The mark stays until I open the agent; "Mark all seen" clears all.
+
+**Files on disk.**
+
+| Path                                                       | Content                                             |
+| ---------------------------------------------------------- | --------------------------------------------------- |
+| `~/.fleet/fleet.db`                                        | Event log and projections                           |
+| `~/.fleet/config.toml`                                     | Hosts, workspaces, WIP limits, colors, sleep policy |
+| `<workspace>/.fleet/<agent>/`                              | Reports, open-point files, context packs            |
+| ReviewDiff `approvals.json` (common git dir or `.jj/repo`) | Hunk approvals, read and written by the diff view   |
+
+## UI
+
+One web app served by the daemon, with six views over the same task data. Selection is shared: a task picked in one view stays picked in the others. The mockup on the Agent Supervisor UI canvas is the reference for layout and behaviour.
+
+**Shell (every view)**
+- Header: view switcher (keys 1–6), counters (working, need me, in review, open points, new), New task, lid-closed mode, theme, command palette (⌘K).
+- Bus ticker: the last two messages with an animated packet between sender and receiver; multi-line bodies show their first line plus a line count.
+- Director dock: the director's latest reply and a prompt to it.
+- Left rail: agent tree (director → workers → subagents) with status dots and "new" marks; hosts and jj workspaces.
+- Right drawer: Live (the tile), Files, Diff, Report, Messages for the selected task.
+
+| View     | Answers                     | Notes                                                                                                                                           |
+| -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Board    | Whose turn is it?           | Columns Queued, Running, Needs you, Review, Changes requested, Accepted; WIP limits on Running and Review; buttons are the moves you would drag |
+| Inbox    | What waits on me?           | Decisions and permissions with Claude's explanation and risk tags; open points; side-agent notes                                                |
+| Grid     | What is happening now?      | Live tiles; enlarging one turns the rest into a status strip                                                                                    |
+| Timeline | Where was I the bottleneck? | One lane per agent; waiting-on-me time in orange; 15 min or 2 h window                                                                          |
+| Flow     | Who talks to whom?          | Agents as nodes, messages as packets in the sender's color; click a link to filter                                                              |
+| History  | What happened to the repo?  | jj graph of all workspaces, classic or 3D; op log as checkpoints                                                                                |
+
+**Tile.** Mirrors the TUI: live log anchored at the bottom, filter All / Main / Subagents, to-do list, files for me, decision bar with explanation and risk tags, side-agent note, and a CLI bar with permission mode, model, context meter, Interrupt, Rewind and `/compact`. The prompt has a slash-command menu and an attach button. Each tile has a user-chosen color that tints it and its agent everywhere.
+
+**Theming.** Dark and light. Light is beige with a dark red accent and serif headings; agent colors switch to darker variants so they stay readable. All colors are CSS variables per theme.
+
+**Keyboard and mouse.** Everything reachable by both: number keys for views, `j`/`k` in lists, `Enter` to open, `a`/`r` to approve or reject, `Esc` to interrupt. Mouse: drag cards, click to enlarge, hover for details.
+
+## Review and diff view
+
+fleet has its own diff view in the browser, built on reviewdiff-core, so review never needs VS Code. It shares ReviewDiff's approvals file: an approval made in either tool counts in both.
+
+**What it reuses from reviewdiff-core**
+- Hunks identified by a hash of path and removed and added lines. Approvals survive rebases and agent revisions, so after "Request changes" only the hunks the agent touched come back.
+- Moved-code detection across files, with both ends linked and approvable together.
+- Formatting-only and whitespace-only hunks recognised and approved from the start.
+- "Changed since approval": a diff of the approved lines against the current ones.
+- Walkthrough order: review the hunks in the order the agent's walkthrough discusses them; hunks it doesn't mention are flagged.
+
+**What the view shows**
+- Side-by-side or inline diff of a task's jj change against trunk, one file after another, with syntax highlighting.
+- Per hunk: Approve and next, Skip, Comment. Progress ("3/9 hunks approved") on the card and in the drawer.
+- Accept with unreviewed hunks is allowed but says how many.
+
+**Comments to the agent.** Comments anchor to a hunk hash and line, not to GitLab. They collect as a draft I can edit, reorder or delete; "Request changes" sends them to the agent as one message with file, line and the quoted code. The agent's next revision shows which comments its changed hunks address.
+
+**Small edits in the diff.** I can edit a few lines myself, typically code comments, docstrings and typos, without a round-trip to the agent:
+1. Edit lines on the right side of a hunk in place.
+2. The daemon applies the edit to the commit that last changed those lines, like ReviewDiff's Edit in Commit: `jj new` on that commit, write the file, `jj squash` back. jj rebases the descendants.
+3. The hunk is approved as edited; the agent gets a short message listing what I changed.
+
+Edits are only allowed while the agent isn't running in that workspace (Review, Changes requested, or interrupted), so they never race with the agent's own writes. Everything goes through the op log and can be undone with `jj op restore`.
+
+**Out of scope for now:** GitLab merge request discussions in the web view. ReviewDiff in VS Code keeps covering MR review.
+
+## jj integration
+
+Each worker owns one jj workspace; the director and I share the default one. jj replaces git worktrees as the isolation unit, and jj orbit replaces a second jj client.
+
+**Workspaces.** Configured in `config.toml` per host (`ws1`–`ws4` on the Mac, more on pods). Background-session worktrees from Claude Code stay off: the daemon starts each SDK session with its workspace directory as working directory. A queued task waits until its workspace is free.
+
+**History view.** Embeds jj orbit, served by the daemon. Its flat layout is the classic graph; lanes and spiral are the 3D modes. Commits are colored by the agent that owns their workspace. Orbit follows a `data-theme` on its root, which fleet sets from its own theme, so the vendored copy stays as it is.
+
+**Op log as checkpoints.** Every jj operation is attributed to an agent (by workspace) or to me. The op slider scrubs through them; picking an older op fades later commits and offers `jj op restore` with a preview first. This replaces per-session checkpoints: rewinding an agent is restoring the op before its last turn.
+
+**Where 3D helps.** As an overview, not for doing: many parallel lanes on a second screen, time as depth, spatial memory of which stack is whose. Classic stays the default for review and actions.
+
+**Write safety.** jj snapshots continuously, so nothing an agent did is lost. The daemon never runs history-rewriting commands on a workspace while its agent is running.
+
+## CLI parity
+
+The Agent SDK runs the same harness as the CLI, so most capabilities exist; the work is rendering them. Commands that open interactive TUI dialogs in the CLI need a check for an SDK equivalent, one by one.
+
+| CLI feature                            | fleet                                        | Phase |
+| -------------------------------------- | -------------------------------------------- | ----- |
+| Transcript with tool calls and results | Tile log, filter main / subagents            | 1     |
+| Permission prompts, AskUserQuestion    | Inbox and decision bar, with explanation     | 1     |
+| Prompt, interrupt (Esc)                | Tile prompt, Interrupt button                | 1     |
+| Permission modes (Shift+Tab)           | Mode pill: default, plan, accept edits, auto | 2     |
+| Model and effort                       | Model pill                                   | 2     |
+| Context usage, `/compact`              | Context meter, button                        | 2     |
+| To-do list                             | To-dos panel                                 | 2     |
+| Slash commands                         | Menu on `/`                                  | 2     |
+| Subagents                              | Tree, tile filter, flow view                 | 2     |
+| Rewind (Esc Esc)                       | jj op restore plus session fork              | 3     |
+| `@` file mentions                      | Autocomplete from the workspace              | 3     |
+| Image paste and attachments            | Attach button, paste                         | 3     |
+| Messages queued while busy             | Queue shown under the prompt                 | 3     |
+| `/btw` side questions                  | `/btw` in the prompt, answer above it        | 3     |
+| Plan mode output                       | Plan as a doc with comments, then approve    | 3     |
+| Background tasks and watchers          | Activity tab: output, Stop, Ctrl+B           | 3     |
+| Cost and usage                         | Per agent, per day                           | 3     |
+| Skills, hooks, MCP, plugins            | Read-only list; manage in the CLI            | later |
+
+**Background tasks.** The Activity tab lists, above the tool calls, what a session runs on its own: shells, monitors, workflows and background subagents, from the SDK's `task_*` messages. A command that holds up its tool call is listed too while it runs, with Move to background (Ctrl+B in the CLI), and drops out of the list if it ends there. A shell's row shows its command, how long it has run and when its output last grew. Fleet cannot know whether a process hangs, so output that stays quiet for two minutes is the hint: the row turns amber. The session samples the output every 5 s while a shell runs, so the hint is right even when nobody had the tab open. Opening the row shows the end of the output (the CLI hands out the last 8 KiB), refreshed every few seconds; a finished shell's output comes from the file the CLI names when the task ends. Stop goes to the SDK's `stopTask`. Tasks end with their CLI process, so a stopped, crashed or restarted session marks them stopped. The state keeps the last 20 finished tasks per agent, and Clear drops them.
+
+**Lost connection.** When the network goes down, the CLI retries a request for a while and then ends the turn with an API error. A turn that ended that way (`terminal_reason` "api_error") after retries that got no response at all (`api_retry` without an HTTP status) marks the agent offline. Errors that Claude did answer, such as overloaded or rate limited, do not. An offline agent stays in its column instead of moving to Needs you, and one banner lists all of them. Every 15 s the daemon looks after them. It sends the agent that went offline first a note to continue, and since that goes through the CLI, the CLI's own network settings and retries apply. If it fails again, the next try waits 30 s, doubling up to 5 min. Once Claude answers it, the other offline agents get the same note.
+
+**Escape hatch.** Any agent can be handed to a terminal: the daemon releases the session and prints `claude --resume <id>` for its workspace. Two processes must never write the same transcript, so while another process holds the session, the tile shows it as detached. An imported session starts the same way when something else still has it open.
+
+**Finding the other process.** Every running Claude Code writes `~/.claude/sessions/<pid>.json`: the terminal CLI, the VS Code extension and the Desktop app alike. The file names the pid, the session id, the cwd, whether the process is busy or idle, when it started (`procStart`) and which client it is (`entrypoint`). The format is undocumented, and Claude Code sometimes leaves a file with stray characters after the JSON object that then never updates. The daemon reads such files defensively and, when in doubt, treats a session as held, never as free:
+- It reads the first complete JSON object in a file. A file whose pid is alive and whose `sessionId` names the session holds it, however old the file is.
+- A file with a dead pid, or a live pid whose start time no longer matches `procStart` (on the Mac, `ps -o lstart` in UTC), holds nothing.
+- The `.key` files next to them stay untouched. A process the daemon started itself is never a holder.
+- Each daemon reads only its own host's directory, so a pod's daemon reads the pod's.
+
+When the directory is missing, or none of its files has the expected shape, the daemon cannot tell who holds a session and behaves as before these rules: a detached tile shows the `claude --resume` line, and Attach resumes without ending anything.
+
+**Attach.** A detached tile has an Attach button, also a command in the keymap and the palette, and sending a prompt to a detached tile does the same. Attach ends the holder with SIGTERM, then resumes the session in fleet. I want the session in fleet and do not mind what happens in the terminal, VS Code or the Desktop app it came from.
+- Before signalling, the daemon checks that the pid still belongs to the process the file describes (its start time matches `procStart`), so a recycled pid is never hit. If it cannot compare the start time, for example on a pod whose format it does not know, it does not signal and asks me to close the process myself.
+- A holder whose `kind` is not `interactive` is a background job of Claude Code, whose process may since run another job. It is never signalled: the banner says a background job holds the session, and Attach stays disabled.
+- While the holder is busy, the browser asks first.
+- If the holder has not exited a few seconds after SIGTERM, the tile shows an error and the session stays detached. No SIGKILL.
+- Only I take a session over. A message from another agent to a detached session (`send_message`, the director's messages, a restart note) waits in its queue until the session is back in fleet; it never ends a holder.
+
+**Picking up by itself.** I should not have to go back to fleet and press anything after closing a terminal.
+- An import with no holder resumes the session right away.
+- While a session is detached, the daemon watches the holder it saw. When that process exits, or its file stops naming the session (after `/clear` or `/resume` there), the daemon resumes the session and adds the turns made elsewhere to the tile's log, as an import does. A tile handed to a terminal waits for the terminal to appear first, so it is not taken straight back. After a daemon restart, a detached session with no holder waits for Attach.
+- The detached banner names the holder (a terminal, VS Code or the Desktop app), its cwd and whether it is busy or idle.
+
+**Opened elsewhere.** If I open a session in another client while fleet runs it, without handing it off first, fleet steps back: it ends its own process, shows the tile as detached with the new holder, and picks up again when that holder exits. The daemon therefore watches the session files for its running sessions too, not only for detached ones. A client that restarts a session it lost, as the Desktop app might after Attach, would take it back and forth with fleet; when fleet loses the same session twice within a minute, it stays detached and the banner says why.
+
+**Briefing.** fleet's rules are in the appended system prompt, but an imported conversation grew up in another client, and its history outweighs a system prompt that changed underneath it. So the first turn fleet runs after an import starts with a message telling the agent that it is now fleet worker `<name>` in workspace `<ws>`, that I watch it through the web UI, and that it reaches me through the fleet tools. Whatever I typed follows. Without typed text, as on a pickup, the agent confirms in one line and waits for me. The briefing goes out once per import, so the daemon records it in the event log. A session coming back from a terminal hand-off, the director included, resumes idle; one line saying it is back in fleet goes in front of my next prompt instead of costing a turn. Compaction needs no new briefing, since the system prompt survives it.
+
+**Bringing my own director.** I may already have a Claude Code session that coordinates my work, and fleet's director should start from what it knows. Its conversation is not taken over, since a director needs a clean context and fleet's rules from its first turn. In the import dialog, "Use as director" on a session resumes a fork of it (the SDK's `forkSession`), so the original stays untouched wherever it is open and nothing is ended. The fork gets the handover request and writes the handover file under the director's `.fleet/`. fleet's director then starts a fresh session from that file, as after a handover; its previous session ends. The board and tasks are in the event log and need no handover.
+
+## Security, auth and Mac specifics
+
+The daemon can make agents run commands, so it is reachable only through `127.0.0.1` and tunnels, never an open port.
+
+**Network.** Bind to `127.0.0.1`. Remote access from the phone or another machine goes through an ssh tunnel, Coder port forwarding or the VPN; no auth layer of its own in phase 1.
+
+**Claude login.** Personal use on the Team/Max subscription. The SDK sessions run under my own Claude Code login, and the support article on the Agent SDK confirms subscription limits apply to it. Six parallel agents drain limits fast; the monthly API credits included with Max and Team plans are the overflow.
+
+**Permissions.** Agents start in auto mode, with a per-workspace allow list (tests, jj, build). Anything outside goes to the inbox. The director has no write tools outside `.fleet/`.
+
+**Sleep on the Mac.**
+- While any agent is busy, the daemon holds `caffeinate -i`.
+- Lid-closed mode runs `pmset disablesleep 1` through a sudoers rule that allows exactly `pmset disablesleep 1` and `pmset disablesleep 0`, nothing else.
+- It turns itself off when all agents are idle, after 2 h, or below 20 % battery. A banner shows it is on.
+- While the lid is closed, builds and benchmarks on the Mac pause; pods keep going.
+- The watchdog resumes sessions after network drops (cycling between home and office).
+
+**Coder pods.** Each pod runs its own daemon; the UI on the Mac connects to all of them through tunnels and merges their events. Pods don't sleep, so long jobs go there.
+
+## Build plan
+
+Design happens in chat and on the canvas; code happens in Claude Code, in a new repo with this doc as `docs/design.md` and a short `CLAUDE.md`. Each phase ends with something I use daily.
+1. **One agent, better than tmux.** Daemon with one SDK session, event log, reconnecting web view, tile, decision inbox with explanations.
+2. **Several agents.** Board, grid, tree, spawn and kill, colors, hosts, unseen marks, CLI bar.
+3. **Director.** Custom tools, `spawn_task`, ledger, message bus, flow view, open points.
+4. **Review.** Diff view on reviewdiff-core with shared approvals, comments to agents, small edits via jj.
+5. **History and time.** jj orbit embedded, op-log checkpoints, timeline view.
+6. **Remote.** Daemons on Coder pods, merged UI, lid-closed mode, watchdog.
+
+**First Claude Code tasks**
+- [ ] Spike: SDK session with streaming input, `canUseTool`, one in-process custom tool; confirm subagent messages carry the parent tool-use id
+- [ ] Spike: check whether SDK-created sessions resume in the CLI with `claude --resume`
+- [ ] Spike: list which slash commands and TUI dialogs have SDK equivalents
+- [ ] Event log schema and WebSocket replay
+- [ ] Tile component from the mockup, against recorded events
+- [ ] Extract reviewdiff-core as a package both ReviewDiff and fleet build from
+
+**Open questions**
+- [ ] TypeScript for the daemon (most complete SDK) or Python?
+- [ ] One daemon per host, or one daemon on the Mac driving pods over ssh?
+- [ ] Do workers on pods share a jj repo with the Mac, or push to GitLab and the director integrates?
+- [ ] Where do approvals live when the diff view runs on the Mac and the workspace on a pod?
