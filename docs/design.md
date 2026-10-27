@@ -99,6 +99,14 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 
 **Side agent.** Claude Code's "You should know" plugin runs only in its terminal UI, so fleet does the same thing itself, switched on per agent: after each turn it asks the session a side question, without tools, whether there is something I should know but might miss. A note appears above the tile's prompt and in the inbox's FYI section; "Tell agent" forwards it as a user message.
 
+**Finished runs.** An agent's closing message after a long run (what it did, what is left, what I need to decide) is the part I read most closely, so it doesn't stay buried in the log. When an agent goes idle after at least 15 seconds of work that I started (my prompt, a new task, Request changes, a thread message, Go), the inbox gets a Finished item with the last text it wrote, rendered as Markdown. One stretch of work makes one item, however many turns it took: prompts I queued mid-turn, or the agent waking itself when a background shell ends, belong to the same stretch. Work another agent started with a message makes no item; if it needs me, the agent messages me, and that lands in the inbox already. Around ten seconds is where people stop waiting for an answer and turn to something else, so a quick reply I sat and waited for makes no item. Only the time the agent worked counts, not the time it waited on my permission prompts, and the threshold is a setting in `config.toml`. A stretch I ended myself (Interrupt, Stop, a handover) makes no item, since I was there. A stretch that ended without me, because the network went down, the request failed or the process crashed, always makes one, however short and whoever started it: tagged Stopped, with the reason and the last text the agent wrote, so I know to start it again. If I was watching when the turn ended (the agent's drawer or enlarged tile open in a focused browser window), the item goes straight to Read.
+
+The inbox groups Finished items by agent. The newest unread one is on top and unfolds first; older unread runs of the same agent sit under it as one line each, and each unfolds to its full text, so a decision asked for an hour ago can't hide behind a later summary. Folded, an item shows the agent, its task, how long it ran, when it ended and the first line of the message. Unfolded, it has a comment box and two buttons:
+- **Mark read** with the box empty: the group moves to Read without waking the agent. With text in the box the button reads **Send**: the text goes to the agent as a prompt, and the group moves to Read.
+- **Go** sends "Go ahead.", for when the agent waits for my go, and moves the group to Read.
+
+Only these buttons move items to Read. Opening the agent, typing in its tile or answering its decisions leaves them where they are, so nothing I only glanced at disappears. Read keeps the last 20 Finished items per agent, folded at the bottom of the inbox. A new item raises a notification and marks the agent new; the session log keeps everything regardless.
+
 ## Event model and storage
 
 The daemon is the only stateful component: one append-only SQLite event log per host, from which every view is derived. The browser holds no state of its own.
@@ -109,7 +117,7 @@ The daemon is the only stateful component: one append-only SQLite event log per 
 
 **Sessions.** Claude Code keeps its own transcripts; the daemon stores each agent's session id and resumes with it after a restart. A request that was pending during a restart is marked stale; the agent asks again after resuming.
 
-**Unseen.** An agent is marked new when its outcome changes: it needs me, it reaches review, it creates a file for me, or the side agent leaves a note. New log lines don't count. The mark stays until I open the agent; "Mark all seen" clears all.
+**Unseen.** An agent is marked new when its outcome changes: it needs me, it reaches review, it creates a file for me, it finishes a long run, or the side agent leaves a note. New log lines don't count. The mark stays until I open the agent; "Mark all seen" clears all.
 
 **Files on disk.**
 
@@ -134,7 +142,7 @@ One web app served by the daemon, with six views over the same task data. Select
 | View     | Answers                     | Notes                                                                                                                                           |
 | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Board    | Whose turn is it?           | Columns Queued, Running, Needs you, Review, Changes requested, Accepted; WIP limits on Running and Review; buttons are the moves you would drag |
-| Inbox    | What waits on me?           | Decisions and permissions with Claude's explanation and risk tags; open points; replies in line threads; side-agent notes                        |
+| Inbox    | What waits on me?           | Decisions and permissions with Claude's explanation and risk tags; open points; replies in line threads; finished runs; side-agent notes        |
 | Grid     | What is happening now?      | Live tiles; enlarging one turns the rest into a status strip                                                                                    |
 | Timeline | Where was I the bottleneck? | One lane per agent; waiting-on-me time in orange; 15 min or 2 h window                                                                          |
 | Flow     | Who talks to whom?          | Agents as nodes, messages as packets in the sender's color; click a link to filter                                                              |
