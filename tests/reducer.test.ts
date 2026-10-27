@@ -5,6 +5,7 @@ import {
   columnOf,
   costOn,
   heldMessages,
+  inboxCount,
   LOG_LIMIT,
   pendingDecisions,
   reduceAll,
@@ -337,6 +338,14 @@ describe("line threads", () => {
       ),
     );
     expect(unreadThreads(state).map((u) => u.thread.id)).toEqual(["early", "late"]);
+  });
+
+  it("counts unread replies in the Inbox tab's count", () => {
+    const base = [worker("a"), request, opened()] as NewEvent[];
+    expect(inboxCount(reduceAll(events(...base)))).toBe(1);
+    const replied = [...base, say(message("m2", "agent"))];
+    expect(inboxCount(reduceAll(events(...replied)))).toBe(2);
+    expect(inboxCount(reduceAll(events(...replied, read)))).toBe(1);
   });
 
   it("marks the agent new when it replies, not when the user writes", () => {

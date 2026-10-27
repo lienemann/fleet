@@ -26,13 +26,16 @@ export type DrawerTab = (typeof DRAWER_TABS)[number];
 interface Props {
   agent: AgentView;
   tab: DrawerTab;
+  /** The line thread the diff scrolls to and expands, when the drawer was opened for one. */
+  thread?: { id: string };
   onTab: (tab: DrawerTab) => void;
   onOpenInGrid: () => void;
+  onOpenThread: (thread: string) => void;
   onClose: () => void;
 }
 
 /** The selected task beside the board and inbox. */
-export function Drawer({ agent, tab, onTab, onOpenInGrid, onClose }: Props) {
+export function Drawer({ agent, tab, thread, onTab, onOpenInGrid, onOpenThread, onClose }: Props) {
   const { state, color } = useFleet();
   const now = useNow();
   const column = columnOf(agent);
@@ -103,11 +106,11 @@ export function Drawer({ agent, tab, onTab, onOpenInGrid, onClose }: Props) {
         ))}
       </nav>
       <div className="drawer-body">
-        {tab === "live" && <Tile agent={agent} selected />}
+        {tab === "live" && <Tile agent={agent} selected onOpenThread={onOpenThread} />}
         {tab === "session" && <SessionView agent={agent} />}
         {tab === "activity" && <ActivityView agent={agent} />}
         {tab === "files" && <FilesView agent={agent} />}
-        {tab === "diff" && <DiffView agent={agent} />}
+        {tab === "diff" && <DiffView agent={agent} thread={thread} />}
         {tab === "report" && <ReportView agent={agent} />}
         {tab === "messages" && (
           <div className="drawer-scroll">

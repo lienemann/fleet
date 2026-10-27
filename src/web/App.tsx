@@ -48,6 +48,8 @@ export function App() {
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
   const [tab, setTab] = useState<DrawerTab>("live");
+  // A new object for each request, so opening the same thread again scrolls to it again.
+  const [thread, setThread] = useState<{ id: string }>();
   // Each opening is a new object, so "closed, then opened again" in one batch still opens it.
   const [overlay, setOverlay] = useState<{ kind: Overlay; id: number; project?: string }>();
   const show = (kind: Overlay, project?: string): void =>
@@ -58,16 +60,36 @@ export function App() {
   const agents = agentList(state);
   const cutOff = agents.filter((a) => a.offline).map((a) => a.name);
 
-  const select = (name: string): void => setSelected(name);
+  // A thread asked for once is done with when another agent opens or the drawer closes; reopening
+  // the agent must not jump back to it.
+  const select = (name: string): void => {
+    setSelected(name);
+    setThread(undefined);
+  };
+  const closeDrawer = (): void => {
+    setSelected(undefined);
+    setThread(undefined);
+  };
+  /** Tabs other than the diff have no use for a thread, and coming back to the diff should not jump. */
+  const goTab = (next: DrawerTab): void => {
+    setTab(next);
+    setThread(undefined);
+  };
   /** Opens the agent in the drawer and puts the cursor into its prompt, once the drawer shows it. */
   const message = (name: string): void => {
     setSelected(name);
-    setTab("live");
+    goTab("live");
     requestAnimationFrame(() => focus(`[data-prompt="${name}"]`));
   };
   const { font, setFont, cycleFont } = useFont();
   const tiles = useTilesPerRow();
-  const notifications = useNotifications(state, (name) => setSelected(name));
+  const notifications = useNotifications(state, select);
+  /** Opens the agent's diff at one of its line threads. */
+  const showThread = (name: string, id: string): void => {
+    setSelected(name);
+    setTab("diff");
+    setThread({ id });
+  };
   const open = (name: string): void => {
     setSelected(name);
     setEnlarged(name);
@@ -268,7 +290,7 @@ export function App() {
     const nextMode =
       PERMISSION_MODES[(PERMISSION_MODES.indexOf(mode) + 1) % PERMISSION_MODES.length];
     const nextTab = (step: number) => () =>
-      setTab(
+      goTab(
         DRAWER_TABS[(DRAWER_TABS.indexOf(tab) + step + DRAWER_TABS.length) % DRAWER_TABS.length] ??
           "live",
       );
@@ -411,7 +433,7 @@ export function App() {
         label: "Close the drawer",
         group: "Drawer",
         keys: ["x"],
-        run: () => setSelected(undefined),
+        run: closeDrawer,
       },
     ];
     return selection
@@ -483,7 +505,7 @@ export function App() {
         <main className="main">
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
-          {view === "inbox" && <Inbox onOpen={open} />}
+          {view === "inbox" && <Inbox onOpen={open} onOpenThread={showThread} />}
           {view === "grid" && (
             <Grid
               selected={selected}
@@ -501,9 +523,11 @@ export function App() {
           <Drawer
             agent={agent}
             tab={tab}
-            onTab={setTab}
+            thread={thread}
+            onTab={goTab}
+            onOpenThread={(id) => showThread(agent.name, id)}
             onOpenInGrid={() => open(agent.name)}
-            onClose={() => setSelected(undefined)}
+            onClose={closeDrawer}
           />
         )}
       </div>

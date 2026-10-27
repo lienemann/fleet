@@ -2837,3 +2837,12 @@ button.ln:hover {
   color: var(--onwarn);
   font-weight: 600;
 }
+.reply-text {
+  margin: 0;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+.reply footer {
+  display: flex;
+  gap: 6px;
+}

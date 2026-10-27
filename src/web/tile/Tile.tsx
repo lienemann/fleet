@@ -28,12 +28,14 @@ interface Props {
   /** Shown as a button when the tile can grow, or shrink back. */
   onEnlarge?: () => void;
   enlarged?: boolean;
+  /** Shows a user line's thread in the diff; without it, such lines carry no link. */
+  onOpenThread?: (thread: string) => void;
 }
 
 const FILTER_LABELS: Record<LogFilter, string> = { all: "All", main: "Main", subagents: "Sub" };
 
 /** A live session, mirroring the TUI: transcript, to-dos, pending decisions, CLI bar and prompt. */
-export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) {
+export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThread }: Props) {
   const { state, send, call, color } = useFleet();
   const [filter, setFilter] = useState<LogFilter>("all");
   const [colors, setColors] = useState(false);
@@ -107,7 +109,12 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged }: Props) 
       {queued ? (
         <Queued agent={agent} />
       ) : (
-        <Log lines={agent.log} subagents={agent.subagents} filter={filter} />
+        <Log
+          lines={agent.log}
+          subagents={agent.subagents}
+          filter={filter}
+          onOpenThread={onOpenThread}
+        />
       )}
       {decisions.map((decision) => (
         <DecisionCard

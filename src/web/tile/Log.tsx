@@ -101,10 +101,12 @@ export function Log({
   lines,
   subagents,
   filter,
+  onOpenThread,
 }: {
   lines: LogLine[];
   subagents: Subagent[];
   filter: LogFilter;
+  onOpenThread?: (thread: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
@@ -146,6 +148,15 @@ export function Log({
               <span className="text">{line.text}</span>
             )}
             {line.truncated && <span className="truncated"> …</span>}
+            {line.thread && onOpenThread && (
+              <button
+                type="button"
+                className="link dim"
+                onClick={() => line.thread && onOpenThread(line.thread)}
+              >
+                Open in diff
+              </button>
+            )}
           </div>
         );
       })}

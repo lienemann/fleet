@@ -400,6 +400,16 @@ export const pendingDecisions = (state: FleetState): Decision[] =>
 export const openPointDocs = (state: FleetState): OpenPointsDoc[] =>
   Object.values(state.openPoints).sort((a, b) => a.seq - b.seq);
 
+/** Open points the user has not answered yet. */
+export const unansweredPoints = (state: FleetState): number =>
+  openPointDocs(state)
+    .flatMap((doc) => doc.points)
+    .filter((p) => p.answer === undefined).length;
+
+/** The Inbox tab's count: decisions and permissions, unanswered open points, unread thread replies. */
+export const inboxCount = (state: FleetState): number =>
+  pendingDecisions(state).length + unansweredPoints(state) + unreadThreads(state).length;
+
 const ROLE_ORDER: Record<Role, number> = { "fleet-director": 0, director: 1, worker: 2 };
 
 /** Agents in creation order, the fleet director first, then the projects' directors. */

@@ -1,9 +1,9 @@
 import {
   agentList,
   costOn,
+  inboxCount,
   needsUser,
-  openPointDocs,
-  pendingDecisions,
+  unansweredPoints,
 } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
@@ -43,10 +43,8 @@ export function Header({
 }: Props) {
   const { state, info, send, theme, toggleTheme } = useFleet();
   const agents = agentList(state);
-  const openPoints = openPointDocs(state)
-    .flatMap((doc) => doc.points)
-    .filter((p) => p.answer === undefined).length;
-  const inbox = pendingDecisions(state).length + openPoints;
+  const openPoints = unansweredPoints(state);
+  const inbox = inboxCount(state);
   const counters: Counter[] = [
     {
       n: agents.filter((a) => a.activity === "working").length,

@@ -1,21 +1,37 @@
 import { useState } from "react";
 import { USER } from "../../shared/events.ts";
-import { type OpenPointsDoc, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
+import {
+  type OpenPointsDoc,
+  openPointDocs,
+  pendingDecisions,
+  unreadThreads,
+} from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
+import { threadPlace } from "../review/Thread.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 
 /** Answers most open points get; anything else is typed. */
 const QUICK_ANSWERS = ["Yes", "No", "Defer"];
 
-/** Everything waiting on the user: decisions and permissions, open points, and messages to them. */
-export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { send, state: all } = useFleet();
+/** Lines of a reply the inbox shows before the diff has the rest. */
+const REPLY_LINES = 3;
+
+/** Everything waiting on the user: decisions and permissions, open points, replies and messages. */
+export function Inbox({
+  onOpen,
+  onOpenThread,
+}: {
+  onOpen: (agent: string) => void;
+  onOpenThread: (agent: string, thread: string) => void;
+}) {
+  const { send, state: all, color } = useFleet();
   const state = useShownState();
   const items = pendingDecisions(state);
   const docs = openPointDocs(state);
+  const replies = unreadThreads(state);
   const forMe = state.messages
     .filter((m) => m.to === USER)
     .slice(-10)
@@ -70,7 +86,7 @@ export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
 
   return (
     <div className="inbox">
-      {items.length === 0 && docs.length === 0 && (
+      {items.length === 0 && docs.length === 0 && replies.length === 0 && (
         <p className="empty-box">Nothing waits on you. Agents keep working.</p>
       )}
       {items.map((decision) => (
@@ -93,6 +109,45 @@ export function Inbox({ onOpen }: { onOpen: (agent: string) => void }) {
           </h2>
           {docs.map((doc) => (
             <OpenPoints key={doc.docId} doc={doc} />
+          ))}
+        </section>
+      )}
+      {replies.length > 0 && (
+        <section>
+          <h2>
+            Replies <span className="lede">· answers under the lines you asked about</span>
+          </h2>
+          {replies.map(({ agent, thread }) => (
+            <article key={thread.id} className="decision reply">
+              <header>
+                <strong
+                  className="name"
+                  style={{ color: color(all.agents[agent]?.color ?? "#888888") }}
+                >
+                  {agent}
+                </strong>
+                <code className="name">{threadPlace(thread.path, thread.side, thread.lines)}</code>
+              </header>
+              <p className="reply-text">
+                {(thread.messages.at(-1)?.body ?? "").split("\n").slice(0, REPLY_LINES).join("\n")}
+              </p>
+              <footer>
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => onOpenThread(agent, thread.id)}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => send({ type: "thread_read", agent, threadId: thread.id })}
+                >
+                  Mark read
+                </button>
+              </footer>
+            </article>
           ))}
         </section>
       )}

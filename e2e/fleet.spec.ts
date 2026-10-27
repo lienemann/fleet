@@ -137,6 +137,43 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await thread.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await shot(page, "thread");
 
+  // A reply that lands while the user is elsewhere waits in the inbox. Leaving the Diff tab at
+  // once keeps the answer from being seen where it appears.
+  await thread.getByRole("button", { name: "Reply" }).click();
+  await thread.getByRole("textbox").fill("Is 50 enough on a slow runner?");
+  await thread.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.keyboard.press("2");
+  const replies = page.locator("section", { has: page.getByRole("heading", { name: "Replies" }) });
+  await expect(replies).toContainText("alpha", { timeout: 10_000 });
+  await expect(replies).toContainText("lib.py:");
+  await expect(replies).toContainText("Fifty runs");
+  // The diff renders the thread, but out of sight on a short screen it stays unread.
+  const screen = page.viewportSize() ?? { width: 1280, height: 720 };
+  await page.setViewportSize({ ...screen, height: 480 });
+  await page.getByRole("button", { name: /^Diff/ }).click();
+  await diff
+    .locator(".thread", { hasText: "Is 50 enough on a slow runner?" })
+    .waitFor({ state: "attached" });
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.setViewportSize(screen);
+  await replies.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(
+    diff.locator(".thread", { hasText: "Is 50 enough on a slow runner?" }),
+  ).toBeVisible();
+  // Seen in the diff, the item is gone; the session's thread line leads back there.
+  await page.keyboard.press("2");
+  await expect(replies).toHaveCount(0);
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.getByRole("button", { name: "Open in diff" }).last().click();
+  await expect(
+    diff.locator(".thread", { hasText: "Is 50 enough on a slow runner?" }),
+  ).toBeVisible();
+  await page.keyboard.press("1");
+
   // A held question waits for Request changes, which sends it and moves the card.
   await runs.locator(".row.removed", { hasText: "return 1" }).getByRole("button").click();
   await compose.getByRole("textbox").fill("Was 1 run ever enough?");

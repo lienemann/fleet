@@ -24,9 +24,9 @@ interface Focus {
 /**
  * Review of a task's change against trunk, or of one of its commits, built on reviewdiff-core:
  * approve hunk by hunk, ask about lines in threads, fix small things in place. Approvals are
- * shared with ReviewDiff. `thread` scrolls to that thread once the diff shows it.
+ * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it; each new request object does so again.
  */
-export function DiffView({ agent, thread }: { agent: AgentView; thread?: string }) {
+export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: string } }) {
   const { call, send } = useFleet();
   const [model, setModel] = useState<ReviewModel>();
   const [error, setError] = useState<string>();
@@ -89,9 +89,9 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: string 
 
   // The thread asked for, until the diff shows it; then its hunk gets the focus and it scrolls
   // into view once rendered.
-  const [wanted, setWanted] = useState(thread);
+  const [wanted, setWanted] = useState(thread?.id);
   const [reveal, setReveal] = useState<string>();
-  useEffect(() => setWanted(thread), [thread]);
+  useEffect(() => setWanted(thread?.id), [thread]);
   useEffect(() => {
     const placement = model?.threads.find((p) => p.thread === wanted);
     if (!placement) return;
@@ -325,7 +325,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: string 
         <ThreadsElsewhere
           agent={agent}
           threads={elsewhere}
-          focusThread={thread}
+          focusThread={thread?.id}
           onShow={
             model?.scope.kind === "commit"
               ? (id) => void choose({ kind: "branch" }).then(() => setWanted(id))
@@ -355,7 +355,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: string 
               composing={hunk.id === focused?.hunk.id ? composing : undefined}
               selection={selection?.hunk === hunk.id ? selection : undefined}
               threads={threadsIn(hunk)}
-              focusThread={thread}
+              focusThread={thread?.id}
               canEdit={canEdit}
               onFocus={() => setFocusId(hunk.id)}
               onCompose={(mode) => {
