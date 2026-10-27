@@ -100,7 +100,7 @@ export interface OpenPoint {
   text: string;
 }
 
-import type { ReviewComment, ReviewEdit } from "./review.ts";
+import type { LineThread, ReviewComment, ReviewEdit, ThreadMessage } from "./review.ts";
 
 /** Sender and recipient name the user has in agent messages. */
 export const USER = "you";
@@ -228,7 +228,8 @@ export type EventBody =
       tint?: Tint;
     }
   /** `attachments` names what was sent along; the content goes only to the agent. */
-  | { kind: "user_prompt"; text: string; attachments?: string[] }
+  /** A prompt of the user; `thread` is set when it carries a message of a line thread. */
+  | { kind: "user_prompt"; text: string; attachments?: string[]; thread?: string }
   | {
       kind: "log";
       role: LogRole;
@@ -322,7 +323,21 @@ export type EventBody =
   | { kind: "comment_updated"; commentId: string; body: string }
   | { kind: "comment_removed"; commentId: string }
   | { kind: "review_edited"; edit: ReviewEdit }
-  /** Draft comments and edits went to the agent with a change request. */
+  | {
+      kind: "thread_opened";
+      thread: Omit<LineThread, "messages" | "resolved" | "unread">;
+      message: ThreadMessage;
+    }
+  | { kind: "thread_message"; threadId: string; message: ThreadMessage }
+  | { kind: "thread_message_edited"; threadId: string; messageId: string; body: string }
+  /** Removing a thread's last message removes the thread. */
+  | { kind: "thread_message_removed"; threadId: string; messageId: string }
+  /** The user looked at the agent's reply. */
+  | { kind: "thread_read"; threadId: string }
+  | { kind: "thread_resolved"; threadId: string; resolved: boolean }
+  /** The user's edits went to the agent along with a message. */
+  | { kind: "edits_reported" }
+  /** Draft comments, held thread messages and edits went to the agent with a change request. */
   | { kind: "review_sent" }
   /** Moving a task to a fresh session: the old one writes a handover file, a new one reads it. */
   | { kind: "handover"; state: "writing" | "done" | "failed"; path: string; note?: string }

@@ -94,6 +94,35 @@ export interface ReviewComment {
   body: string;
 }
 
+/** One message in a line thread. */
+export interface ThreadMessage {
+  id: string;
+  from: "user" | "agent";
+  body: string;
+  ts: number;
+  /** Waits in the draft for Request changes. */
+  held?: boolean;
+  /** Short change id the user asked the fix to be folded into. */
+  fold?: string;
+}
+
+/** A conversation about selected lines of the diff, kept by the agent whose task it is. */
+export interface LineThread {
+  id: string;
+  path: string;
+  side: "head" | "base";
+  /** In the file on that side when the thread was opened; 1-based, end exclusive. */
+  lines: LineRange;
+  /** The selected lines, quoted in the message and used to find them again. */
+  quote: string[];
+  /** Short id of the commit that last changed the lines, when one of the task's commits did. */
+  commit?: string;
+  messages: ThreadMessage[];
+  resolved: boolean;
+  /** The agent replied since the user last looked. */
+  unread: boolean;
+}
+
 /** A small edit the user made in the diff view, reported to the agent with the next comments. */
 export interface ReviewEdit {
   path: string;

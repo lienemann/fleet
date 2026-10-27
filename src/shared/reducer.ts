@@ -23,7 +23,7 @@ import {
   type Todo,
   type Usage,
 } from "./events.ts";
-import type { ReviewComment, ReviewEdit } from "./review.ts";
+import type { LineThread, ReviewComment, ReviewEdit, ThreadMessage } from "./review.ts";
 
 /** Board column: the task state, except that an active task waiting on the user needs you. */
 export type Column = TaskState | "needs_you";
@@ -52,6 +52,8 @@ export interface LogLine {
   truncated?: boolean;
   /** The files a turn edited, on the line that ends it; paths relative to the workspace. */
   edits?: FileEdit[];
+  /** The line thread a user prompt belongs to. */
+  thread?: string;
 }
 
 /** A shell, subagent, monitor or workflow the session runs on its own, or ran. */
@@ -188,6 +190,8 @@ export interface AgentView {
   comments: ReviewComment[];
   /** Edits the user made in the diff view, reported with the next comments. */
   edits: ReviewEdit[];
+  /** Conversations about lines of the diff, oldest first. */
+  threads: LineThread[];
 }
 
 export interface FleetState {
@@ -243,6 +247,12 @@ export const MESSAGE_LIMIT = 500;
 export const HISTORY_LIMIT = 400;
 /** Prompts kept for a detached session; more are unlikely, and the oldest go first. */
 export const HELD_LIMIT = 50;
+/** Line threads kept per agent; past it the oldest resolved one goes, else the oldest. */
+export const THREAD_LIMIT = 50;
+/** Messages kept per thread; the oldest go first. */
+export const THREAD_MESSAGES_LIMIT = 50;
+/** Lines a thread quotes; a longer selection quotes its first ones. */
+export const QUOTE_LIMIT = 20;
 /** Models offered for picking; Claude Code lists about a dozen. */
 export const MODELS_LIMIT = 40;
 /** Files listed under a turn; a turn that edits more says how many. */
@@ -303,6 +313,18 @@ export function workspaceInUse({ tasks, queued, claim }: WorkspaceUse): string |
   if (queued > 0) return `${queued} queued ${queued === 1 ? "task waits" : "tasks wait"} for it`;
   return undefined;
 }
+
+/** Thread messages waiting in the draft for Request changes. */
+export const heldMessages = (agent: AgentView): number =>
+  agent.threads.reduce((sum, t) => sum + t.messages.filter((m) => m.held).length, 0);
+
+/** Threads the agent replied to that the user has not looked at, oldest reply first. */
+export const unreadThreads = (state: FleetState): Array<{ agent: string; thread: LineThread }> =>
+  Object.values(state.agents)
+    .flatMap((a) => a.threads.filter((t) => t.unread).map((thread) => ({ agent: a.name, thread })))
+    .sort((a, b) => lastTs(a.thread) - lastTs(b.thread));
+
+const lastTs = (thread: LineThread): number => thread.messages.at(-1)?.ts ?? 0;
 
 export function columnOf(agent: AgentView): Column {
   // An agent cut off by the network waits for fleet to continue it, not for the user. One
@@ -447,6 +469,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       handovers: 0,
       comments: [],
       edits: [],
+      threads: [],
       history: [{ lane: event.role === "worker" ? "queued" : "idle", from: event.ts }],
       costUsd: 0,
       costByDay: {},
@@ -536,7 +559,11 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "user_prompt": {
       const attached = event.attachments?.length ? ` [${event.attachments.join(", ")}]` : "";
-      return patch({ log: appendLine(agent.log, event, "user", event.text + attached) });
+      return patch({
+        log: appendLine(agent.log, event, "user", event.text + attached, undefined, {
+          ...(event.thread && { thread: event.thread }),
+        }),
+      });
     }
     case "log":
       return patch({
@@ -643,8 +670,66 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ comments: agent.comments.filter((c) => c.id !== event.commentId) });
     case "review_edited":
       return patch({ edits: [...agent.edits, event.edit] });
+    case "edits_reported":
+      return patch({ edits: [] });
     case "review_sent":
-      return patch({ comments: [], edits: [] });
+      return patch({
+        comments: [],
+        edits: [],
+        threads: agent.threads.map((t) => ({
+          ...t,
+          messages: t.messages.map(({ held: _sent, ...m }) => m),
+        })),
+      });
+    case "thread_opened": {
+      const { thread, message } = event;
+      const fresh: LineThread = {
+        ...thread,
+        messages: [cap(message)],
+        resolved: false,
+        unread: false,
+      };
+      return patch({ threads: [...makeRoom(agent.threads), fresh] });
+    }
+    case "thread_message": {
+      const { from } = event.message;
+      return patch({
+        threads: changeThread(agent, event.threadId, (t) => ({
+          ...t,
+          messages: [...t.messages, cap(event.message)].slice(-THREAD_MESSAGES_LIMIT),
+          unread: from === "agent",
+        })),
+      });
+    }
+    case "thread_message_edited":
+      return patch({
+        threads: changeThread(agent, event.threadId, (t) => ({
+          ...t,
+          messages: t.messages.map((m) =>
+            m.id === event.messageId ? { ...m, body: event.body } : m,
+          ),
+        })),
+      });
+    case "thread_message_removed":
+      return patch({
+        threads: agent.threads.flatMap((t) => {
+          if (t.id !== event.threadId) return [t];
+          const messages = t.messages.filter((m) => m.id !== event.messageId);
+          return messages.length > 0 ? [{ ...t, messages }] : [];
+        }),
+      });
+    case "thread_read":
+      return patch({
+        threads: changeThread(agent, event.threadId, (t) => ({ ...t, unread: false })),
+      });
+    case "thread_resolved":
+      return patch({
+        threads: changeThread(agent, event.threadId, (t) => ({
+          ...t,
+          resolved: event.resolved,
+          unread: false,
+        })),
+      });
     case "open_points":
       return {
         ...state,
@@ -687,7 +772,10 @@ function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): 
   const news =
     (needsUser(now) && !needsUser(old)) ||
     (moved && column === "review") ||
-    event.kind === "open_points";
+    event.kind === "open_points" ||
+    (event.kind === "thread_message" &&
+      event.message.from === "agent" &&
+      now.threads.some((t) => t.id === event.threadId));
   const lane = laneOf(now);
   const laneChanged = now.history.at(-1)?.lane !== lane;
   if (!moved && !news && !laneChanged) return after;
@@ -700,6 +788,25 @@ function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): 
       : now.history,
   };
   return { ...after, agents: { ...after.agents, [event.agent]: updated } };
+}
+
+const changeThread = (
+  agent: AgentView,
+  id: string,
+  change: (thread: LineThread) => LineThread,
+): LineThread[] => agent.threads.map((t) => (t.id === id ? change(t) : t));
+
+/** The agent's answers are cut like log text; the event log has all of it. */
+const cap = (message: ThreadMessage): ThreadMessage =>
+  message.from === "agent" && message.body.length > TEXT_LIMIT
+    ? { ...message, body: message.body.slice(0, TEXT_LIMIT) }
+    : message;
+
+/** Leaves space for one more thread: drops the oldest resolved one, else the oldest. */
+function makeRoom(threads: LineThread[]): LineThread[] {
+  if (threads.length < THREAD_LIMIT) return threads;
+  const drop = threads.find((t) => t.resolved) ?? threads[0];
+  return threads.filter((t) => t !== drop);
 }
 
 function appendLine(

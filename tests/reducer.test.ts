@@ -4,10 +4,14 @@ import {
   type AgentView,
   columnOf,
   costOn,
+  heldMessages,
   LOG_LIMIT,
   pendingDecisions,
   reduceAll,
   TEXT_LIMIT,
+  THREAD_LIMIT,
+  THREAD_MESSAGES_LIMIT,
+  unreadThreads,
 } from "../src/shared/reducer.ts";
 import { worker } from "./helpers.ts";
 
@@ -278,5 +282,173 @@ describe("account", () => {
     );
     expect(state.models).toEqual(models);
     expect(state.usage).toEqual(usage);
+  });
+});
+
+describe("line threads", () => {
+  const message = (id: string, from: "user" | "agent", extra = {}) => ({
+    id,
+    from,
+    body: `${from} ${id}`,
+    ts: 1000,
+    ...extra,
+  });
+  const opened = (id = "t1", first = message("m1", "user")): NewEvent => ({
+    kind: "thread_opened",
+    agent: "a",
+    thread: {
+      id,
+      path: "src/x.ts",
+      side: "head",
+      lines: { start: 3, endExclusive: 5 },
+      quote: ["q"],
+    },
+    message: first,
+  });
+  const say = (m: ReturnType<typeof message>, threadId = "t1"): NewEvent => ({
+    kind: "thread_message",
+    agent: "a",
+    threadId,
+    message: m,
+  });
+  const read: NewEvent = { kind: "thread_read", agent: "a", threadId: "t1" };
+
+  it("opens a thread, adds replies and marks it unread for the user", () => {
+    const events_ = [worker("a"), opened(), say(message("m2", "agent"))] as NewEvent[];
+    const state = reduceAll(events(...events_));
+    const thread = state.agents.a?.threads[0];
+    expect(thread?.messages).toHaveLength(2);
+    expect(thread?.unread).toBe(true);
+    expect(unreadThreads(state)).toEqual([{ agent: "a", thread }]);
+    const after = reduceAll(events(...events_, read));
+    expect(after.agents.a?.threads[0]?.unread).toBe(false);
+    expect(unreadThreads(after)).toEqual([]);
+  });
+
+  it("lists the oldest unread reply first", () => {
+    const late = { ...message("m3", "agent"), ts: 9000 };
+    const state = reduceAll(
+      events(
+        worker("a"),
+        opened("late"),
+        opened("early"),
+        say(late, "late"),
+        say(message("m2", "agent"), "early"),
+      ),
+    );
+    expect(unreadThreads(state).map((u) => u.thread.id)).toEqual(["early", "late"]);
+  });
+
+  it("marks the agent new when it replies, not when the user writes", () => {
+    const opening = [opened(), { kind: "agent_opened", agent: "a" } as NewEvent];
+    expect(run(...opening, say(message("m2", "user"))).unseen).toBe(false);
+    expect(run(...opening, say(message("m2", "agent"))).unseen).toBe(true);
+  });
+
+  it("clears unread when the user answers or resolves", () => {
+    const reply = say(message("m2", "agent"));
+    expect(run(opened(), reply, say(message("m3", "user"))).threads[0]?.unread).toBe(false);
+    const resolve: NewEvent = {
+      kind: "thread_resolved",
+      agent: "a",
+      threadId: "t1",
+      resolved: true,
+    };
+    const resolved = run(opened(), reply, resolve).threads[0];
+    expect(resolved).toMatchObject({ unread: false, resolved: true });
+  });
+
+  it("edits a message and ignores unknown threads and messages", () => {
+    const edit: NewEvent = {
+      kind: "thread_message_edited",
+      agent: "a",
+      threadId: "t1",
+      messageId: "m1",
+      body: "better",
+    };
+    expect(run(opened(), edit).threads[0]?.messages[0]?.body).toBe("better");
+    const stray = run(
+      opened(),
+      say(message("m2", "agent"), "nope"),
+      { ...edit, threadId: "nope" },
+      { kind: "thread_message_removed", agent: "a", threadId: "t1", messageId: "nope" },
+      { kind: "thread_read", agent: "a", threadId: "nope" },
+    );
+    expect(stray.threads).toHaveLength(1);
+    expect(stray.threads[0]?.messages).toEqual([message("m1", "user")]);
+    expect(stray.unseen).toBe(false);
+  });
+
+  it("keeps held messages until the change request goes out", () => {
+    const held = run(opened("t1", message("m1", "user", { held: true })));
+    expect(heldMessages(held)).toBe(1);
+    const sent = run(opened("t1", message("m1", "user", { held: true })), {
+      kind: "review_sent",
+      agent: "a",
+    });
+    expect(heldMessages(sent)).toBe(0);
+    expect(sent.threads[0]?.messages).toHaveLength(1);
+  });
+
+  it("edits_reported clears the edits and leaves held messages", () => {
+    const edit = { path: "x", commit: "wc", before: ["a"], after: ["b"] };
+    const agent = run(opened("t1", message("m1", "user", { held: true })), {
+      kind: "review_edited",
+      agent: "a",
+      edit,
+    });
+    expect(agent.edits).toHaveLength(1);
+    const reported = run(
+      opened("t1", message("m1", "user", { held: true })),
+      { kind: "review_edited", agent: "a", edit },
+      { kind: "edits_reported", agent: "a" },
+    );
+    expect(reported.edits).toEqual([]);
+    expect(heldMessages(reported)).toBe(1);
+  });
+
+  it("removes a thread with its last message", () => {
+    const remove = (messageId: string): NewEvent => ({
+      kind: "thread_message_removed",
+      agent: "a",
+      threadId: "t1",
+      messageId,
+    });
+    expect(run(opened(), remove("m1")).threads).toEqual([]);
+    const two = run(opened(), say(message("m2", "user")), remove("m1"));
+    expect(two.threads[0]?.messages.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("stays bounded", () => {
+    const resolve: NewEvent = {
+      kind: "thread_resolved",
+      agent: "a",
+      threadId: "t0",
+      resolved: true,
+    };
+    const many = Array.from({ length: THREAD_LIMIT }, (_, i) => opened(`t${i}`));
+    const agent = run(...many, resolve, opened("extra"));
+    expect(agent.threads).toHaveLength(THREAD_LIMIT);
+    expect(agent.threads.map((t) => t.id)).not.toContain("t0");
+    // Without a resolved one, the oldest goes.
+    const unresolved = run(...many, opened("extra"));
+    expect(unresolved.threads[0]?.id).toBe("t1");
+
+    const chatter = Array.from({ length: THREAD_MESSAGES_LIMIT }, (_, i) =>
+      say(message(`r${i}`, "user")),
+    );
+    const thread = run(opened(), ...chatter).threads[0];
+    expect(thread?.messages).toHaveLength(THREAD_MESSAGES_LIMIT);
+    expect(thread?.messages[0]?.id).toBe("r0");
+    const long = run(
+      opened(),
+      say({ ...message("m2", "agent"), body: "x".repeat(TEXT_LIMIT + 1) }),
+    );
+    expect(long.threads[0]?.messages[1]?.body).toHaveLength(TEXT_LIMIT);
+  });
+
+  it("links a prompt line to its thread", () => {
+    const agent = run({ kind: "user_prompt", agent: "a", text: "why?", thread: "t1" });
+    expect(agent.log.at(-1)?.thread).toBe("t1");
   });
 });
