@@ -62,6 +62,57 @@ describe("notices", () => {
     ]);
   });
 
+  it.each([
+    [undefined, "alpha finished", "Replaced the tolerance."],
+    ["offline", "alpha stopped", "Replaced the tolerance."],
+  ])(
+    "announces a Finished item (stopped: %s) with the first line of its text",
+    (stopped, title, body) => {
+      const after = reduceAll(
+        at(
+          [
+            { kind: "activity", agent: "alpha", activity: "idle" },
+            {
+              kind: "run_finished",
+              agent: "alpha",
+              item: {
+                id: "r1",
+                endedAt: 5000,
+                workMs: 60_000,
+                text: `${body}\n\nThe rest.`,
+                stopped,
+                read: false,
+              },
+            },
+          ],
+          4,
+        ),
+        before,
+      );
+      expect(notices(before, after)).toEqual([
+        { agent: "alpha", tag: "finished-alpha", title, body },
+      ]);
+    },
+  );
+
+  it("announces a new Finished item for an agent that is already marked new", () => {
+    const run = (id: string) =>
+      ({
+        kind: "run_finished",
+        agent: "alpha",
+        item: { id, endedAt: 5000, workMs: 1000, text: `Done ${id}`, read: false },
+      }) as const;
+    const first = reduceAll(
+      at([{ kind: "activity", agent: "alpha", activity: "idle" }, run("r1")], 4),
+      before,
+    );
+    const second = reduceAll(at([run("r2")], 6), first);
+    expect(first.agents.alpha?.unseen).toBe(true);
+    expect(notices(first, second)).toEqual([
+      { agent: "alpha", tag: "finished-alpha", title: "alpha finished", body: "Done r2" },
+    ]);
+  });
+
   it("passes on messages to the user, and stays quiet about log lines", () => {
     const after = reduceAll(
       at(

@@ -888,6 +888,77 @@ button.link.accent {
   font-size: 11px;
 }
 
+/* Finished runs in the inbox */
+.finished {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.finished header,
+.finished .run-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.finished .kind,
+.read-finished .kind {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.kind-finished {
+  background: var(--okbg);
+  color: var(--okfg);
+}
+.kind-stopped {
+  background: var(--warnbg);
+  color: var(--warnfg);
+}
+.finished textarea {
+  width: 100%;
+}
+.finished footer {
+  display: flex;
+  gap: 6px;
+}
+.finished .run,
+.read-finished .run {
+  border-top: 1px solid var(--line2);
+  padding-top: 6px;
+}
+.finished .fold,
+.read-finished .fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  text-align: left;
+}
+.fold .first-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.read-finished {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+}
+.read-finished summary {
+  cursor: pointer;
+}
+
 /* Grid and tiles */
 /* Auto: as many tiles as fit at 440px or more; empty tracks keep a few tiles from stretching. */
 .grid {

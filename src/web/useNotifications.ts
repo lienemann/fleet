@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type LowDisk, USER } from "../shared/events.ts";
-import { type FleetState, needsUser, pendingDecisions } from "../shared/reducer.ts";
+import {
+  type AgentView,
+  type FinishedRun,
+  type FleetState,
+  needsUser,
+  pendingDecisions,
+} from "../shared/reducer.ts";
 import { columnLabel, lowDiskText } from "./labels.ts";
 
 const STORAGE_KEY = "fleet.notifications";
@@ -41,17 +47,37 @@ const writePreference = (on: boolean): void => {
 
 const diskKey = (volume: LowDisk): string => `${volume.host ?? ""}:${volume.names.join(",")}`;
 
+/** The agent's newest unread Finished item that the earlier state did not have. */
+const newFinished = (before: AgentView, after: AgentView): FinishedRun | undefined => {
+  const known = new Set(before.finished.map((r) => r.id));
+  return after.finished.findLast((r) => !r.read && !known.has(r.id));
+};
+
 /**
  * What changed for the user between two states: the moments the "new" mark is set, messages
- * to them, and disks running low.
+ * to them, and disks running low. A new Finished item speaks for the mark it sets, unless a
+ * decision waits too.
  */
 export function notices(before: FleetState, after: FleetState): Notice[] {
   const result: Notice[] = [];
   for (const agent of Object.values(after.agents)) {
     const old = before.agents[agent.name];
-    if (!old || old.unseen || !agent.unseen) continue;
+    if (!old) continue;
+    const finished = newFinished(old, agent);
+    const decision = pendingDecisions(after).find((d) => d.agent === agent.name);
+    // Every new Finished item is news, whether or not the agent was marked new before.
+    if (finished && !decision) {
+      const [first = ""] = finished.text.split("\n");
+      result.push({
+        agent: agent.name,
+        tag: `finished-${agent.name}`,
+        title: `${agent.name} ${finished.stopped ? "stopped" : "finished"}`,
+        body: first,
+      });
+      continue;
+    }
+    if (old.unseen || !agent.unseen) continue;
     if (needsUser(agent)) {
-      const decision = pendingDecisions(after).find((d) => d.agent === agent.name);
       const what = decision
         ? decision.decision === "permission"
           ? `wants to use ${decision.toolName}`

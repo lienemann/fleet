@@ -455,9 +455,15 @@ export const unansweredPoints = (state: FleetState): number =>
     .flatMap((doc) => doc.points)
     .filter((p) => p.answer === undefined).length;
 
-/** The Inbox tab's count: decisions and permissions, unanswered open points, unread thread replies. */
+/**
+ * The Inbox tab's count: decisions and permissions, unanswered open points, unread thread
+ * replies and unread Finished items.
+ */
 export const inboxCount = (state: FleetState): number =>
-  pendingDecisions(state).length + unansweredPoints(state) + unreadThreads(state).length;
+  pendingDecisions(state).length +
+  unansweredPoints(state) +
+  unreadThreads(state).length +
+  unreadFinished(state).reduce((n, group) => n + group.runs.length, 0);
 
 const ROLE_ORDER: Record<Role, number> = { "fleet-director": 0, director: 1, worker: 2 };
 

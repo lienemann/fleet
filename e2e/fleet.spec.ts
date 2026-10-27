@@ -198,6 +198,60 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(card(page, "Accepted", "Fix the flaky replay test")).toBeVisible();
 });
 
+/** Approves the demo worker's permission and answers its question, both from the inbox. */
+async function answerFromInbox(page: Page, title: string) {
+  await page.keyboard.press("2");
+  const decisions = page.locator(".inbox .decision", { hasText: title });
+  await decisions.getByRole("button", { name: /^Approve/ }).click();
+  await decisions.getByRole("button", { name: "Scale the tolerance with measured jitter" }).click();
+}
+
+test("a finished run waits in the inbox until the user comments on it", async ({ page }) => {
+  await page.goto("/");
+  const title = "Tidy the replay helpers";
+  await newTask(page, title);
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+  await answerFromInbox(page, title);
+
+  const group = page.locator(".finished", { hasText: title });
+  await expect(group).toContainText("Finished", { timeout: 15_000 });
+  await expect(group).toContainText("Replaced the fixed 1 ms tolerance");
+  await shot(page, "finished");
+  await expect(group.getByRole("button", { name: "Go" })).toBeVisible();
+  await expect(group.getByRole("button", { name: "Mark read" })).toBeVisible();
+
+  await group.getByPlaceholder(/^Comment for/).fill("Thanks");
+  // Go would drop the comment, so only Send is left.
+  await expect(group.getByRole("button", { name: "Go" })).toBeDisabled();
+  await group.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(group).toHaveCount(0);
+  const read = page.locator(".read-finished");
+  await read.locator("summary").click();
+  await expect(read).toContainText(title);
+
+  // The comment went to the agent as a prompt.
+  await read.getByRole("button", { name: "Open" }).first().click();
+  await expect(page.locator(".tile .log")).toContainText("Thanks");
+  await page.keyboard.press("1");
+  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
+test("a run that ends while the user watches the agent goes straight to read", async ({ page }) => {
+  await page.goto("/");
+  const title = "Polish the site copy";
+  await newTask(page, title, "pages", "site");
+  const task = card(page, "Needs you", title);
+  await expect(task).toBeVisible({ timeout: 15_000 });
+  await task.locator(".card-main").click();
+  await answerFromInbox(page, title);
+
+  const read = page.locator(".read-finished");
+  await expect(read).toContainText(title, { timeout: 15_000 });
+  await expect(page.locator(".finished", { hasText: title })).toHaveCount(0);
+  await page.keyboard.press("1");
+  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
 test("a second task in a busy workspace waits in the queue", async ({ page }) => {
   await page.goto("/");
   await newTask(page, "First in ws2", "ws2");

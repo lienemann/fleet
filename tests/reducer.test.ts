@@ -707,6 +707,13 @@ describe("finished runs", () => {
     ]);
   });
 
+  it("counts unread Finished items in the inbox", () => {
+    const runOf = (id: string, read = false): NewEvent => runFinished(finished(id, { read }));
+    expect(
+      inboxCount(reduceAll(events(worker("a"), runOf("r1"), runOf("r2"), runOf("r3", true)))),
+    ).toBe(2);
+  });
+
   it("keeps 20 read items per agent and caps unread ones", () => {
     const ids = (agent: AgentView) => agent.finished.map((i) => i.id);
     const many = Array.from({ length: FINISHED_UNREAD_LIMIT + 3 }, (_, i) =>

@@ -425,6 +425,10 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
         walkthrough: WALKTHROUGH,
       },
     },
+    {
+      type: "say",
+      text: "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter; 50 of 50 repetitions are green.\n\nStill open: whether the two similar replay tests get the same fix. I listed both in the open points.",
+    },
   ];
 }
 

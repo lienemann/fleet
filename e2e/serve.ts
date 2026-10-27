@@ -49,10 +49,13 @@ const daemon = (director: boolean) =>
   "wip = { running = 4, review = 2 }\n" +
   ["ws1", "ws2"].map((name) => workspace(name, repo(name))).join("");
 
+// Every run the user started ends in a Finished item, however short the demo agents' work.
+const inbox = "[inbox]\nfinished_after_seconds = 0\n\n";
+
 let config: string;
 if (isPod) {
   // A pod has workers only; the directors live on the Mac.
-  config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${daemon(false)}`;
+  config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${inbox}${daemon(false)}`;
 } else {
   const site = repo("site");
   execFileSync("jj", ["workspace", "add", "--name", "pages", join(home, "pages")], {
@@ -61,7 +64,7 @@ if (isPod) {
     stdio: "ignore",
   });
   config =
-    `port = ${port}\nhost = "macbook"\n\n[wip]\nrunning = 6\nreview = 3\n\n` +
+    `port = ${port}\nhost = "macbook"\n\n${inbox}[wip]\nrunning = 6\nreview = 3\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n` +
     `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(home, "pages"))}` +
     // The screenshots show the history of a repository with more in it than the demo's.

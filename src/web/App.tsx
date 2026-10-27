@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PERMISSION_MODES, type UserMove } from "../shared/events.ts";
 import { lastWorkspace } from "../shared/hosts.ts";
 import {
   agentList,
   HOLDS_WORKSPACE,
   pendingDecisions,
+  unreadFinished,
   workspaceInUse,
   workspaceUse,
 } from "../shared/reducer.ts";
@@ -37,6 +38,7 @@ import { History } from "./views/History.tsx";
 import { Inbox } from "./views/Inbox.tsx";
 import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
+import { toMarkRead, useWindowFocus } from "./watching.ts";
 
 type Overlay = "new-task" | "import" | "workspaces" | "project" | "shortcuts" | "palette";
 
@@ -110,6 +112,24 @@ export function App() {
   useEffect(() => {
     if (selected && unseen) send({ type: "open", agent: selected });
   }, [selected, unseen, send]);
+
+  // A run that ends while the user looks at the agent is read already.
+  const focused = useWindowFocus();
+  const known = useRef<Set<string> | undefined>(undefined);
+  useEffect(() => {
+    // What was unread when the page loaded is history, not news.
+    if (state.lastSeq === 0) return;
+    const unread = unreadFinished(state);
+    const seen = known.current;
+    known.current = new Set(unread.flatMap((g) => g.runs.map((r) => r.id)));
+    const open = {
+      agent: view === "grid" ? undefined : selected,
+      enlarged: view === "grid" ? enlarged : undefined,
+    };
+    for (const { agent, ids } of toMarkRead(seen, unread, open, focused)) {
+      send({ type: "finished_read", agent, ids });
+    }
+  }, [state, view, selected, enlarged, focused, send]);
 
   useCommands([
     ...VIEWS.map(

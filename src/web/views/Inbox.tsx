@@ -4,6 +4,7 @@ import {
   type OpenPointsDoc,
   openPointDocs,
   pendingDecisions,
+  unreadFinished,
   unreadThreads,
 } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
@@ -12,6 +13,7 @@ import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
+import { FinishedGroup, ReadRuns } from "./FinishedRuns.tsx";
 
 /** Answers most open points get; anything else is typed. */
 const QUICK_ANSWERS = ["Yes", "No", "Defer"];
@@ -32,6 +34,7 @@ export function Inbox({
   const items = pendingDecisions(state);
   const docs = openPointDocs(state);
   const replies = unreadThreads(state);
+  const finished = unreadFinished(state);
   const forMe = state.messages
     .filter((m) => m.to === USER)
     .slice(-10)
@@ -39,6 +42,9 @@ export function Inbox({
   const [cursor, setCursor] = useState(0);
   const index = Math.min(cursor, Math.max(0, items.length - 1));
   const focused = items[index];
+  // The group last worked in, which the palette's command marks read.
+  const [lastGroup, setLastGroup] = useState<string>();
+  const group = finished.find((g) => g.agent === lastGroup) ?? finished[0];
   const answer = (behavior: "allow" | "deny") =>
     focused && send({ type: "answer", requestId: focused.requestId, answer: { behavior } });
 
@@ -82,11 +88,23 @@ export function Inbox({
       keys: ["o", "enter"],
       run: () => focused && onOpen(focused.agent),
     },
+    {
+      ...inboxCommand,
+      id: "inbox.finished.read",
+      label: "Mark the focused agent's finished runs read",
+      run: () =>
+        group &&
+        send({
+          type: "finished_read",
+          agent: group.agent,
+          ids: group.runs.map((run) => run.id),
+        }),
+    },
   ]);
 
   return (
     <div className="inbox">
-      {items.length === 0 && docs.length === 0 && replies.length === 0 && (
+      {items.length === 0 && docs.length === 0 && replies.length === 0 && finished.length === 0 && (
         <p className="empty-box">Nothing waits on you. Agents keep working.</p>
       )}
       {items.map((decision) => (
@@ -99,6 +117,27 @@ export function Inbox({
           onAnswer={(a) => send({ type: "answer", requestId: decision.requestId, answer: a })}
         />
       ))}
+      {finished.length > 0 && (
+        <section>
+          <h2>
+            Finished <span className="lede">· how runs you started ended</span>
+          </h2>
+          {finished.map(({ agent, runs }) => {
+            const view = state.agents[agent];
+            return (
+              view && (
+                <FinishedGroup
+                  key={agent}
+                  agent={view}
+                  runs={runs}
+                  onOpen={() => onOpen(agent)}
+                  onFocus={() => setLastGroup(agent)}
+                />
+              )
+            );
+          })}
+        </section>
+      )}
       {docs.length > 0 && (
         <section>
           <h2>
@@ -159,6 +198,7 @@ export function Inbox({
           ))}
         </section>
       )}
+      <ReadRuns onOpen={onOpen} />
     </div>
   );
 }
