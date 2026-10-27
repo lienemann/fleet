@@ -40,8 +40,8 @@ import {
   workspaceInUse,
   workspaceUse,
 } from "../shared/reducer.ts";
-import type { ReviewModel } from "../shared/review.ts";
-import { changeRequest } from "./changeRequest.ts";
+import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
+import { changeRequest, threadMessage } from "./changeRequest.ts";
 import {
   allWorkspaces,
   type Config,
@@ -520,6 +520,44 @@ export class Supervisor implements ToolHost {
         return;
       case "comment_remove":
         this.append(message.agent, { kind: "comment_removed", commentId: message.commentId });
+        return;
+      case "thread_open":
+        this.openThread(message);
+        return;
+      case "thread_reply": {
+        const { agent: name, threadId, body, held, fold } = message;
+        if (this.workerThread(name, threadId))
+          this.postThread(name, threadId, { body, held, fold });
+        return;
+      }
+      case "thread_edit": {
+        const { agent: name, threadId, messageId, body } = message;
+        if (this.heldMessage(name, threadId, messageId))
+          this.append(name, { kind: "thread_message_edited", threadId, messageId, body });
+        return;
+      }
+      case "thread_remove": {
+        const { agent: name, threadId, messageId } = message;
+        if (this.heldMessage(name, threadId, messageId))
+          this.append(name, { kind: "thread_message_removed", threadId, messageId });
+        return;
+      }
+      case "thread_read": {
+        const { agent: name, threadId } = message;
+        // Every tab that shows the reply reports it; the first one is enough.
+        const unread = this.agent(name)?.threads.some((t) => t.id === threadId && t.unread);
+        if (unread && this.workerThread(name, threadId))
+          this.append(name, { kind: "thread_read", threadId });
+        return;
+      }
+      case "thread_resolve":
+        if (this.workerThread(message.agent, message.threadId)) {
+          this.append(message.agent, {
+            kind: "thread_resolved",
+            threadId: message.threadId,
+            resolved: message.resolved,
+          });
+        }
         return;
       case "request_changes":
         this.requestChanges(message.agent, message.message);
@@ -1782,12 +1820,75 @@ export class Supervisor implements ToolHost {
   private requestChanges(name: string, note: string | undefined): void {
     const agent = this.agent(name);
     if (agent?.role !== "worker") return;
-    const body = changeRequest(agent.comments, agent.edits, note);
+    const body = changeRequest(agent, note);
     this.append(name, { kind: "review_sent" });
     if (agent.task !== "changes_requested")
       this.append(name, { kind: "task_state", state: "changes_requested" });
     this.append(USER, { kind: "message", to: name, body });
     this.deliver(name, USER, body);
+  }
+
+  private workerThread(name: string, threadId: string): boolean {
+    const agent = this.agent(name);
+    return agent?.role === "worker" && agent.threads.some((t) => t.id === threadId);
+  }
+
+  /** Only a message still in the draft can be changed or taken back. */
+  private heldMessage(name: string, threadId: string, messageId: string): boolean {
+    const thread = this.agent(name)?.threads.find((t) => t.id === threadId);
+    return (
+      this.agent(name)?.role === "worker" &&
+      (thread?.messages.some((m) => m.id === messageId && m.held) ?? false)
+    );
+  }
+
+  private openThread(command: Extract<Command, { type: "thread_open" }>): void {
+    if (this.agent(command.agent)?.role !== "worker") return;
+    const { agent: name, held, body, fold, path, side, lines, quote, commit } = command;
+    const id = randomUUID().slice(0, 8);
+    this.append(name, {
+      kind: "thread_opened",
+      thread: { id, path, side, lines, quote, ...(commit && { commit }) },
+      message: this.threadEntry(body, held, fold),
+    });
+    if (!held) this.sendThreadMessage(name, id);
+  }
+
+  private postThread(
+    name: string,
+    threadId: string,
+    { body, held, fold }: { body: string; held: boolean; fold?: string | undefined },
+  ): void {
+    const message = this.threadEntry(body, held, fold);
+    this.append(name, { kind: "thread_message", threadId, message });
+    if (!held) this.sendThreadMessage(name, threadId);
+  }
+
+  private threadEntry(body: string, held: boolean, fold: string | undefined): ThreadMessage {
+    return {
+      id: randomUUID().slice(0, 8),
+      from: "user",
+      body,
+      ts: Date.now(),
+      ...(held && { held }),
+      ...(fold && { fold }),
+    };
+  }
+
+  /** Sends the thread's latest message with the edits made since the last one, which are then reported. */
+  private sendThreadMessage(name: string, threadId: string): void {
+    const agent = this.agent(name);
+    const thread = agent?.threads.find((t) => t.id === threadId);
+    const message = thread?.messages.at(-1);
+    if (!agent || !thread || !message) return;
+    this.sendToThread(name, threadMessage(thread, message, agent.edits), threadId);
+    if (agent.edits.length > 0) this.append(name, { kind: "edits_reported" });
+  }
+
+  /** Like a prompt typed in the tile: no bus message, the card stays. A detached session gets it once fleet runs it again. */
+  private sendToThread(name: string, text: string, thread: string): void {
+    if (this.agent(name)?.activity === "detached") this.hold(name, text);
+    else this.prompt(name, text, [], thread);
   }
 
   private async ask(agent: string, request: Parameters<AgentSession["ask"]>[1]): Promise<Answer> {
@@ -1817,7 +1918,12 @@ export class Supervisor implements ToolHost {
     this.deliver(doc.agent, USER, body);
   }
 
-  private prompt(name: string, text: string, attachments: PromptAttachment[] = []): void {
+  private prompt(
+    name: string,
+    text: string,
+    attachments: PromptAttachment[] = [],
+    thread?: string,
+  ): void {
     const agent = this.agent(name);
     if (!agent || agent.task === "queued") return;
     // Claude reads images and PDFs itself; other files go into the workspace for its tools.
@@ -1830,7 +1936,7 @@ export class Supervisor implements ToolHost {
     const session = this.session(name);
     // Queue first, so the session starts working instead of starting idle. A detached session
     // is taken back from the terminal by sending to it.
-    session?.prompt(this.compose(name, text + mentions) ?? text, inline);
+    session?.prompt(this.compose(name, text + mentions) ?? text, inline, thread);
     session?.start();
   }
 

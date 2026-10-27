@@ -1,10 +1,16 @@
 import { z } from "zod";
 import type { FleetEvent } from "./events.ts";
 import { EFFORT_LEVELS, PERMISSION_MODES, TINTS, USER_MOVES } from "./events.ts";
-import type { FleetState } from "./reducer.ts";
+import { type FleetState, QUOTE_LIMIT } from "./reducer.ts";
 import type { ReviewModel } from "./review.ts";
 
 const agent = z.string().min(1);
+
+/** Lines from `start` up to, not including, `endExclusive`: at least one. */
+const nonEmpty = [
+  ({ start, endExclusive }: { start: number; endExclusive: number }) => endExclusive > start,
+  "endExclusive must be after start",
+] as const;
 
 export const AnswerSchema = z.discriminatedUnion("behavior", [
   z.object({ behavior: z.literal("allow"), alwaysAllow: z.boolean().optional() }),
@@ -111,6 +117,53 @@ export const CommandSchema = z.discriminatedUnion("type", [
     body: z.string().trim().min(1),
   }),
   z.object({ type: z.literal("comment_remove"), agent, commentId: z.string().min(1) }),
+  /** Opens a thread on selected lines; held ones wait for "Request changes", the others go to the agent at once. */
+  z.object({
+    type: z.literal("thread_open"),
+    agent,
+    path: z.string().min(1),
+    side: z.enum(["head", "base"]),
+    lines: z
+      .object({
+        start: z.number().int().positive(),
+        endExclusive: z.number().int().positive(),
+      })
+      .refine(...nonEmpty),
+    quote: z.array(z.string()).min(1).max(QUOTE_LIMIT),
+    commit: z.string().min(1).optional(),
+    body: z.string().trim().min(1),
+    held: z.boolean(),
+    fold: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("thread_reply"),
+    agent,
+    threadId: z.string().min(1),
+    body: z.string().trim().min(1),
+    held: z.boolean(),
+    fold: z.string().min(1).optional(),
+  }),
+  /** Only held messages can still be changed or taken back. */
+  z.object({
+    type: z.literal("thread_edit"),
+    agent,
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+    body: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("thread_remove"),
+    agent,
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+  }),
+  z.object({ type: z.literal("thread_read"), agent, threadId: z.string().min(1) }),
+  z.object({
+    type: z.literal("thread_resolve"),
+    agent,
+    threadId: z.string().min(1),
+    resolved: z.boolean(),
+  }),
   /**
    * Makes an existing Claude Code session a task. It starts detached: the CLI may still have
    * it open, and only one process may write a transcript.

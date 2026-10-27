@@ -3,9 +3,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { changeRequest } from "../src/daemon/changeRequest.ts";
+import { changeRequest, threadMessage } from "../src/daemon/changeRequest.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
+import { CallSchema, type Command, CommandSchema } from "../src/shared/protocol.ts";
+import { type AgentView, heldMessages, QUOTE_LIMIT } from "../src/shared/reducer.ts";
+import type { LineThread, ReviewEdit, ThreadMessage } from "../src/shared/review.ts";
 import { echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
 
 const comment = {
@@ -18,20 +21,114 @@ const comment = {
   body: "Why 20?\nThe spec says 2.",
 };
 
+const thread: LineThread = {
+  id: "1a2b3c4d",
+  path: "lib.py",
+  side: "head",
+  lines: { start: 2, endExclusive: 4 },
+  quote: ["    # CI runners jitter …", "    return max(1e-3, 4 * jitter())"],
+  commit: "zmplwqrs",
+  messages: [],
+  resolved: false,
+  unread: false,
+};
+const question: ThreadMessage = { id: "m1", from: "user", body: "Why 4 × jitter?", ts: 1 };
+const edit: ReviewEdit = {
+  path: "lib.py",
+  commit: "zmplwqrs",
+  before: ["# tpyo"],
+  after: ["# typo"],
+};
+const EDIT_BLOCK =
+  "I edited these lines myself; keep my version:\n\n- lib.py (zmplwqrs):\n  - # tpyo\n  + # typo";
+const QUOTE = "   >     # CI runners jitter …\n   >     return max(1e-3, 4 * jitter())";
+
+describe("threadMessage", () => {
+  it("quotes the lines, names the thread and asks for reply_thread", () => {
+    const fold = { ...question, fold: "zmplwqrs" };
+    expect(threadMessage(thread, fold, [])).toBe(
+      [
+        `About lib.py:2-3 (from commit zmplwqrs), thread 1a2b3c4d:\n${QUOTE}`,
+        "Why 4 × jitter?",
+        "If you change these lines, fold the change into commit zmplwqrs (for example `jj squash --into zmplwqrs`), so the history reads as if it had been right from the start.",
+        'Answer with the reply_thread tool, thread "1a2b3c4d".',
+      ].join("\n\n"),
+    );
+  });
+
+  it("says old lines for the base side and leaves out commit and fold when unset", () => {
+    const base: LineThread = {
+      ...thread,
+      side: "base",
+      lines: { start: 4, endExclusive: 6 },
+      quote: ["x", "y"],
+    };
+    const { commit: _commit, ...uncommitted } = base;
+    expect(threadMessage(uncommitted, question, [])).toBe(
+      'About lib.py, old lines 4-5, thread 1a2b3c4d:\n   > x\n   > y\n\nWhy 4 × jitter?\n\nAnswer with the reply_thread tool, thread "1a2b3c4d".',
+    );
+  });
+
+  it("says how many lines a long selection has beyond its quote", () => {
+    const long = { ...thread, lines: { start: 2, endExclusive: 40 } };
+    expect(threadMessage(long, question, [])).toContain(`:\n${QUOTE}\n   … 36 more lines\n\n`);
+    const one = { ...thread, lines: { start: 2, endExclusive: 5 } };
+    expect(threadMessage(one, question, [])).toContain(`${QUOTE}\n   … 1 more line\n\n`);
+    const held = { ...long, messages: [{ ...question, held: true }] };
+    expect(changeRequest({ threads: [held], comments: [], edits: [] })).toContain(
+      `${QUOTE}\n   … 36 more lines\n   Why 4 × jitter?`,
+    );
+  });
+
+  it("names a single line without a range and appends pending edits", () => {
+    const one = { ...thread, lines: { start: 2, endExclusive: 3 } };
+    const text = threadMessage(one, question, [edit]);
+    expect(text).toContain("About lib.py:2 (from commit");
+    expect(text.endsWith(`\n\n${EDIT_BLOCK}`)).toBe(true);
+  });
+});
+
 describe("changeRequest", () => {
   it("quotes the commented code and lists the user's edits", () => {
-    const edit = { path: "lib.py", commit: "zmplwqrs", before: ["# tpyo"], after: ["# typo"] };
-    expect(changeRequest([comment], [edit], "Close, two things.")).toBe(
+    expect(
+      changeRequest({ threads: [], comments: [comment], edits: [edit] }, "Close, two things."),
+    ).toBe(
       [
         "Close, two things.",
         "Review comments:\n\n1. lib.py:12\n   >     return 20\n   Why 20?\n   The spec says 2.",
-        "I edited these lines myself; keep my version:\n\n- lib.py (zmplwqrs):\n  - # tpyo\n  + # typo",
+        EDIT_BLOCK,
+      ].join("\n\n"),
+    );
+  });
+
+  it("lists held messages with their threads", () => {
+    const other: LineThread = {
+      ...thread,
+      id: "9f8e7d6c",
+      path: "util.py",
+      lines: { start: 7, endExclusive: 8 },
+      quote: ["y = 1"],
+      messages: [{ ...question, held: true, body: "Why 1?\nAnd not 2?" }],
+    };
+    const first: LineThread = {
+      ...thread,
+      messages: [
+        { ...question, id: "sent" },
+        { ...question, held: true },
+      ],
+    };
+    expect(changeRequest({ threads: [first, other], comments: [], edits: [edit] })).toBe(
+      [
+        `1. lib.py:2-3, thread 1a2b3c4d\n${QUOTE}\n   Why 4 × jitter?\n\n2. util.py:7, thread 9f8e7d6c\n   > y = 1\n   Why 1?\n   And not 2?\n\nAnswer each with the reply_thread tool and its thread id.`,
+        EDIT_BLOCK,
       ].join("\n\n"),
     );
   });
 
   it("still asks for something without comments", () => {
-    expect(changeRequest([], [])).toBe("Please revise your change.");
+    expect(changeRequest({ threads: [], comments: [], edits: [] })).toBe(
+      "Please revise your change.",
+    );
   });
 });
 
@@ -57,6 +154,26 @@ function setup() {
   return { log, supervisor };
 }
 
+function review() {
+  const flow = setup();
+  flow.supervisor.handle({ type: "move", agent: "alpha", to: "review" });
+  return flow;
+}
+
+const open = (held: boolean): Extract<Command, { type: "thread_open" }> => ({
+  type: "thread_open",
+  agent: "alpha",
+  path: "lib.py",
+  side: "head",
+  lines: { start: 1, endExclusive: 2 },
+  quote: ["a = 2"],
+  body: "Why 1?",
+  held,
+});
+
+const promptsOf = (log: EventLog) =>
+  log.state.agents.alpha?.log.filter((l) => l.role === "user" && l.text !== "Fix it") ?? [];
+
 describe("review flow", () => {
   it("records progress for the card when the diff view loads", async () => {
     const { log, supervisor } = setup();
@@ -66,8 +183,7 @@ describe("review flow", () => {
   });
 
   it("sends draft comments as one message and moves the task to changes requested", async () => {
-    const { log, supervisor } = setup();
-    supervisor.handle({ type: "move", agent: "alpha", to: "review" });
+    const { log, supervisor } = review();
     await until(() => log.state.agents.alpha?.task === "review");
     const { id: _id, ...draft } = comment;
     supervisor.handle({ type: "comment_add", agent: "alpha", comment: draft });
@@ -76,9 +192,132 @@ describe("review flow", () => {
     supervisor.handle({ type: "request_changes", agent: "alpha" });
     expect(log.state.agents.alpha).toMatchObject({ task: "changes_requested", comments: [] });
     expect(log.state.messages.at(-1)).toMatchObject({ from: "you", to: "alpha" });
-    await until(
-      () => log.state.agents.alpha?.log.some((l) => l.text.includes(">     return 20")) ?? false,
+    await until(() => promptsOf(log).some((l) => l.text.includes(">     return 20")));
+  });
+
+  it("sends a thread message at once without moving the card", async () => {
+    const { log, supervisor } = review();
+    await until(() => log.state.agents.alpha?.task === "review");
+    const before = log.state.messages.length;
+    supervisor.handle(open(false));
+    const [created] = log.state.agents.alpha?.threads ?? [];
+    expect(log.state.agents.alpha?.task).toBe("review");
+    expect(log.state.messages).toHaveLength(before);
+    await until(() =>
+      promptsOf(log).some(
+        (l) => l.thread === created?.id && l.text.includes("Answer with the reply_thread tool"),
+      ),
     );
+    expect(log.state.agents.alpha?.task).toBe("review");
+  });
+
+  it("keeps only the thread's own fields in the log", () => {
+    const { log, supervisor } = review();
+    supervisor.handle({ ...open(true), commit: "zmplwqrs" });
+    const [created] = log.state.agents.alpha?.threads ?? [];
+    expect(created).toEqual({
+      id: expect.stringMatching(/^[0-9a-f]{8}$/),
+      path: "lib.py",
+      side: "head",
+      lines: { start: 1, endExclusive: 2 },
+      quote: ["a = 2"],
+      commit: "zmplwqrs",
+      messages: [expect.objectContaining({ body: "Why 1?", held: true })],
+      resolved: false,
+      unread: false,
+    });
+  });
+
+  it("holds a thread message for a detached agent", () => {
+    const { log, supervisor } = review();
+    log.append({ kind: "activity", agent: "alpha", activity: "detached" });
+    supervisor.handle(open(false));
+    expect(log.state.agents.alpha?.held?.join("\n")).toContain("Why 1?");
+    expect(promptsOf(log)).toHaveLength(0);
+  });
+
+  it("carries pending edits with the next thread message, once", async () => {
+    const { log, supervisor } = review();
+    await until(() => log.state.agents.alpha?.task === "review");
+    log.append({ kind: "review_edited", agent: "alpha", edit });
+    supervisor.handle(open(false));
+    expect(log.state.agents.alpha?.edits).toEqual([]);
+    await until(() => promptsOf(log).some((l) => l.text.includes("I edited these lines myself")));
+
+    supervisor.handle(open(true));
+    supervisor.handle({ type: "request_changes", agent: "alpha" });
+    const bus = log.state.messages.at(-1)?.body ?? "";
+    expect(bus).toContain("thread ");
+    expect(bus).not.toContain("I edited these lines myself");
+  });
+
+  it("sends held thread messages as one change request", async () => {
+    const { log, supervisor } = review();
+    await until(() => log.state.agents.alpha?.task === "review");
+    supervisor.handle(open(true));
+    supervisor.handle({ ...open(true), path: "other.py" });
+    expect(heldMessages(log.state.agents.alpha as AgentView)).toBe(2);
+    expect(promptsOf(log)).toHaveLength(0);
+
+    supervisor.handle({ type: "request_changes", agent: "alpha" });
+    const agent = log.state.agents.alpha as AgentView;
+    expect(agent.task).toBe("changes_requested");
+    expect(heldMessages(agent)).toBe(0);
+    const body = log.state.messages.at(-1)?.body ?? "";
+    expect(body).toContain("thread ");
+    expect(body).toContain("other.py:1");
+    await until(() => promptsOf(log).some((l) => l.text.includes("Answer each with")));
+  });
+
+  it("edits and removes only held messages", () => {
+    const { log, supervisor } = review();
+    supervisor.handle(open(false));
+    supervisor.handle(open(true));
+    const [sent, draft] = log.state.agents.alpha?.threads ?? [];
+    for (const t of [sent, draft]) {
+      const messageId = t?.messages[0]?.id ?? "";
+      const threadId = t?.id ?? "";
+      supervisor.handle({ type: "thread_edit", agent: "alpha", threadId, messageId, body: "New" });
+      supervisor.handle({ type: "thread_remove", agent: "alpha", threadId, messageId });
+    }
+    const after = log.state.agents.alpha?.threads ?? [];
+    expect(after.map((t) => t.id)).toEqual([sent?.id]);
+    expect(after[0]?.messages[0]?.body).toBe("Why 1?");
+  });
+
+  it("marks a reply read once, however many tabs report it", () => {
+    const { log, supervisor } = review();
+    supervisor.handle(open(true));
+    const threadId = log.state.agents.alpha?.threads[0]?.id ?? "";
+    const read = { type: "thread_read", agent: "alpha", threadId } as const;
+    const reads = () => log.since(0).filter((e) => e.kind === "thread_read").length;
+    supervisor.handle(read);
+    expect(reads()).toBe(0);
+
+    log.append({
+      kind: "thread_message",
+      agent: "alpha",
+      threadId,
+      message: { id: "a1", from: "agent", body: "Because.", ts: 2 },
+    });
+    supervisor.handle(read);
+    supervisor.handle(read);
+    expect(reads()).toBe(1);
+    expect(log.state.agents.alpha?.threads[0]?.unread).toBe(false);
+  });
+
+  it("ignores thread commands for unknown agents and threads", () => {
+    const { log, supervisor } = review();
+    supervisor.handle({ ...open(true), agent: "nobody" });
+    supervisor.handle({
+      type: "thread_reply",
+      agent: "alpha",
+      threadId: "nope",
+      body: "x",
+      held: true,
+    });
+    supervisor.handle({ type: "thread_resolve", agent: "alpha", threadId: "nope", resolved: true });
+    expect(log.state.agents.alpha?.threads).toEqual([]);
   });
 
   it("refuses edits while the agent works in the workspace", async () => {
