@@ -2,8 +2,12 @@ import { useFleet } from "../fleet.tsx";
 import { ago } from "../labels.ts";
 import { projectsOf } from "../projects.tsx";
 import { useNow } from "../useNow.ts";
+import { LIVE_MS } from "../views/Flow.tsx";
 
-/** The message bus: the last two messages between agents, newest first, each with a dot on its wire. */
+/**
+ * The message bus: the last two messages between agents, newest first, each with a dot on its
+ * wire. A new message's dot crosses three times, then rests at the recipient.
+ */
 export function Ticker() {
   const { state, color } = useFleet();
   const now = useNow(1000);
@@ -24,7 +28,10 @@ export function Ticker() {
             </span>
             {ends && <span className="project-chip">{ends[0]}</span>}
             <span className="wire" aria-hidden="true">
-              <span className="packet" style={{ background: tint(message.from) }} />
+              <span
+                className={now - message.ts < LIVE_MS ? "packet live" : "packet"}
+                style={{ background: tint(message.from) }}
+              />
             </span>
             <span className="name" style={{ color: tint(message.to) }}>
               {message.to}

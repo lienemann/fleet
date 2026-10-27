@@ -1536,10 +1536,14 @@ button.link.accent {
 .wire .packet {
   position: absolute;
   top: 0;
+  right: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  animation: travel 1.4s linear infinite;
+}
+/* While the animation sets left, right gives way; afterwards the dot rests at the recipient. */
+.wire .packet.live {
+  animation: travel 1.4s linear 3;
 }
 @keyframes travel {
   from {
@@ -1550,7 +1554,7 @@ button.link.accent {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wire .packet {
+  .wire .packet.live {
     animation: none;
   }
 }

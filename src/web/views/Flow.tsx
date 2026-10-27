@@ -16,7 +16,7 @@ const SUB_SPREAD = 0.45;
 /** Angle on each side of the top that no worker takes, in radians. */
 const TOP_GAP = 0.7;
 /** Messages younger than this are animated as a dot moving from sender to recipient. */
-const LIVE_MS = 10_000;
+export const LIVE_MS = 10_000;
 
 interface Point {
   x: number;

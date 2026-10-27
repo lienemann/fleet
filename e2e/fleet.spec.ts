@@ -279,6 +279,11 @@ test("the director spawns a worker per line and reports to the user", async ({ p
   });
   await expect(page.locator(".card", { hasText: "Write the migration guide" })).toBeVisible();
   await expect(page.locator(".ticker")).toContainText("Started 2 worker(s).");
+  // The new message's dot crosses three times, then rests.
+  const packet = page.locator(".ticker .packet").first();
+  await expect
+    .poll(() => packet.evaluate((dot) => dot.getAnimations().length), { timeout: 8_000 })
+    .toBe(0);
 
   await page.getByRole("button", { name: "Flow 5" }).click();
   // Across projects, the fleet director sits in the middle, with each project's director around it.
