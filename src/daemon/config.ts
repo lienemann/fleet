@@ -63,6 +63,12 @@ const ConfigFile = z.object({
     .default([]),
   /** Below this much free space on a volume with a workspace or the event log, fleet warns. */
   disk: z.object({ min_free_gb: z.number().positive().default(10) }).default({ min_free_gb: 10 }),
+  inbox: z
+    .object({
+      /** How long an agent works on what the user started before its end becomes a Finished item. */
+      finished_after_seconds: z.number().nonnegative().default(15),
+    })
+    .default({ finished_after_seconds: 15 }),
   /** jj orbit for the history view. */
   history: z
     .object({ enabled: z.boolean().default(true), python: z.string().default("python3") })
@@ -113,6 +119,8 @@ export interface Config {
   history?: { python: string };
   /** Free space in bytes below which a volume counts as low. */
   diskMinFree: number;
+  /** Working time after which a run the user started ends up in the inbox. */
+  finishedAfterMs: number;
   /** Whether the daemon asks for its secret. */
   auth: boolean;
 }
@@ -220,6 +228,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     projects,
     remotes: parsed.remotes,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
+    finishedAfterMs: parsed.inbox.finished_after_seconds * 1000,
     auth: parsed.auth,
     history: parsed.history.enabled ? { python: parsed.history.python } : undefined,
   };

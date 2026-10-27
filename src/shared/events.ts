@@ -29,6 +29,12 @@ export type Tint = (typeof TINTS)[number];
 /** Who a prompt comes from. */
 export type PromptOrigin = "user" | "agent" | "fleet";
 
+/** A prompt kept for a detached session, with who sent it. */
+export interface HeldText {
+  text: string;
+  by: PromptOrigin;
+}
+
 /** What an agent's stretch of work came to, as the inbox shows it. */
 export interface FinishedRun {
   id: string;
@@ -202,7 +208,7 @@ export type EventBody =
   /** The last transcript entry the tile shows; turns after it were made in another client. */
   | { kind: "transcript_mark"; uuid: string }
   /** Prompts waiting until fleet runs the detached session again; replaces the earlier list. */
-  | { kind: "held"; texts: string[] }
+  | { kind: "held"; texts: HeldText[] }
   | { kind: "task_state"; state: TaskState }
   /** The task was changed after it was created; the brief and workspace only while queued. */
   | {

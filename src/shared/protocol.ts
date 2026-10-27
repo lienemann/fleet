@@ -138,6 +138,15 @@ export const CommandSchema = z.discriminatedUnion("type", [
     threadId: z.string().min(1),
     messageId: z.string().min(1),
   }),
+  /** The user read these Finished items of the agent. */
+  z.object({ type: z.literal("finished_read"), agent, ids: z.array(z.string().min(1)).min(1) }),
+  /** Answers a Finished item with a comment, or Go, and reads the items. */
+  z.object({
+    type: z.literal("finished_reply"),
+    agent,
+    ids: z.array(z.string().min(1)).min(1),
+    text: z.string().trim().min(1),
+  }),
   z.object({ type: z.literal("thread_read"), agent, threadId: z.string().min(1) }),
   z.object({
     type: z.literal("thread_resolve"),

@@ -590,6 +590,21 @@ describe("finished runs", () => {
     expect(agent.stretch?.failed).toBeUndefined();
   });
 
+  it("interrupt, then a prompt, opens a new stretch", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [3, { kind: "ended_by_user", agent: "a", how: "interrupt" }],
+      [4, prompt("user")],
+    );
+    expect(agent.stretch).toMatchObject({
+      by: "user",
+      startedAt: 4000,
+      workMs: 0,
+      endedByUser: false,
+    });
+  });
+
   it("does not let replayed history open or change a stretch", () => {
     const history: NewEvent = { ...prompt("user"), replayed: true } as NewEvent;
     const agent = agentAt(
@@ -612,22 +627,30 @@ describe("finished runs", () => {
     expect(agent.stretch?.endedByUser).toBe(true);
   });
 
-  it("continues an unread item when the agent wakes itself", () => {
+  it("continues an unread item when the agent wakes itself, from its work and text", () => {
     const woken = agentAt(
       [0, prompt("user")],
       [0, working],
-      [30, runFinished(finished("i1"))],
-      [31, activity("idle")],
+      [30, activity("idle")],
+      [30, runFinished(finished("i1", { workMs: 30_000, text: "Waiting." }))],
       [60, working],
     );
-    expect(woken.stretch).toMatchObject({ by: "user", continues: "i1", startedAt: 60_000 });
+    expect(woken.stretch).toMatchObject({
+      by: "user",
+      continues: "i1",
+      startedAt: 60_000,
+      workMs: 30_000,
+      text: "Waiting.",
+    });
     // A read item has nothing to continue.
     const read = agentAt(
       [0, prompt("user")],
       [30, runFinished(finished("i1", { read: true }))],
       [60, working],
     );
+    expect(read.stretch).toMatchObject({ workMs: 0 });
     expect(read.stretch?.continues).toBeUndefined();
+    expect(read.stretch?.text).toBeUndefined();
     // Without a prompt before, nobody asked for the work.
     expect(agentAt([0, working]).stretch?.by).toBe("agent");
   });
@@ -644,6 +667,18 @@ describe("finished runs", () => {
       [40, runFinished({ ...finished("i2"), text: "new text" }, "i1")],
     );
     expect(second.finished).toMatchObject([{ id: "i2", text: "new text" }]);
+
+    // The user read the item meanwhile, so it stays and the new one comes after it.
+    const readMeanwhile = agentAt(
+      [0, prompt("user")],
+      [30, runFinished(finished("i1"))],
+      [35, readEvent("i1")],
+      [40, runFinished({ ...finished("i2"), text: "new text" }, "i1")],
+    );
+    expect(readMeanwhile.finished).toMatchObject([
+      { id: "i1", read: true },
+      { id: "i2", read: false },
+    ]);
 
     const long = agentAt([0, runFinished({ ...finished("i1"), text: "x".repeat(TEXT_LIMIT + 1) })]);
     expect(long.finished[0]?.text).toHaveLength(TEXT_LIMIT);

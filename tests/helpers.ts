@@ -143,6 +143,7 @@ export const testConfig = (
   host: "mac",
   wip: {},
   allowedTools: [],
+  finishedAfterMs: 15_000,
   projects: [testProject("test", first), ...others],
 });
 

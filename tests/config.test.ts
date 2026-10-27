@@ -112,3 +112,12 @@ it("rejects a workspace name used in two projects", () => {
   writeFileSync(join(dir, "config.toml"), `${project("a")}\n${project("b")}`);
   expect(() => loadConfig(dir)).toThrow(/ws1/);
 });
+
+it("reads the inbox threshold, 15 s by default", () => {
+  expect(loadConfig(home(), "/work/here").finishedAfterMs).toBe(15_000);
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), "[inbox]\nfinished_after_seconds = 2.5\n");
+  expect(loadConfig(dir, "/work/here").finishedAfterMs).toBe(2500);
+  writeFileSync(join(dir, "config.toml"), "[inbox]\nfinished_after_seconds = -1\n");
+  expect(() => loadConfig(dir, "/work/here")).toThrow();
+});

@@ -107,7 +107,22 @@ function setup(host?: HolderHost, log = new EventLog(":memory:")) {
           !transcript.some((m) => (m.message as { content: unknown }).content === l.text),
       )
       .map((l) => l.text) ?? [];
-  return { log, supervisor, calls: fake.calls, agent, importIt, transcript, userLines };
+  /** Who sent each prompt fleet gave the session since the import. */
+  const promptOrigins = () =>
+    log
+      .since(0)
+      .filter((e) => e.kind === "user_prompt" && !e.replayed)
+      .map((e) => (e.kind === "user_prompt" ? e.by : undefined));
+  return {
+    log,
+    supervisor,
+    calls: fake.calls,
+    agent,
+    importIt,
+    transcript,
+    userLines,
+    promptOrigins,
+  };
 }
 
 afterEach(() => {
@@ -276,7 +291,7 @@ describe("telling a session where it is", () => {
   it("keeps agent messages for a detached session until it is back", async () => {
     const { host, hold, release, terminated } = clients();
     hold(602);
-    const { calls, importIt, supervisor, userLines } = setup(host);
+    const { calls, importIt, supervisor, userLines, promptOrigins } = setup(host);
     await importIt();
     supervisor.message("bravo", "alpha", "Rebase first");
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -289,6 +304,7 @@ describe("telling a session where it is", () => {
     await until(() => userLines().length === 1);
     expect(userLines()[0]).toContain('You are "alpha"');
     expect(userLines()[0]).toContain("Message from bravo:\n\nRebase first");
+    expect(promptOrigins()).toEqual(["fleet"]);
   });
 
   it("after a hand-off, sends one line with the next prompt instead of a turn of its own", async () => {
@@ -657,7 +673,7 @@ describe("review fixes", () => {
   it("keeps what the user typed when the take-over is refused", async () => {
     const { host, hold, release } = clients();
     hold(908, { kind: "bg" });
-    const { agent, importIt, supervisor, userLines } = setup(host);
+    const { agent, importIt, supervisor, userLines, promptOrigins } = setup(host);
     await importIt();
     supervisor.handle({ type: "prompt", agent: "alpha", text: "Hello there" });
     await until(() => agent()?.holderNote !== undefined);
@@ -667,5 +683,6 @@ describe("review fixes", () => {
     await supervisor.watchHolders();
     await until(() => userLines().length === 1);
     expect(userLines()[0]).toMatch(/Hello there$/);
+    expect(promptOrigins()).toEqual(["user"]);
   });
 });

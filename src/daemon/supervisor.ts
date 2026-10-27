@@ -37,6 +37,7 @@ import {
   HOLDS_WORKSPACE,
   holdsWorkspace,
   linksOf,
+  stretchEnded,
   workspaceHolder,
   workspaceInUse,
   workspaceUse,
@@ -181,7 +182,7 @@ export interface SessionHook {
 export interface SupervisorOptions {
   log: EventLog;
   queryFn: QueryFn;
-  config: Pick<Config, "projects" | "wip" | "model" | "host" | "allowedTools">;
+  config: Pick<Config, "projects" | "wip" | "model" | "host" | "allowedTools" | "finishedAfterMs">;
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
   sessions?: SessionSource;
@@ -224,6 +225,8 @@ export class Supervisor implements ToolHost {
   private watching = false;
   /** Agents back from another client; their next prompt says so. */
   private readonly returning = new Set<string>();
+  /** Who is stopping a worker right now, for the Stopped item that follows. */
+  private readonly stoppedBy = new Map<string, string>();
   private readonly restart: (() => void) | undefined;
   private readonly configFile: string | undefined;
   private readonly fleetDir: string | undefined;
@@ -438,8 +441,22 @@ export class Supervisor implements ToolHost {
         this.background(this.attach(message.agent));
         return;
       case "interrupt":
+        this.endByUser(message.agent, "interrupt");
         this.background(this.sessions.get(message.agent)?.interrupt());
         return;
+      case "finished_read":
+        if (this.agent(message.agent)) {
+          this.append(message.agent, { kind: "finished_read", ids: message.ids });
+        }
+        return;
+      case "finished_reply": {
+        // A second click or tab meets items that are read already.
+        const finished = this.agent(message.agent)?.finished ?? [];
+        if (message.ids.every((id) => finished.find((r) => r.id === id)?.read)) return;
+        this.handle({ type: "prompt", agent: message.agent, text: message.text });
+        this.handle({ type: "finished_read", agent: message.agent, ids: message.ids });
+        return;
+      }
       case "stop_task":
         this.background(this.sessions.get(message.agent)?.stopTask(message.taskId));
         return;
@@ -474,6 +491,7 @@ export class Supervisor implements ToolHost {
         return;
       }
       case "stop":
+        this.endByUser(message.agent, "stop");
         this.background(this.sessions.get(message.agent)?.stop());
         return;
       case "detach":
@@ -1010,7 +1028,7 @@ export class Supervisor implements ToolHost {
             : await this.endHolder(sessionId, holder.pid);
         if (refused) {
           this.seen.set(name, holder.pid);
-          if (text !== undefined) this.hold(name, text);
+          if (text !== undefined) this.hold(name, text, "user");
           const note = text === undefined ? refused : `${refused} Your message waits until then.`;
           this.append(name, { kind: "holder", holder, note });
           return;
@@ -1047,8 +1065,10 @@ export class Supervisor implements ToolHost {
     await this.catchUp(name);
     if (text !== undefined) return this.prompt(name, text, "user", attachments);
     const session = this.session(name);
+    // What waited may be the user's own words.
+    const by = this.agent(name)?.held?.some((h) => h.by === "user") ? "user" : "fleet";
     const first = this.compose(name);
-    if (first) session?.prompt(first, [], { by: "fleet" });
+    if (first) session?.prompt(first, [], { by });
     session?.start();
   }
 
@@ -1062,8 +1082,11 @@ export class Supervisor implements ToolHost {
     const tell = (name: string, setup: string) => {
       if (!this.sessions.has(name)) return;
       // Only the latest setup counts.
-      const held = (this.agent(name)?.held ?? []).filter((t) => !t.startsWith(SETUP_CHANGED));
-      this.append(name, { kind: "held", texts: [...held, `${SETUP_CHANGED}\n${setup}`] });
+      const held = (this.agent(name)?.held ?? []).filter((h) => !h.text.startsWith(SETUP_CHANGED));
+      this.append(name, {
+        kind: "held",
+        texts: [...held, { text: `${SETUP_CHANGED}\n${setup}`, by: "fleet" }],
+      });
     };
     tell(FLEET_DIRECTOR, fleetSetup(this.config.projects, this.config.wip));
     for (const project of projects.filter((p) => p.director)) {
@@ -1071,8 +1094,8 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  private hold(name: string, text: string): void {
-    this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), text] });
+  private hold(name: string, text: string, by: PromptOrigin): void {
+    this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), { text, by }] });
   }
 
   /**
@@ -1090,7 +1113,7 @@ export class Supervisor implements ToolHost {
         ? BACK_IN_FLEET
         : undefined;
     const held = agent.held ?? [];
-    const body = [...held, ...(text === undefined ? [] : [text])];
+    const body = [...held.map((h) => h.text), ...(text === undefined ? [] : [text])];
     if (body.length === 0) {
       if (!briefing) return undefined;
       body.push(BRIEFING_ACK);
@@ -1145,6 +1168,8 @@ export class Supervisor implements ToolHost {
 
     const old = this.session(name);
     old?.prompt(handoverRequest(path), [], { by: "fleet" });
+    // After the prompt: it is the turn that opens the stretch to end.
+    this.endByUser(name, "handover");
     old?.start();
     await this.until(() => {
       const now = this.agent(name);
@@ -1610,7 +1635,12 @@ export class Supervisor implements ToolHost {
     if (task) this.checkReach(by, task);
     const session = this.sessions.get(agent);
     if (!session?.isRunning) return `${agent} is not running.`;
-    await session.stop();
+    if (by) this.stoppedBy.set(agent, `stopped by ${by}`);
+    try {
+      await session.stop();
+    } finally {
+      this.stoppedBy.delete(agent);
+    }
     return `Stopped ${agent}.`;
   }
 
@@ -1797,6 +1827,7 @@ export class Supervisor implements ToolHost {
   }
 
   private async remove(name: string): Promise<void> {
+    this.endByUser(name, "stop");
     await this.sessions.get(name)?.stop();
     this.sessions.delete(name);
     this.forgetHolder(name);
@@ -1903,7 +1934,7 @@ export class Supervisor implements ToolHost {
 
   /** Like a prompt typed in the tile: no bus message, the card stays. A detached session gets it once fleet runs it again. */
   private sendToThread(name: string, text: string, thread: string): void {
-    if (this.agent(name)?.activity === "detached") this.hold(name, text);
+    if (this.agent(name)?.activity === "detached") this.hold(name, text, "user");
     else this.prompt(name, text, "user", [], thread);
   }
 
@@ -1963,14 +1994,16 @@ export class Supervisor implements ToolHost {
    */
   private deliver(to: string, from: string, body: string): void {
     const text = `Message from ${from}:\n\n${body}`;
-    if (this.agent(to)?.activity === "detached") this.hold(to, text);
-    else this.prompt(to, text, from === USER ? "user" : "agent");
+    const by = from === USER ? "user" : "agent";
+    if (this.agent(to)?.activity === "detached") this.hold(to, text, by);
+    else this.prompt(to, text, by);
   }
 
   private async move(name: string, to: TaskState): Promise<void> {
     const agent = this.agent(name);
     if (agent?.role !== "worker" || agent.task === to || agent.task === "queued") return;
     if (to === "accepted") {
+      this.endByUser(name, "stop");
       await this.sessions.get(name)?.stop();
       this.forgetHolder(name);
     }
@@ -2139,7 +2172,42 @@ export class Supervisor implements ToolHost {
   }
 
   private append(agent: string, event: AgentEvent): void {
+    const before = this.log.state.agents[agent];
     this.log.append({ ...event, agent });
+    const after = this.log.state.agents[agent];
+    if (after && stretchEnded(before, after)) this.finishRun(after);
+  }
+
+  /** The user ends what the agent is doing, so nothing it ends with is news to them. */
+  private endByUser(name: string, how: "interrupt" | "stop" | "handover"): void {
+    if (this.agent(name)) this.append(name, { kind: "ended_by_user", how });
+  }
+
+  /**
+   * Turns a stretch of work that just ended into a Finished item: one that stopped without
+   * the user always, one the user started only when it took long enough.
+   */
+  private finishRun({ name, activity, stretch }: AgentView): void {
+    // A failed turn with more queued behind it is no end; the idle that follows decides.
+    if (!stretch || stretch.endedByUser || activity === "working") return;
+    const stopped =
+      stretch.failed ??
+      (activity === "stopped" ? (this.stoppedBy.get(name) ?? "crashed") : undefined);
+    const long = stretch.by === "user" && stretch.workMs >= this.config.finishedAfterMs;
+    // An item this stretch continues is kept current, not doubled, whatever the stretch is.
+    if (stopped === undefined && !long && !stretch.continues) return;
+    this.append(name, {
+      kind: "run_finished",
+      replaces: stretch.continues,
+      item: {
+        id: randomUUID().slice(0, 8),
+        endedAt: Date.now(),
+        workMs: stretch.workMs,
+        text: stretch.text ?? "",
+        stopped,
+        read: false,
+      },
+    });
   }
 }
 

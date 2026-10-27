@@ -7,6 +7,7 @@ import {
   type FileEdit,
   type FinishedRun,
   type FleetEvent,
+  type HeldText,
   type LogRole,
   type LowDisk,
   type ModelChoice,
@@ -211,7 +212,7 @@ export interface AgentView {
   /** The last transcript entry the tile shows, when the session left fleet. */
   transcriptMark?: string;
   /** Prompts waiting until fleet runs the detached session again. */
-  held?: string[];
+  held?: HeldText[];
   /** Edits the user made in the diff view, reported with the next message about the diff. */
   edits: ReviewEdit[];
   /** Conversations about lines of the diff, oldest first. */
@@ -625,7 +626,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ stretch: agent.stretch && { ...agent.stretch, endedByUser: true } });
     case "run_finished": {
       const item = { ...event.item, text: event.item.text.slice(0, TEXT_LIMIT) };
-      const others = agent.finished.filter((r) => r.id !== event.replaces);
+      // An item the user read meanwhile stays; the new one comes after it.
+      const others = agent.finished.filter((r) => r.id !== event.replaces || r.read);
       return patch({ stretch: undefined, finished: trimFinished([...others, item]) });
     }
     case "finished_read": {
@@ -842,7 +844,8 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
   let { stretch } = agent;
   let lastBy = agent.lastBy;
   if (event.kind === "user_prompt" && event.by !== "fleet" && !event.replayed) {
-    if (!stretch || agent.activity !== "working") {
+    // Work after an interrupt is a stretch of its own, even when the agent never rested.
+    if (!stretch || agent.activity !== "working" || stretch.endedByUser) {
       stretch = { by: event.by, startedAt: event.ts, workMs: 0, endedByUser: false };
       lastBy = event.by;
     } else if (event.by === "user" && stretch.by === "agent") {
@@ -859,13 +862,15 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
     // The user ended that stretch; what the agent does on its own now is a new one.
     stretch = { by: lastBy ?? "agent", startedAt: event.ts, workMs: 0, endedByUser: false };
   } else if (!stretch && agent.activity === "working" && event.kind !== "run_finished") {
+    // The work goes on from the unread item, so the item stays whole whatever this part does.
     const latest = agent.finished.at(-1);
+    const unread = latest && !latest.read ? latest : undefined;
     stretch = {
       by: lastBy ?? "agent",
       startedAt: event.ts,
-      workMs: 0,
+      workMs: unread?.workMs ?? 0,
       endedByUser: false,
-      ...(latest && !latest.read && { continues: latest.id }),
+      ...(unread && { continues: unread.id, text: unread.text }),
     };
   }
   if (!stretch) return after;

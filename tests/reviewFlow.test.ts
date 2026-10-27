@@ -220,7 +220,7 @@ describe("review flow", () => {
     const { log, supervisor } = review();
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
     supervisor.handle(open(false));
-    expect(log.state.agents.alpha?.held?.join("\n")).toContain("Why 1?");
+    expect(log.state.agents.alpha?.held?.map((h) => h.text).join("\n")).toContain("Why 1?");
     expect(promptsOf(log)).toHaveLength(0);
   });
 
