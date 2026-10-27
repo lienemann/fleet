@@ -1,9 +1,24 @@
-import { type FormEvent, useState } from "react";
-import type { AgentView } from "../../shared/reducer.ts";
-import type { FileView, HunkView, LineRange } from "../../shared/review.ts";
-import { useFleet } from "../fleet.tsx";
+import { Fragment, type ReactNode, useState } from "react";
+import { type AgentView, QUOTE_LIMIT } from "../../shared/reducer.ts";
+import type { FileView, HunkView, LineRange, LineThread } from "../../shared/review.ts";
 import type { Layout } from "./DiffView.tsx";
 import { highlightLine } from "./highlight.ts";
+import { NewThread, type Side, Thread } from "./Thread.tsx";
+
+/** Lines picked by their numbers, on one side of one hunk. */
+export interface Selection {
+  hunk: string;
+  side: Side;
+  /** The line clicked first; Shift+click selects from it to the line clicked. */
+  anchor: number;
+  lines: LineRange;
+}
+
+/** A thread shown in a hunk, with its lines where they are now. */
+export interface PlacedThread {
+  thread: LineThread;
+  lines: LineRange;
+}
 
 interface Props {
   agent: AgentView;
@@ -12,19 +27,18 @@ interface Props {
   language: string | undefined;
   layout: Layout;
   focused: boolean;
-  composing: "comment" | "edit" | undefined;
+  composing: "thread" | "edit" | undefined;
+  selection: Selection | undefined;
+  threads: PlacedThread[];
+  /** The thread the user came to see; shown in full even when resolved. */
+  focusThread: string | undefined;
   canEdit: boolean;
   onFocus: () => void;
-  onCompose: (mode: "comment" | "edit") => void;
+  onCompose: (mode: "thread" | "edit") => void;
+  onSelect: (side: Side, line: number, extend: boolean) => void;
   onDone: () => void;
   onApprove: (approved: boolean) => void;
   onEdit: (lines: string[]) => void;
-}
-
-interface Target {
-  line: number;
-  side: "head" | "base";
-  text: string;
 }
 
 type Row =
@@ -32,28 +46,59 @@ type Row =
   | { kind: "removed"; text: string; base: number }
   | { kind: "added"; text: string; head: number };
 
+/** What shows under a line: a thread, or the form for a new one. */
+interface Attachment {
+  /** "head:12" or "base:7", the line it shows under. */
+  key: string;
+  node: ReactNode;
+}
+
+const SIDES: Side[] = ["base", "head"];
+
 const AUTO_LABELS = { whitespace: "whitespace only", formatting: "formatting only" } as const;
 
 export function Hunk(props: Props) {
-  const { agent, file, hunk, language, layout, focused, composing, canEdit } = props;
-  const { send } = useFleet();
+  const { agent, file, hunk, language, layout, focused, composing, canEdit, threads } = props;
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<Target>();
-  const comments = agent.comments.filter((c) => c.hunkId === hunk.id);
-  const collapsed = hunk.approved && !focused && !open && comments.length === 0;
-
-  const firstChanged: Target =
-    hunk.added[0] !== undefined
-      ? { line: hunk.head.start, side: "head", text: hunk.added[0] }
-      : { line: hunk.base.start, side: "base", text: hunk.removed[0] ?? "" };
-  const commentOn = (row: Row) => {
-    const side = row.kind === "removed" ? "base" : "head";
-    const line = row.kind === "removed" ? row.base : row.head;
-    setTarget({ line, side, text: row.text });
-    props.onCompose("comment");
-  };
-
+  const collapsed =
+    hunk.approved && !focused && !open && threads.every(({ thread }) => thread.resolved);
   const rows = hunkRows(hunk);
+  const asking = composing === "thread" ? props.selection : undefined;
+
+  // Threads and the form for a new one show under the last line they are about.
+  const attachments: Attachment[] = threads.map(({ thread, lines }) => ({
+    key: lineKey(thread.side, lines.endExclusive - 1),
+    node: (
+      <Thread
+        key={thread.id}
+        agent={agent}
+        thread={thread}
+        expand={thread.id === props.focusThread}
+      />
+    ),
+  }));
+  if (asking) {
+    attachments.push({
+      key: lineKey(asking.side, asking.lines.endExclusive - 1),
+      node: (
+        <NewThread
+          key="new"
+          agent={agent}
+          path={file.path}
+          side={asking.side}
+          lines={asking.lines}
+          quote={quoteOf(rows, asking)}
+          onDone={props.onDone}
+        />
+      ),
+    });
+  }
+  const under = (keys: string[]) =>
+    attachments.filter((a) => keys.includes(a.key)).map((a) => a.node);
+  const shown = new Set(rows.flatMap(rowKeys));
+  const unplaced = attachments.filter((a) => !shown.has(a.key)).map((a) => a.node);
+  const rowsProps = { rows, language, selection: asking, onSelect: props.onSelect, under };
+
   return (
     <article
       className={`hunk ${focused ? "focused" : ""} ${hunk.approved ? "approved" : ""}`}
@@ -79,8 +124,13 @@ export function Hunk(props: Props) {
           </button>
         ) : (
           <>
-            <button type="button" className="small" onClick={() => props.onCompose("comment")}>
-              Comment <kbd>c</kbd>
+            <button
+              type="button"
+              className="small"
+              title="Ask about the changed lines; click line numbers to pick others"
+              onClick={() => props.onCompose("thread")}
+            >
+              Ask <kbd>c</kbd>
             </button>
             <button
               type="button"
@@ -118,49 +168,8 @@ export function Hunk(props: Props) {
               </pre>
             </details>
           )}
-          {layout === "inline" ? (
-            <InlineRows rows={rows} language={language} onComment={commentOn} />
-          ) : (
-            <SplitRows rows={rows} language={language} onComment={commentOn} />
-          )}
-          {comments.map((c) => (
-            <div key={c.id} className="comment">
-              <span className="dim">
-                {c.side === "base" ? "old " : ""}line {c.line}
-              </span>
-              <p>{c.body}</p>
-              <button
-                type="button"
-                className="small"
-                onClick={() => send({ type: "comment_remove", agent: agent.name, commentId: c.id })}
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-          {composing === "comment" && (
-            <CommentForm
-              target={target ?? firstChanged}
-              onSave={(body) => {
-                const t = target ?? firstChanged;
-                send({
-                  type: "comment_add",
-                  agent: agent.name,
-                  comment: {
-                    path: file.path,
-                    hunkId: hunk.id,
-                    line: t.line,
-                    side: t.side,
-                    quote: t.text,
-                    body,
-                  },
-                });
-                setTarget(undefined);
-                props.onDone();
-              }}
-              onCancel={props.onDone}
-            />
-          )}
+          {layout === "inline" ? <InlineRows {...rowsProps} /> : <SplitRows {...rowsProps} />}
+          {unplaced}
           {composing === "edit" && (
             <EditForm lines={hunk.added} onSave={props.onEdit} onCancel={props.onDone} />
           )}
@@ -208,10 +217,43 @@ function hunkRows(hunk: HunkView): Row[] {
   ];
 }
 
+/** The row's line number on that side; removed rows have none on the head side, added ones none on the base. */
+function lineOf(row: Row, side: Side): number | undefined {
+  if (side === "head") return row.kind === "removed" ? undefined : row.head;
+  return row.kind === "added" ? undefined : row.base;
+}
+
+const lineKey = (side: Side, line: number): string => `${side}:${line}`;
+
+const rowKeys = (row: Row): string[] =>
+  SIDES.flatMap((side) => {
+    const line = lineOf(row, side);
+    return line === undefined ? [] : [lineKey(side, line)];
+  });
+
+const within = (line: number | undefined, { start, endExclusive }: LineRange): boolean =>
+  line !== undefined && line >= start && line < endExclusive;
+
+/** Whether the row's line on `side` (or on the selection's side, inline) is selected. */
+const isSelected = (row: Row, selection: Selection | undefined, side?: Side): boolean =>
+  !!selection &&
+  (side ?? selection.side) === selection.side &&
+  within(lineOf(row, selection.side), selection.lines);
+
+/** The selected lines' text, up to QUOTE_LIMIT; the thread's range still covers them all. */
+const quoteOf = (rows: Row[], selection: Selection): string[] =>
+  rows
+    .filter((row) => within(lineOf(row, selection.side), selection.lines))
+    .slice(0, QUOTE_LIMIT)
+    .map((r) => r.text);
+
 interface RowsProps {
   rows: Row[];
   language: string | undefined;
-  onComment: (row: Row) => void;
+  selection: Selection | undefined;
+  onSelect: (side: Side, line: number, extend: boolean) => void;
+  /** What shows under the row that holds these lines. */
+  under: (keys: string[]) => ReactNode[];
 }
 
 function Code({ text, language }: { text: string; language: string | undefined }) {
@@ -220,20 +262,33 @@ function Code({ text, language }: { text: string; language: string | undefined }
   return <code className="code-line" dangerouslySetInnerHTML={html} />;
 }
 
-function Gutter({ row, onComment }: { row: Row; onComment: (row: Row) => void }) {
-  const base = row.kind === "added" ? "" : row.base;
-  const head = row.kind === "removed" ? "" : row.head;
+/** The line numbers of the given sides; each one starts a selection, or extends it with Shift. */
+function Gutter({
+  row,
+  sides,
+  onSelect,
+}: {
+  row: Row;
+  sides: Side[];
+  onSelect: RowsProps["onSelect"];
+}) {
   return (
     <>
-      <span className="ln">{base}</span>
-      <button
-        type="button"
-        className="ln"
-        title="Comment on this line"
-        onClick={() => onComment(row)}
-      >
-        {head || "·"}
-      </button>
+      {sides.map((side) => {
+        const line = lineOf(row, side);
+        if (line === undefined) return <span key={side} className="ln" />;
+        return (
+          <button
+            key={side}
+            type="button"
+            className="ln"
+            title="Ask about this line; Shift+click selects up to it"
+            onClick={(e) => onSelect(side, line, e.shiftKey)}
+          >
+            {line}
+          </button>
+        );
+      })}
       <span className="sign">
         {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
       </span>
@@ -241,100 +296,62 @@ function Gutter({ row, onComment }: { row: Row; onComment: (row: Row) => void })
   );
 }
 
-function InlineRows({ rows, language, onComment }: RowsProps) {
+function InlineRows({ rows, language, selection, onSelect, under }: RowsProps) {
   return (
     <div className="rows inline">
       {rows.map((row, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity beyond their position
-        <div key={i} className={`row ${row.kind}`}>
-          <Gutter row={row} onComment={onComment} />
-          <Code text={row.text} language={language} />
-        </div>
+        <Fragment key={i}>
+          <div className={`row ${row.kind} ${isSelected(row, selection) ? "selected" : ""}`}>
+            <Gutter row={row} sides={SIDES} onSelect={onSelect} />
+            <Code text={row.text} language={language} />
+          </div>
+          {under(rowKeys(row))}
+        </Fragment>
       ))}
     </div>
   );
 }
 
 /** Removed and added lines side by side, paired in order; context spans both sides. */
-function SplitRows({ rows, language, onComment }: RowsProps) {
+function SplitRows({ rows, language, selection, onSelect, under }: RowsProps) {
   const removed = rows.filter((r) => r.kind === "removed");
   const added = rows.filter((r) => r.kind === "added");
-  const pairs = Array.from(
-    { length: Math.max(removed.length, added.length) },
-    (_, i) => [removed[i], added[i]] as const,
-  );
   const first = rows.findIndex((r) => r.kind !== "context");
   const last = rows.findLastIndex((r) => r.kind !== "context");
   const before = first < 0 ? rows : rows.slice(0, first);
   const after = first < 0 ? [] : rows.slice(last + 1);
-  const side = (row: Row | undefined, key: string) =>
+  const context = (row: Row) => [row, row] as const;
+  const pairs: ReadonlyArray<readonly [Row | undefined, Row | undefined]> = [
+    ...before.map(context),
+    ...Array.from(
+      { length: Math.max(removed.length, added.length) },
+      (_, i) => [removed[i], added[i]] as const,
+    ),
+    ...after.map(context),
+  ];
+  const half = (row: Row | undefined, side: Side) =>
     row ? (
-      <div key={key} className={`row ${row.kind}`}>
-        <Gutter row={row} onComment={onComment} />
+      <div className={`row ${row.kind} ${isSelected(row, selection, side) ? "selected" : ""}`}>
+        <Gutter row={row} sides={[side]} onSelect={onSelect} />
         <Code text={row.text} language={language} />
       </div>
     ) : (
-      <div key={key} className="row empty" />
+      <div className="row empty" />
     );
-  const context = (row: Row, i: number) => (
-    <div key={`c${i}`} className="split-row">
-      {side(row, "l")}
-      {side(row, "r")}
-    </div>
-  );
   return (
     <div className="rows split">
-      {before.map(context)}
       {pairs.map(([left, right], i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: pairs have no identity beyond their position
-        <div key={i} className="split-row">
-          {side(left, "l")}
-          {side(right, "r")}
-        </div>
+        <Fragment key={i}>
+          <div className="split-row">
+            {half(left, "base")}
+            {half(right, "head")}
+          </div>
+          {under([...(left ? rowKeys(left) : []), ...(right ? rowKeys(right) : [])])}
+        </Fragment>
       ))}
-      {after.map(context)}
     </div>
-  );
-}
-
-function CommentForm({
-  target,
-  onSave,
-  onCancel,
-}: {
-  target: Target;
-  onSave: (body: string) => void;
-  onCancel: () => void;
-}) {
-  const [body, setBody] = useState("");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (body.trim()) onSave(body.trim());
-  };
-  return (
-    <form className="compose" onSubmit={submit}>
-      <span className="dim">
-        Comment on {target.side === "base" ? "old " : ""}line {target.line}:{" "}
-        <code>{target.text.trim()}</code>
-      </span>
-      <textarea
-        // biome-ignore lint/a11y/noAutofocus: the form opens because the user wants to type
-        autoFocus
-        rows={3}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit(e)}
-        placeholder="Goes to the agent with Request changes (⌘↵ to save)"
-      />
-      <footer>
-        <button type="submit" className="small primary" disabled={!body.trim()}>
-          Save comment
-        </button>
-        <button type="button" className="small" onClick={onCancel}>
-          Cancel
-        </button>
-      </footer>
-    </form>
   );
 }
 

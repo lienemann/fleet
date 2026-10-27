@@ -125,18 +125,30 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(diff.locator(".diff-scope")).toContainText("from the fork point");
   await expect(diff.locator(".diff-file")).toHaveCount(2);
 
-  await diff
-    .locator(".hunk", { hasText: "return 50" })
-    .getByRole("button", { name: /^Comment/ })
-    .click();
-  await diff.getByPlaceholder(/Goes to the agent/).fill("Why 50 runs?");
-  await diff.getByRole("button", { name: "Save comment" }).click();
-  await expect(diff.locator(".comment")).toContainText("Why 50 runs?");
+  // A question on an added line goes to the agent at once, and its answer shows under the line.
+  const runs = diff.locator(".hunk", { hasText: "return 50" });
+  await runs.locator(".row.added", { hasText: "return 50" }).getByRole("button").click();
+  const compose = diff.locator(".compose");
+  await compose.getByRole("textbox").fill("Why 50 runs?");
+  await compose.getByRole("button", { name: "Send", exact: true }).click();
+  const thread = diff.locator(".thread", { hasText: "Why 50 runs?" });
+  await expect(thread).toContainText("Fifty runs", { timeout: 10_000 });
   await expect(reviewed).toContainText("hunks approved");
-  await diff.getByRole("button", { name: /Request changes · 1 comments/ }).click();
+  await thread.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await shot(page, "thread");
+
+  // A held question waits for Request changes, which sends it and moves the card.
+  await runs.locator(".row.removed", { hasText: "return 1" }).getByRole("button").click();
+  await compose.getByRole("textbox").fill("Was 1 run ever enough?");
+  await compose.getByLabel("Hold for Request changes").check();
+  await compose.getByRole("button", { name: "Save", exact: true }).click();
+  // Accepting now would leave the held question unsent, so Accept says so too.
+  await expect(diff.getByRole("button", { name: /^Accept.* · 1 held/ })).toBeVisible();
+  await diff.getByRole("button", { name: /Request changes · 1 held/ }).click();
+  await expect(card(page, "Changes requested", "Fix the flaky replay test")).toBeVisible();
   await expect(card(page, "Review", "Fix the flaky replay test")).toBeVisible({ timeout: 10_000 });
   await page.getByRole("button", { name: /^Messages/ }).click();
-  await expect(page.locator(".drawer")).toContainText("Why 50 runs?");
+  await expect(page.locator(".drawer")).toContainText("Was 1 run ever enough?");
   await page.getByRole("button", { name: "Live" }).click();
   // Each turn that edited files ends with a card of them.
   const edited = page.locator(".drawer .edited").first();

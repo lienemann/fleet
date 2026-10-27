@@ -1879,7 +1879,7 @@ button.link.accent {
 .hunk.approved:not(.focused) {
   opacity: 0.75;
 }
-.hunk header {
+.hunk > header {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -1908,11 +1908,9 @@ button.link.accent {
   grid-template-columns: 3.5em 3.5em 1.4em 1fr;
   min-height: 1.5em;
 }
+/* Each half shows the line numbers of its own side. */
 .rows.split .row {
-  grid-template-columns: 0 3.5em 1.4em minmax(0, 1fr);
-}
-.rows.split .row > span.ln:first-child {
-  display: none;
+  grid-template-columns: 3.5em 1.4em minmax(0, 1fr);
 }
 /* Both halves keep their width; a long line wraps in its half, and the row grows to fit. */
 .split-row {
@@ -1954,6 +1952,12 @@ button.link.accent {
 button.ln:hover {
   color: var(--accent);
 }
+.row.selected {
+  box-shadow: inset 3px 0 var(--accent);
+}
+.row.selected .ln {
+  color: var(--accent);
+}
 .previous {
   padding: 4px 8px;
   font-size: 12px;
@@ -1962,32 +1966,100 @@ button.ln:hover {
   margin: 4px 0;
   color: var(--dim);
 }
-.comment {
+/* A thread sits between code rows, so it sets its own font and stays put when the code scrolls sideways. */
+.thread {
+  position: sticky;
+  left: 0;
   display: flex;
-  gap: 8px;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 6px;
   margin: 6px 8px;
   padding: 6px 8px;
   background: var(--notebg);
   border: 1px solid var(--noteline);
   border-radius: 6px;
   color: var(--notefg);
+  font: 13px / 1.45 var(--text-font);
 }
-.comment p {
+.thread.resolved {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+}
+.thread-gist {
   flex: 1;
-  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-message header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+.thread-message .who {
+  font-weight: 600;
+}
+.thread-message.agent .who {
+  color: var(--accent);
+}
+.thread-message > p {
+  margin: 2px 0 0;
   white-space: pre-wrap;
 }
+.thread-note {
+  margin: 0;
+  color: var(--dim);
+  font-size: 12px;
+  font-style: italic;
+}
+.thread > footer {
+  display: flex;
+  gap: 6px;
+}
+.threads-elsewhere {
+  margin: 10px 0;
+}
+.threads-elsewhere h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
+.elsewhere > header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 8px;
+  font-size: 12px;
+}
 .compose {
+  position: sticky;
+  left: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px;
   border-top: 1px solid var(--line2);
+  font: 13px / 1.45 var(--text-font);
 }
 .compose footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+.compose label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+}
+.thread .compose {
+  position: static;
+  padding: 0;
+  border-top: none;
 }
 .code-edit {
   font: 12px / 1.5 var(--font-mono);

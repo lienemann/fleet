@@ -11,16 +11,6 @@ import { type AgentView, heldMessages, QUOTE_LIMIT } from "../src/shared/reducer
 import type { LineThread, ReviewEdit, ThreadMessage } from "../src/shared/review.ts";
 import { echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
 
-const comment = {
-  id: "c1",
-  path: "lib.py",
-  hunkId: "h1",
-  line: 12,
-  side: "head" as const,
-  quote: "    return 20",
-  body: "Why 20?\nThe spec says 2.",
-};
-
 const thread: LineThread = {
   id: "1a2b3c4d",
   path: "lib.py",
@@ -75,7 +65,7 @@ describe("threadMessage", () => {
     const one = { ...thread, lines: { start: 2, endExclusive: 5 } };
     expect(threadMessage(one, question, [])).toContain(`${QUOTE}\n   … 1 more line\n\n`);
     const held = { ...long, messages: [{ ...question, held: true }] };
-    expect(changeRequest({ threads: [held], comments: [], edits: [] })).toContain(
+    expect(changeRequest({ threads: [held], edits: [] })).toContain(
       `${QUOTE}\n   … 36 more lines\n   Why 4 × jitter?`,
     );
   });
@@ -89,15 +79,9 @@ describe("threadMessage", () => {
 });
 
 describe("changeRequest", () => {
-  it("quotes the commented code and lists the user's edits", () => {
-    expect(
-      changeRequest({ threads: [], comments: [comment], edits: [edit] }, "Close, two things."),
-    ).toBe(
-      [
-        "Close, two things.",
-        "Review comments:\n\n1. lib.py:12\n   >     return 20\n   Why 20?\n   The spec says 2.",
-        EDIT_BLOCK,
-      ].join("\n\n"),
+  it("starts with the user's note and lists the user's edits", () => {
+    expect(changeRequest({ threads: [], edits: [edit] }, "Close, two things.")).toBe(
+      ["Close, two things.", EDIT_BLOCK].join("\n\n"),
     );
   });
 
@@ -117,7 +101,7 @@ describe("changeRequest", () => {
         { ...question, held: true },
       ],
     };
-    expect(changeRequest({ threads: [first, other], comments: [], edits: [edit] })).toBe(
+    expect(changeRequest({ threads: [first, other], edits: [edit] })).toBe(
       [
         `1. lib.py:2-3, thread 1a2b3c4d\n${QUOTE}\n   Why 4 × jitter?\n\n2. util.py:7, thread 9f8e7d6c\n   > y = 1\n   Why 1?\n   And not 2?\n\nAnswer each with the reply_thread tool and its thread id.`,
         EDIT_BLOCK,
@@ -125,10 +109,8 @@ describe("changeRequest", () => {
     );
   });
 
-  it("still asks for something without comments", () => {
-    expect(changeRequest({ threads: [], comments: [], edits: [] })).toBe(
-      "Please revise your change.",
-    );
+  it("still asks for something with nothing held", () => {
+    expect(changeRequest({ threads: [], edits: [] })).toBe("Please revise your change.");
   });
 });
 
@@ -199,19 +181,6 @@ describe("review flow", () => {
     const model = await supervisor.call({ type: "review_load", id: "1", agent: "alpha" });
     expect(model).toMatchObject({ progress: { approved: 0, total: 1 } });
     expect(log.state.agents.alpha?.reviewProgress).toEqual({ approved: 0, total: 1 });
-  });
-
-  it("sends draft comments as one message and moves the task to changes requested", async () => {
-    const { log, supervisor } = review();
-    await until(() => log.state.agents.alpha?.task === "review");
-    const { id: _id, ...draft } = comment;
-    supervisor.handle({ type: "comment_add", agent: "alpha", comment: draft });
-    expect(log.state.agents.alpha?.comments).toHaveLength(1);
-
-    supervisor.handle({ type: "request_changes", agent: "alpha" });
-    expect(log.state.agents.alpha).toMatchObject({ task: "changes_requested", comments: [] });
-    expect(log.state.messages.at(-1)).toMatchObject({ from: "you", to: "alpha" });
-    await until(() => promptsOf(log).some((l) => l.text.includes(">     return 20")));
   });
 
   it("sends a thread message at once without moving the card", async () => {

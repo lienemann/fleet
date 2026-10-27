@@ -98,25 +98,6 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_tint"), agent, tint: z.enum(TINTS) }),
   /** Continues the task in a fresh session, after the old one wrote a handover file. */
   z.object({ type: z.literal("handover"), agent }),
-  z.object({
-    type: z.literal("comment_add"),
-    agent,
-    comment: z.object({
-      path: z.string().min(1),
-      hunkId: z.string().min(1),
-      line: z.number().int().positive(),
-      side: z.enum(["head", "base"]),
-      quote: z.string(),
-      body: z.string().trim().min(1),
-    }),
-  }),
-  z.object({
-    type: z.literal("comment_update"),
-    agent,
-    commentId: z.string().min(1),
-    body: z.string().trim().min(1),
-  }),
-  z.object({ type: z.literal("comment_remove"), agent, commentId: z.string().min(1) }),
   /** Opens a thread on selected lines; held ones wait for "Request changes", the others go to the agent at once. */
   z.object({
     type: z.literal("thread_open"),
@@ -183,7 +164,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
     sessionId: z.string().uuid(),
     workspace: z.string().min(1),
   }),
-  /** Sends the draft comments and the user's edits as one message and moves the task to "changes requested". */
+  /** Sends the held thread messages and the user's edits as one message and moves the task to "changes requested". */
   z.object({ type: z.literal("request_changes"), agent, message: z.string().optional() }),
 ]);
 

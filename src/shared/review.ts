@@ -94,19 +94,6 @@ export interface ReviewModel {
   threads: ThreadPlacement[];
 }
 
-/** A draft comment on a hunk line, sent to the agent with "Request changes". */
-export interface ReviewComment {
-  id: string;
-  path: string;
-  hunkId: string;
-  /** 1-based line in the review head (or base, for removed lines). */
-  line: number;
-  side: "head" | "base";
-  /** The commented code, quoted in the message. */
-  quote: string;
-  body: string;
-}
-
 /** One message in a line thread. */
 export interface ThreadMessage {
   id: string;
@@ -136,7 +123,7 @@ export interface LineThread {
   unread: boolean;
 }
 
-/** A small edit the user made in the diff view, reported to the agent with the next comments. */
+/** A small edit the user made in the diff view, reported to the agent with the next thread message or change request. */
 export interface ReviewEdit {
   path: string;
   /** Where the edited lines live: the working copy or the short id of the commit edited. */

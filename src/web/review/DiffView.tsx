@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentView } from "../../shared/reducer.ts";
-import type { FileView, HunkView, ReviewModel, ReviewScope } from "../../shared/review.ts";
+import { type AgentView, heldMessages } from "../../shared/reducer.ts";
+import type {
+  FileView,
+  HunkView,
+  LineThread,
+  ReviewModel,
+  ReviewScope,
+  ThreadPlacement,
+} from "../../shared/review.ts";
 import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
-import { Hunk } from "./Hunk.tsx";
+import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
+import { type Side, Thread, threadPlace } from "./Thread.tsx";
 
 export type Layout = "inline" | "split";
 
@@ -15,16 +23,17 @@ interface Focus {
 
 /**
  * Review of a task's change against trunk, or of one of its commits, built on reviewdiff-core:
- * approve hunk by hunk, comment on lines, fix small things in place. Approvals are shared with
- * ReviewDiff.
+ * approve hunk by hunk, ask about lines in threads, fix small things in place. Approvals are
+ * shared with ReviewDiff. `thread` scrolls to that thread once the diff shows it.
  */
-export function DiffView({ agent }: { agent: AgentView }) {
+export function DiffView({ agent, thread }: { agent: AgentView; thread?: string }) {
   const { call, send } = useFleet();
   const [model, setModel] = useState<ReviewModel>();
   const [error, setError] = useState<string>();
   const [layout, setLayout] = useState<Layout>("inline");
   const [focusId, setFocusId] = useState<string>();
-  const [composing, setComposing] = useState<"comment" | "edit">();
+  const [composing, setComposing] = useState<"thread" | "edit">();
+  const [selection, setSelection] = useState<Selection>();
   const [fileOrder, setFileOrder] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
@@ -49,11 +58,15 @@ export function DiffView({ agent }: { agent: AgentView }) {
     (next = scope.current) => run(call({ type: "review_load", agent: agent.name, scope: next })),
     [run, call, agent.name],
   );
+  const close = () => {
+    setComposing(undefined);
+    setSelection(undefined);
+  };
   const choose = (next: ReviewScope) => {
     setFocusId(undefined);
-    setComposing(undefined);
+    close();
     scope.current = next;
-    void load(next);
+    return load(next);
   };
 
   // Reload whenever the agent stops working, since its change may have moved on.
@@ -61,6 +74,38 @@ export function DiffView({ agent }: { agent: AgentView }) {
   useEffect(() => {
     if (resting) void load();
   }, [resting, load]);
+
+  // The daemon places threads when it loads the diff, so a thread it has not placed yet, e.g.
+  // one just opened, needs another load.
+  const unplaced = model
+    ? agent.threads
+        .filter((t) => !model.threads.some((p) => p.thread === t.id))
+        .map((t) => t.id)
+        .join(" ")
+    : "";
+  useEffect(() => {
+    if (unplaced) void load();
+  }, [unplaced, load]);
+
+  // The thread asked for, until the diff shows it; then its hunk gets the focus and it scrolls
+  // into view once rendered.
+  const [wanted, setWanted] = useState(thread);
+  const [reveal, setReveal] = useState<string>();
+  useEffect(() => setWanted(thread), [thread]);
+  useEffect(() => {
+    const placement = model?.threads.find((p) => p.thread === wanted);
+    if (!placement) return;
+    if (placement.hunk && !placement.outdated) setFocusId(placement.hunk);
+    setReveal(wanted);
+    setWanted(undefined);
+  }, [model, wanted]);
+  useEffect(() => {
+    if (!reveal) return;
+    container.current
+      ?.querySelector(`[data-thread="${CSS.escape(reveal)}"]`)
+      ?.scrollIntoView({ block: "center" });
+    setReveal(undefined);
+  }, [reveal]);
 
   // With a walkthrough, j/k go through the hunks in the order it discusses them, as in ReviewDiff.
   const walkthroughOrder = model?.order && !fileOrder ? model.order : undefined;
@@ -85,7 +130,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
     const next = hunks[Math.min(hunks.length - 1, Math.max(0, index + delta))];
     if (!next) return;
     setFocusId(next.hunk.id);
-    setComposing(undefined);
+    close();
     // Only keyboard moves scroll: scrolling under a click would move its button away.
     container.current
       ?.querySelector(`[data-hunk="${next.hunk.id}"]`)
@@ -101,6 +146,35 @@ export function DiffView({ agent }: { agent: AgentView }) {
   };
   const canEdit = agent.activity !== "working" && agent.pending === 0;
 
+  const ask = (hunk: HunkView, side: Side, lines: Selection["lines"], anchor = lines.start) => {
+    if (lines.endExclusive <= lines.start) return;
+    setFocusId(hunk.id);
+    setSelection({ hunk: hunk.id, side, anchor, lines });
+    setComposing("thread");
+  };
+  /** A click on a line number selects that line; with Shift, the lines from the first click to it. */
+  const select = (hunk: HunkView, side: Side, line: number, extend: boolean) => {
+    const from =
+      extend && selection?.hunk === hunk.id && selection.side === side ? selection.anchor : line;
+    const lines = { start: Math.min(from, line), endExclusive: Math.max(from, line) + 1 };
+    ask(hunk, side, lines, from);
+  };
+  const askAboutChanges = (hunk: HunkView) =>
+    hunk.added.length > 0 ? ask(hunk, "head", hunk.head) : ask(hunk, "base", hunk.base);
+
+  // Placements come with the model, the threads themselves with the agent's state.
+  const threadsById = new Map(agent.threads.map((t) => [t.id, t]));
+  const placed = (model?.threads ?? []).flatMap((placement) => {
+    const found = threadsById.get(placement.thread);
+    return found ? [{ thread: found, placement }] : [];
+  });
+  const threadsIn = (hunk: HunkView): PlacedThread[] =>
+    placed
+      .filter(({ placement }) => placement.hunk === hunk.id && !placement.outdated)
+      .map(({ thread, placement }) => ({ thread, lines: placement.lines ?? thread.lines }));
+  const elsewhere = placed.filter(({ placement }) => !placement.hunk || placement.outdated);
+  const held = heldMessages(agent);
+
   // The scope picker's entries, top to bottom: the whole branch, then each commit, newest first.
   const scopes: ReviewScope[] = [
     { kind: "branch" },
@@ -111,7 +185,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
   const step = (delta: number) => {
     const current = scopes.findIndex((s) => scopeKey(s) === scopeKey(scope.current));
     const next = scopes[current + delta];
-    if (next) choose(next);
+    if (next) void choose(next);
   };
 
   const group = { group: "Diff", priority: 1 };
@@ -155,10 +229,10 @@ export function DiffView({ agent }: { agent: AgentView }) {
     },
     {
       ...group,
-      id: "diff.comment",
-      label: "Comment on the hunk",
+      id: "diff.ask",
+      label: "Ask about the hunk's changed lines",
       keys: ["c"],
-      run: () => setComposing("comment"),
+      run: () => focused && askAboutChanges(focused.hunk),
     },
     {
       ...group,
@@ -224,7 +298,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
             disabled={agent.role !== "worker"}
             onClick={() => send({ type: "request_changes", agent: agent.name })}
           >
-            Request changes{agent.comments.length > 0 && ` · ${agent.comments.length} comments`}
+            Request changes{held > 0 && ` · ${held} held`}
             {agent.edits.length > 0 && ` · ${agent.edits.length} edits`}
           </button>
           <button
@@ -234,6 +308,7 @@ export function DiffView({ agent }: { agent: AgentView }) {
             onClick={() => send({ type: "move", agent: agent.name, to: "accepted" })}
           >
             Accept{unreviewed > 0 && ` · ${unreviewed} unreviewed`}
+            {held > 0 && ` · ${held} held`}
           </button>
         </div>
       </header>
@@ -245,6 +320,18 @@ export function DiffView({ agent }: { agent: AgentView }) {
             ? "This commit changes no files."
             : `No changes against ${model.target} yet.`}
         </p>
+      )}
+      {elsewhere.length > 0 && (
+        <ThreadsElsewhere
+          agent={agent}
+          threads={elsewhere}
+          focusThread={thread}
+          onShow={
+            model?.scope.kind === "commit"
+              ? (id) => void choose({ kind: "branch" }).then(() => setWanted(id))
+              : undefined
+          }
+        />
       )}
       {model?.files.map((file) => (
         <section key={file.path} className="diff-file">
@@ -266,20 +353,26 @@ export function DiffView({ agent }: { agent: AgentView }) {
               layout={layout}
               focused={hunk.id === focused?.hunk.id}
               composing={hunk.id === focused?.hunk.id ? composing : undefined}
+              selection={selection?.hunk === hunk.id ? selection : undefined}
+              threads={threadsIn(hunk)}
+              focusThread={thread}
               canEdit={canEdit}
               onFocus={() => setFocusId(hunk.id)}
               onCompose={(mode) => {
+                if (mode === "thread") return askAboutChanges(hunk);
                 setFocusId(hunk.id);
+                setSelection(undefined);
                 setComposing(mode);
               }}
-              onDone={() => setComposing(undefined)}
+              onSelect={(side, line, extend) => select(hunk, side, line, extend)}
+              onDone={close}
               onApprove={(approved) => {
                 setFocusId(hunk.id);
                 void approve([hunk.id], approved);
               }}
               onEdit={(lines) =>
                 run(call({ type: "review_edit", agent: agent.name, hunkId: hunk.id, lines })).then(
-                  () => setComposing(undefined),
+                  close,
                 )
               }
             />
@@ -287,6 +380,43 @@ export function DiffView({ agent }: { agent: AgentView }) {
         </section>
       ))}
     </div>
+  );
+}
+
+/**
+ * Threads the diff cannot show under their lines: outdated ones, whose lines the agent has
+ * changed or whose file left the diff, and, in one commit, those about lines of another.
+ */
+function ThreadsElsewhere({
+  agent,
+  threads,
+  focusThread,
+  onShow,
+}: {
+  agent: AgentView;
+  threads: Array<{ thread: LineThread; placement: ThreadPlacement }>;
+  focusThread: string | undefined;
+  /** Goes to all changes, where the thread shows under its lines; only offered for one commit. */
+  onShow: ((thread: string) => void) | undefined;
+}) {
+  return (
+    <section className="threads-elsewhere">
+      <h3>Threads on lines not shown here</h3>
+      {threads.map(({ thread, placement }) => (
+        <div key={thread.id} className="elsewhere">
+          <header>
+            <code>{threadPlace(thread.path, thread.side, placement.lines ?? thread.lines)}</code>
+            {placement.outdated && <span className="tag warn">outdated</span>}
+            {!placement.outdated && onShow && (
+              <button type="button" className="link" onClick={() => onShow(thread.id)}>
+                Show in all changes
+              </button>
+            )}
+          </header>
+          <Thread agent={agent} thread={thread} expand={thread.id === focusThread} />
+        </div>
+      ))}
+    </section>
   );
 }
 

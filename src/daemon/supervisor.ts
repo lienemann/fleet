@@ -505,22 +505,6 @@ export class Supervisor implements ToolHost {
         if (this.agent(message.agent))
           this.append(message.agent, { kind: "settings", tint: message.tint });
         return;
-      case "comment_add":
-        if (this.agent(message.agent)) {
-          const comment = { ...message.comment, id: randomUUID() };
-          this.append(message.agent, { kind: "comment_added", comment });
-        }
-        return;
-      case "comment_update":
-        this.append(message.agent, {
-          kind: "comment_updated",
-          commentId: message.commentId,
-          body: message.body,
-        });
-        return;
-      case "comment_remove":
-        this.append(message.agent, { kind: "comment_removed", commentId: message.commentId });
-        return;
       case "thread_open":
         this.openThread(message);
         return;
@@ -1847,7 +1831,7 @@ export class Supervisor implements ToolHost {
     return model;
   }
 
-  /** Sends the draft comments and edits as one message, and the task goes back to work. */
+  /** Sends the held thread messages and edits as one message, and the task goes back to work. */
   private requestChanges(name: string, note: string | undefined): void {
     const agent = this.agent(name);
     if (agent?.role !== "worker") return;

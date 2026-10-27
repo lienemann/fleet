@@ -303,6 +303,21 @@ const WALKTHROUGH =
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string): Step[] {
   const id = (n: number) => `${session}-${turn}-${n}`;
+  // A question on lines of the diff gets an answer in its thread, and the change stays as it is.
+  const thread = /Answer with the reply_thread tool, thread "([^"]+)"/.exec(prompt)?.[1];
+  if (thread) {
+    return [
+      {
+        type: "fleet",
+        id: id(1),
+        name: "reply_thread",
+        input: {
+          thread,
+          body: "Fifty runs is where the old tolerance failed at least once in every try; with twenty it passed by luck about half the time.",
+        },
+      },
+    ];
+  }
   if (prompt.startsWith("Message from") || turn > 1) {
     return [
       { type: "say", text: "Thanks, taking that into account." },

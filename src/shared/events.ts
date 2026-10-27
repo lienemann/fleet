@@ -100,7 +100,7 @@ export interface OpenPoint {
   text: string;
 }
 
-import type { LineThread, ReviewComment, ReviewEdit, ThreadMessage } from "./review.ts";
+import type { LineThread, ReviewEdit, ThreadMessage } from "./review.ts";
 
 /** Sender and recipient name the user has in agent messages. */
 export const USER = "you";
@@ -319,9 +319,6 @@ export type EventBody =
   /** The director's ledger note on a task. */
   | { kind: "note"; text: string }
   | { kind: "review_progress"; approved: number; total: number }
-  | { kind: "comment_added"; comment: ReviewComment }
-  | { kind: "comment_updated"; commentId: string; body: string }
-  | { kind: "comment_removed"; commentId: string }
   | { kind: "review_edited"; edit: ReviewEdit }
   | {
       kind: "thread_opened";
@@ -337,7 +334,7 @@ export type EventBody =
   | { kind: "thread_resolved"; threadId: string; resolved: boolean }
   /** The user's edits went to the agent along with a message. */
   | { kind: "edits_reported" }
-  /** Draft comments, held thread messages and edits went to the agent with a change request. */
+  /** Held thread messages and edits went to the agent with a change request. */
   | { kind: "review_sent" }
   /** Moving a task to a fresh session: the old one writes a handover file, a new one reads it. */
   | { kind: "handover"; state: "writing" | "done" | "failed"; path: string; note?: string }

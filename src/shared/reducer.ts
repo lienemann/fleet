@@ -23,7 +23,7 @@ import {
   type Todo,
   type Usage,
 } from "./events.ts";
-import type { LineThread, ReviewComment, ReviewEdit, ThreadMessage } from "./review.ts";
+import type { LineThread, ReviewEdit, ThreadMessage } from "./review.ts";
 
 /** Board column: the task state, except that an active task waiting on the user needs you. */
 export type Column = TaskState | "needs_you";
@@ -186,9 +186,7 @@ export interface AgentView {
   transcriptMark?: string;
   /** Prompts waiting until fleet runs the detached session again. */
   held?: string[];
-  /** Draft review comments, not yet sent. */
-  comments: ReviewComment[];
-  /** Edits the user made in the diff view, reported with the next comments. */
+  /** Edits the user made in the diff view, reported with the next message about the diff. */
   edits: ReviewEdit[];
   /** Conversations about lines of the diff, oldest first. */
   threads: LineThread[];
@@ -467,7 +465,6 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       outputs: [],
       turnEdits: [],
       handovers: 0,
-      comments: [],
       edits: [],
       threads: [],
       history: [{ lane: event.role === "worker" ? "queued" : "idle", from: event.ts }],
@@ -658,23 +655,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "review_progress":
       return patch({ reviewProgress: { approved: event.approved, total: event.total } });
-    case "comment_added":
-      return patch({ comments: [...agent.comments, event.comment] });
-    case "comment_updated":
-      return patch({
-        comments: agent.comments.map((c) =>
-          c.id === event.commentId ? { ...c, body: event.body } : c,
-        ),
-      });
-    case "comment_removed":
-      return patch({ comments: agent.comments.filter((c) => c.id !== event.commentId) });
     case "review_edited":
       return patch({ edits: [...agent.edits, event.edit] });
     case "edits_reported":
       return patch({ edits: [] });
     case "review_sent":
       return patch({
-        comments: [],
         edits: [],
         threads: agent.threads.map((t) => ({
           ...t,

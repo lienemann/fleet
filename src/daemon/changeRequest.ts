@@ -1,4 +1,4 @@
-import type { LineThread, ReviewComment, ReviewEdit, ThreadMessage } from "../shared/review.ts";
+import type { LineThread, ReviewEdit, ThreadMessage } from "../shared/review.ts";
 
 /** The thread's quote; a selection longer than the quote says how many lines it leaves out. */
 function quoted({ quote, lines }: LineThread): string {
@@ -44,23 +44,13 @@ export function threadMessage(
   return parts.join("\n\n");
 }
 
-/** The one message "Request changes" sends: the user's note, the comments and held thread messages with quoted code, and the user's edits. */
+/** The one message "Request changes" sends: the user's note, the held thread messages with quoted code, and the user's edits. */
 export function changeRequest(
-  draft: { threads: LineThread[]; comments: ReviewComment[]; edits: ReviewEdit[] },
+  draft: { threads: LineThread[]; edits: ReviewEdit[] },
   note?: string,
 ): string {
   const parts: string[] = [];
   if (note?.trim()) parts.push(note.trim());
-  if (draft.comments.length > 0) {
-    const items = draft.comments.map((c, i) => {
-      const quote = c.quote
-        .split("\n")
-        .map((line) => `   > ${line}`)
-        .join("\n");
-      return `${i + 1}. ${c.path}:${c.line}\n${quote}\n   ${c.body.replaceAll("\n", "\n   ")}`;
-    });
-    parts.push(`Review comments:\n\n${items.join("\n\n")}`);
-  }
   const held = draft.threads.flatMap((thread) =>
     thread.messages.filter((m) => m.held).map((message) => ({ thread, message })),
   );
