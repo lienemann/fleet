@@ -32,7 +32,7 @@ describe("Agents cut off from Claude", () => {
     const { queryFn } = fakeQuery(echoing(...cutOff));
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
 
     expect(agent()?.offline).toBe(true);
@@ -64,7 +64,7 @@ describe("Agents cut off from Claude", () => {
     );
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
     expect(agent()?.offline).toBeUndefined();
     await session.stop();
@@ -83,7 +83,7 @@ describe("Agents cut off from Claude", () => {
     );
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
     expect(agent()?.offline).toBeUndefined();
     await session.stop();

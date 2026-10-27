@@ -49,7 +49,7 @@ describe("AgentSession", () => {
     const { queryFn } = fakeQuery(echoing(init(), assistantText("Done."), result()));
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("hello");
+    session.prompt("hello", [], { by: "user" });
 
     await until(() => agent()?.context !== undefined);
     expect(agent()).toMatchObject({
@@ -66,6 +66,20 @@ describe("AgentSession", () => {
     ]);
     await session.stop();
     expect(agent()?.activity).toBe("stopped");
+  });
+
+  it("records who a prompt comes from, and the thread it belongs to", async () => {
+    const { queryFn } = fakeQuery(echoing(init(), result()));
+    const { log, session } = newSession(queryFn);
+    session.start();
+    session.prompt("from the user", [], { by: "user", thread: "t1" });
+    session.prompt("from fleet", [], { by: "fleet" });
+    await session.stop();
+    const prompts = log.since(0).flatMap((e) => (e.kind === "user_prompt" ? [e] : []));
+    expect(prompts).toMatchObject([
+      { text: "from the user", by: "user", thread: "t1" },
+      { text: "from fleet", by: "fleet" },
+    ]);
   });
 
   it("turns a permission prompt into a decision with explanation and risk", async () => {
@@ -142,7 +156,7 @@ describe("AgentSession", () => {
     );
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
     expect(agent()?.todos).toEqual(todos);
     expect(agent()?.subagents).toEqual([
@@ -164,7 +178,7 @@ describe("AgentSession", () => {
     const { session, agent } = newSession(queryFn, { sleep });
     session.start();
     await until(() => agent()?.reconnecting === true);
-    session.prompt("still there?");
+    session.prompt("still there?", [], { by: "user" });
 
     await until(() => agent()?.log.some((l) => l.text === "back again") ?? false);
     expect(sleep).toHaveBeenCalledWith(1000);
@@ -251,8 +265,8 @@ describe("AgentSession lifecycle", () => {
     const activities = () =>
       log.since(0).flatMap((e) => (e.kind === "activity" ? [e.activity] : []));
     session.start();
-    session.prompt("one");
-    session.prompt("two");
+    session.prompt("one", [], { by: "user" });
+    session.prompt("two", [], { by: "user" });
     await until(() => next !== undefined);
     expect(agent()?.activity).toBe("working");
     next?.();
@@ -281,7 +295,7 @@ describe("AgentSession lifecycle", () => {
     });
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("Run the sweep in the background.");
+    session.prompt("Run the sweep in the background.", [], { by: "user" });
     await until(() => shellEnds !== undefined && agent()?.activity === "idle");
     shellEnds?.();
     await until(() => done !== undefined);

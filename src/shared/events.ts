@@ -26,6 +26,21 @@ export type UserMove = (typeof USER_MOVES)[number];
 export const TINTS = ["none", "soft", "medium", "strong"] as const;
 export type Tint = (typeof TINTS)[number];
 
+/** Who a prompt comes from. */
+export type PromptOrigin = "user" | "agent" | "fleet";
+
+/** What an agent's stretch of work came to, as the inbox shows it. */
+export interface FinishedRun {
+  id: string;
+  endedAt: number;
+  workMs: number;
+  /** Markdown; cut to TEXT_LIMIT. */
+  text: string;
+  /** Set when the run ended without the user: "offline", the SDK's error subtype, or "crashed". */
+  stopped?: string;
+  read: boolean;
+}
+
 export type RiskTag = "network" | "outside-workspace" | "runtime";
 
 export type LogRole = "assistant" | "user" | "tool_use" | "tool_result" | "system";
@@ -227,9 +242,26 @@ export type EventBody =
       color?: string;
       tint?: Tint;
     }
-  /** `attachments` names what was sent along; the content goes only to the agent. */
-  /** A prompt of the user; `thread` is set when it carries a message of a line thread. */
-  | { kind: "user_prompt"; text: string; attachments?: string[]; thread?: string }
+  /**
+   * A prompt for the agent. `by` says who asks: the user, another agent, or fleet itself with a
+   * note such as the restart note. `attachments` names what was sent along; the content goes
+   * only to the agent. `thread` is set when it carries a message of a line thread.
+   */
+  | {
+      kind: "user_prompt";
+      text: string;
+      by: PromptOrigin;
+      attachments?: string[];
+      thread?: string;
+      /** Set for a prompt copied from a transcript: history, not work that starts a stretch. */
+      replayed?: boolean;
+    }
+  /** The user interrupted, stopped or handed over the agent, so its stretch of work ends with the user there. */
+  | { kind: "ended_by_user"; how: "interrupt" | "stop" | "handover" }
+  /** A stretch of work ended in a Finished item for the inbox; `replaces` is the unread item it continues. */
+  | { kind: "run_finished"; item: FinishedRun; replaces?: string }
+  /** The user marked these Finished items read. */
+  | { kind: "finished_read"; ids: string[] }
   | {
       kind: "log";
       role: LogRole;

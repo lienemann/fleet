@@ -72,7 +72,7 @@ describe("websocket server", () => {
       expect(client.received.map((m) => m.type)).toEqual(["info", "snapshot"]),
     );
 
-    log.append({ kind: "user_prompt", agent: "a1", text: "hi" });
+    log.append({ kind: "user_prompt", agent: "a1", by: "user", text: "hi" });
     await vi.waitFor(() =>
       expect(client.received.at(-1)).toMatchObject({ type: "events", events: [{ seq: 2 }] }),
     );
@@ -92,8 +92,8 @@ describe("websocket server", () => {
 
   it("replays only what a returning client missed", async () => {
     const { log, port } = await start();
-    log.append({ kind: "user_prompt", agent: "a1", text: "one" });
-    log.append({ kind: "user_prompt", agent: "a1", text: "two" });
+    log.append({ kind: "user_prompt", agent: "a1", by: "user", text: "one" });
+    log.append({ kind: "user_prompt", agent: "a1", by: "user", text: "two" });
     const client = connect(port);
     await client.opened;
     client.send({ type: "subscribe", since: 2 });
@@ -165,7 +165,7 @@ describe("websocket server", () => {
 
   it("relays a remote daemon's stream under /remote/<name>/ws", async () => {
     const pod = await start();
-    pod.log.append({ kind: "user_prompt", agent: "a1", text: "on the pod" });
+    pod.log.append({ kind: "user_prompt", agent: "a1", by: "user", text: "on the pod" });
     const mac = await start([{ name: "pod1", url: `http://127.0.0.1:${pod.port}` }]);
 
     const ws = new WebSocket(`ws://127.0.0.1:${mac.port}/remote/pod1/ws`);

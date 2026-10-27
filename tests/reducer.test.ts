@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
+import type { FinishedRun, FleetEvent, NewEvent } from "../src/shared/events.ts";
 import {
   type AgentView,
   columnOf,
   costOn,
+  FINISHED_READ_LIMIT,
+  FINISHED_UNREAD_LIMIT,
   heldMessages,
   inboxCount,
   LOG_LIMIT,
   pendingDecisions,
   reduceAll,
+  stretchEnded,
   TEXT_LIMIT,
   THREAD_LIMIT,
   THREAD_MESSAGES_LIMIT,
+  unreadFinished,
   unreadThreads,
 } from "../src/shared/reducer.ts";
 import { worker } from "./helpers.ts";
@@ -116,7 +120,7 @@ describe("reduce", () => {
   });
 
   it("ignores events it has already applied", () => {
-    const log = events(worker("a"), { kind: "user_prompt", agent: "a", text: "x" });
+    const log = events(worker("a"), { kind: "user_prompt", agent: "a", by: "user", text: "x" });
     const once = reduceAll(log);
     expect(reduceAll(log, once)).toBe(once);
   });
@@ -124,7 +128,7 @@ describe("reduce", () => {
   it("caps log lines and their length", () => {
     const lines = Array.from(
       { length: LOG_LIMIT + 5 },
-      (_, i): NewEvent => ({ kind: "user_prompt", agent: "a", text: `${i}` }),
+      (_, i): NewEvent => ({ kind: "user_prompt", agent: "a", by: "user", text: `${i}` }),
     );
     const agent = run(...lines, {
       kind: "log",
@@ -457,7 +461,268 @@ describe("line threads", () => {
   });
 
   it("links a prompt line to its thread", () => {
-    const agent = run({ kind: "user_prompt", agent: "a", text: "why?", thread: "t1" });
+    const agent = run({ kind: "user_prompt", agent: "a", by: "user", text: "why?", thread: "t1" });
     expect(agent.log.at(-1)?.thread).toBe("t1");
+  });
+});
+
+describe("finished runs", () => {
+  /** Runs the steps, each at its own second, on agent "a" created at 0. */
+  const timeline = (...steps: Array<[number, NewEvent]>) =>
+    reduceAll(
+      [[0, worker("a")] as const, ...steps].map(
+        ([seconds, body], i) =>
+          ({ parent: null, ...body, seq: i + 1, ts: seconds * 1000 }) as FleetEvent,
+      ),
+    );
+  const agentAt = (...steps: Array<[number, NewEvent]>) => timeline(...steps).agents.a as AgentView;
+
+  const prompt = (by: "user" | "agent" | "fleet"): NewEvent => ({
+    kind: "user_prompt",
+    agent: "a",
+    by,
+    text: "go",
+  });
+  const activity = (state: "working" | "idle" | "stopped"): NewEvent => ({
+    kind: "activity",
+    agent: "a",
+    activity: state,
+  });
+  const said = (text: string, parent: string | null = null): NewEvent => ({
+    kind: "log",
+    agent: "a",
+    role: "assistant",
+    text,
+    parent,
+  });
+  const resolved: NewEvent = {
+    kind: "decision_resolved",
+    agent: "a",
+    requestId: "r",
+    outcome: "allowed",
+  };
+  const finished = (id: string, extra: Partial<FinishedRun> = {}): FinishedRun => ({
+    id,
+    endedAt: 0,
+    workMs: 20_000,
+    text: `text ${id}`,
+    read: false,
+    ...extra,
+  });
+  const runFinished = (item: FinishedRun, replaces?: string): NewEvent => ({
+    kind: "run_finished",
+    agent: "a",
+    item,
+    ...(replaces && { replaces }),
+  });
+  const readEvent = (...ids: string[]): NewEvent => ({ kind: "finished_read", agent: "a", ids });
+
+  it("counts work and leaves out waits on the user", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [5, request],
+      [3605, resolved],
+      [3610, activity("idle")],
+    );
+    expect(agent.stretch?.workMs).toBe(10_000);
+    expect(agent.stretch?.countingSince).toBeUndefined();
+  });
+
+  it("remembers the last main-thread text, not a subagent's", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [1, said("first")],
+      [2, said("last")],
+      [3, said("from a subagent", "toolu_1")],
+    );
+    expect(agent.stretch?.text).toBe("last");
+  });
+
+  it("opens no stretch for fleet's own notes, and an agent's message opens one by the agent", () => {
+    expect(agentAt([0, prompt("fleet")]).stretch).toBeUndefined();
+    expect(agentAt([0, prompt("agent")]).stretch).toMatchObject({ by: "agent", startedAt: 0 });
+    expect(agentAt([4, prompt("user")]).stretch).toMatchObject({ by: "user", startedAt: 4000 });
+  });
+
+  it("keeps one stretch for prompts queued mid-turn, and starts another after a pause", () => {
+    const queued = agentAt([0, prompt("user")], [0, working], [8, prompt("user")]);
+    expect(queued.stretch?.startedAt).toBe(0);
+    const again = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [9, activity("idle")],
+      [20, prompt("user")],
+    );
+    expect(again.stretch).toMatchObject({ startedAt: 20_000, workMs: 0 });
+  });
+
+  it("a user prompt joining an agent's stretch makes it the user's", () => {
+    const agentFirst = [
+      [0, prompt("agent")],
+      [0, working],
+    ] as Array<[number, NewEvent]>;
+    const joined = agentAt(...agentFirst, [5, prompt("user")]);
+    expect(joined.stretch).toMatchObject({ by: "user", startedAt: 0 });
+    expect(joined.lastBy).toBe("user");
+    expect(agentAt(...agentFirst, [5, prompt("fleet")]).stretch?.by).toBe("agent");
+    expect(agentAt(...agentFirst, [5, prompt("agent")]).stretch?.by).toBe("agent");
+  });
+
+  it("starts a fresh stretch when the agent wakes itself after the user ended one", () => {
+    const stopped: NewEvent = {
+      kind: "turn_finished",
+      agent: "a",
+      ok: false,
+      costUsd: 0,
+      error: "error_during_execution",
+    };
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [3, { kind: "ended_by_user", agent: "a", how: "interrupt" }],
+      [4, stopped],
+      [5, activity("idle")],
+      [600, working],
+    );
+    expect(agent.stretch).toMatchObject({ by: "user", startedAt: 600_000, endedByUser: false });
+    expect(agent.stretch?.failed).toBeUndefined();
+  });
+
+  it("does not let replayed history open or change a stretch", () => {
+    const history: NewEvent = { ...prompt("user"), replayed: true } as NewEvent;
+    const agent = agentAt(
+      [0, history],
+      [1, activity("stopped")],
+      [2, prompt("fleet")],
+      [2, working],
+    );
+    expect(agent.lastBy).toBeUndefined();
+    expect(agent.stretch?.by).toBe("agent");
+    expect(agentAt([0, history]).stretch).toBeUndefined();
+  });
+
+  it("marks a stretch the user ended", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [3, { kind: "ended_by_user", agent: "a", how: "interrupt" }],
+    );
+    expect(agent.stretch?.endedByUser).toBe(true);
+  });
+
+  it("continues an unread item when the agent wakes itself", () => {
+    const woken = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [30, runFinished(finished("i1"))],
+      [31, activity("idle")],
+      [60, working],
+    );
+    expect(woken.stretch).toMatchObject({ by: "user", continues: "i1", startedAt: 60_000 });
+    // A read item has nothing to continue.
+    const read = agentAt(
+      [0, prompt("user")],
+      [30, runFinished(finished("i1", { read: true }))],
+      [60, working],
+    );
+    expect(read.stretch?.continues).toBeUndefined();
+    // Without a prompt before, nobody asked for the work.
+    expect(agentAt([0, working]).stretch?.by).toBe("agent");
+  });
+
+  it("stores Finished items, replaces a continued one, and marks the agent new", () => {
+    const first = agentAt([0, prompt("user")], [0, working], [30, runFinished(finished("i1"))]);
+    expect(first.stretch).toBeUndefined();
+    expect(first.finished).toHaveLength(1);
+    expect(first.unseen).toBe(true);
+
+    const second = agentAt(
+      [0, prompt("user")],
+      [30, runFinished(finished("i1"))],
+      [40, runFinished({ ...finished("i2"), text: "new text" }, "i1")],
+    );
+    expect(second.finished).toMatchObject([{ id: "i2", text: "new text" }]);
+
+    const long = agentAt([0, runFinished({ ...finished("i1"), text: "x".repeat(TEXT_LIMIT + 1) })]);
+    expect(long.finished[0]?.text).toHaveLength(TEXT_LIMIT);
+  });
+
+  it("groups unread runs per agent, newest first", () => {
+    const runOf = (agent: string, id: string, endedAt: number, read = false): NewEvent => ({
+      ...runFinished(finished(id, { endedAt, read })),
+      agent,
+    });
+    const state = reduceAll(
+      events(
+        worker("a"),
+        worker("b"),
+        worker("c"),
+        runOf("a", "a1", 10),
+        runOf("b", "b1", 40),
+        runOf("a", "a2", 30),
+        runOf("a", "a3", 50, true),
+        runOf("c", "c1", 5, true),
+      ),
+    );
+    expect(unreadFinished(state).map(({ agent, runs }) => [agent, runs.map((r) => r.id)])).toEqual([
+      ["b", ["b1"]],
+      ["a", ["a2", "a1"]],
+    ]);
+  });
+
+  it("keeps 20 read items per agent and caps unread ones", () => {
+    const ids = (agent: AgentView) => agent.finished.map((i) => i.id);
+    const many = Array.from({ length: FINISHED_UNREAD_LIMIT + 3 }, (_, i) =>
+      runFinished(finished(`i${i}`)),
+    );
+    const unread = run(...many);
+    expect(unread.finished).toHaveLength(FINISHED_UNREAD_LIMIT);
+    expect(ids(unread)[0]).toBe("i3");
+
+    const everything = many.map((_, i) => `i${i}`);
+    const read = run(...many.slice(0, FINISHED_UNREAD_LIMIT), readEvent(...everything));
+    expect(read.finished.every((i) => i.read)).toBe(true);
+    const more = run(
+      ...many.slice(0, FINISHED_UNREAD_LIMIT),
+      readEvent(...everything),
+      ...Array.from({ length: 5 }, (_, i) => runFinished(finished(`n${i}`, { read: true }))),
+    );
+    expect(more.finished).toHaveLength(FINISHED_READ_LIMIT);
+    expect(ids(more)[0]).toBe("i5");
+
+    // Unread items stay when the read ones overflow.
+    const mixed = run(
+      runFinished(finished("keep")),
+      ...Array.from({ length: FINISHED_READ_LIMIT + 1 }, (_, i) =>
+        runFinished(finished(`r${i}`, { read: true })),
+      ),
+    );
+    expect(ids(mixed)).toContain("keep");
+    expect(mixed.finished.filter((i) => i.read)).toHaveLength(FINISHED_READ_LIMIT);
+  });
+
+  it("stretchEnded sees idle, stopped and failed turns", () => {
+    const before = agentAt([0, prompt("user")], [0, working]);
+    const afterSteps = (...steps: Array<[number, NewEvent]>) =>
+      agentAt([0, prompt("user")], [0, working], ...steps);
+    expect(stretchEnded(before, afterSteps([1, activity("idle")]))).toBe(true);
+    expect(stretchEnded(before, afterSteps([1, activity("stopped")]))).toBe(true);
+    const failed: NewEvent = {
+      kind: "turn_finished",
+      agent: "a",
+      ok: false,
+      costUsd: 0,
+      error: "error_during_execution",
+    };
+    const failedAgent = afterSteps([1, failed]);
+    expect(failedAgent.stretch?.failed).toBe("error_during_execution");
+    expect(stretchEnded(before, failedAgent)).toBe(true);
+    // Neither a working agent nor one that already ended counts.
+    expect(stretchEnded(before, afterSteps([1, said("hi")]))).toBe(false);
+    const idle = afterSteps([1, activity("idle")]);
+    expect(stretchEnded(idle, afterSteps([1, activity("idle")], [2, said("late")]))).toBe(false);
+    expect(stretchEnded(undefined, agentAt([0, activity("idle")]))).toBe(false);
   });
 });

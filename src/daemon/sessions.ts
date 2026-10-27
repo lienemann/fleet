@@ -71,6 +71,8 @@ function userLine(stored: SessionMessage, text: string): AgentEvent {
   if (command)
     return {
       kind: "user_prompt",
+      by: "user",
+      replayed: true,
       text: [command[1], command[2]?.trim()].filter(Boolean).join(" "),
     };
 
@@ -79,6 +81,8 @@ function userLine(stored: SessionMessage, text: string): AgentEvent {
     // Reminders the harness appends to a prompt are not part of what the user wrote.
     return {
       kind: "user_prompt",
+      by: "user",
+      replayed: true,
       text: text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim(),
     };
   }

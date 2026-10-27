@@ -42,7 +42,7 @@ describe("Edited files", () => {
     );
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
 
     expect(agent()?.log.at(-1)).toMatchObject({

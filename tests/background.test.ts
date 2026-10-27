@@ -71,7 +71,7 @@ describe("Background tasks", () => {
     );
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
 
     expect(agent()?.backgroundTasks).toMatchObject([
@@ -93,7 +93,7 @@ describe("Background tasks", () => {
     const { queryFn, queries } = fakeQuery(echoing(...devServer, result()));
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
 
     await session.stopTask("t1");
@@ -109,7 +109,7 @@ describe("Background tasks", () => {
     const { queryFn, queries } = fakeQuery(echoing(...devServer, result()));
     const { session, agent } = newSession(queryFn);
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
     // The SDK answers getTaskOutput without declaring it.
     const { getTaskOutput: read } = queries[0] as unknown as {
@@ -141,7 +141,7 @@ describe("Background tasks", () => {
     const { session, agent, log } = newSession(queryFn);
     log.append({ kind: "task_state", agent: "a1", state: "running" });
     session.start();
-    session.prompt("go");
+    session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
     expect(columnOf(agent() as AgentView)).toBe("running");
 

@@ -45,6 +45,12 @@ describe("transcriptEvents", () => {
     ]);
   });
 
+  it("marks the prompts it copies as replayed history", () => {
+    const prompts = transcriptEvents(transcript).filter((e) => e.kind === "user_prompt");
+    expect(prompts).not.toHaveLength(0);
+    expect(prompts.every((e) => e.replayed)).toBe(true);
+  });
+
   it("shows what the harness injected as short notes, not as the user's prompts", () => {
     const injected = (content: string, origin?: object): SessionMessage => ({
       ...stored("user", content),

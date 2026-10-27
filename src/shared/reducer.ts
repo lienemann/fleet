@@ -5,6 +5,7 @@ import {
   type DecisionKind,
   type EffortLevel,
   type FileEdit,
+  type FinishedRun,
   type FleetEvent,
   type LogRole,
   type LowDisk,
@@ -116,6 +117,25 @@ export interface OpenPointsDoc {
   seq: number;
 }
 
+export type { FinishedRun };
+
+/** One stretch of work: from a prompt until the agent rests, however many turns it takes. */
+export interface Stretch {
+  by: "user" | "agent";
+  startedAt: number;
+  /** Working time so far, without time spent waiting on the user's decisions. */
+  workMs: number;
+  /** Set while the agent works and nothing waits on the user. */
+  countingSince?: number;
+  /** The last text the agent wrote on its main thread in this stretch. */
+  text?: string;
+  endedByUser: boolean;
+  /** The unread item this stretch continues after the agent woke itself. */
+  continues?: string;
+  /** Why a turn of the stretch failed: "offline" or the SDK's error subtype. */
+  failed?: string;
+}
+
 export interface AgentView {
   name: string;
   role: Role;
@@ -162,6 +182,12 @@ export interface AgentView {
   reconnecting: boolean;
   /** Its last turn failed for want of a connection; fleet continues it once Claude answers. */
   offline?: boolean;
+  /** The stretch of work in progress, or the last one while the agent rests and nothing ended it. */
+  stretch?: Stretch;
+  /** Who started the latest stretch; a stretch the agent wakes itself into goes on by that. */
+  lastBy?: Stretch["by"];
+  /** Runs for the inbox, oldest first. */
+  finished: FinishedRun[];
   /** Outcome changed since the user last opened the agent. */
   unseen: boolean;
   createdSeq: number;
@@ -257,6 +283,10 @@ export const MODELS_LIMIT = 40;
 export const EDITS_LIMIT = 100;
 /** Finished background tasks kept per agent; the oldest go first. */
 export const BACKGROUND_LIMIT = 20;
+/** Read Finished items kept per agent; the oldest go first. */
+export const FINISHED_READ_LIMIT = 20;
+/** Unread Finished items kept per agent; past it the oldest unread one goes. */
+export const FINISHED_UNREAD_LIMIT = 20;
 
 const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
 
@@ -322,6 +352,24 @@ export const unreadThreads = (state: FleetState): Array<{ agent: string; thread:
     .flatMap((a) => a.threads.filter((t) => t.unread).map((thread) => ({ agent: a.name, thread })))
     .sort((a, b) => lastTs(a.thread) - lastTs(b.thread));
 
+/** Unread Finished items per agent, newest first; the agent with the newest run comes first. */
+export function unreadFinished(state: FleetState): Array<{ agent: string; runs: FinishedRun[] }> {
+  return Object.values(state.agents)
+    .map((a) => ({ agent: a.name, runs: a.finished.filter((r) => !r.read).reverse() }))
+    .filter(({ runs }) => runs.length > 0)
+    .sort((a, b) => (b.runs[0]?.endedAt ?? 0) - (a.runs[0]?.endedAt ?? 0));
+}
+
+/**
+ * Whether the stretch of work that `after` holds just ended: the agent went from working to
+ * idle or stopped, or a turn of the stretch failed.
+ */
+export const stretchEnded = (before: AgentView | undefined, after: AgentView): boolean =>
+  after.stretch !== undefined &&
+  ((before?.activity === "working" &&
+    (after.activity === "idle" || after.activity === "stopped")) ||
+    (after.stretch.failed !== undefined && before?.stretch?.failed === undefined));
+
 const lastTs = (thread: LineThread): number => thread.messages.at(-1)?.ts ?? 0;
 
 export function columnOf(agent: AgentView): Column {
@@ -385,7 +433,7 @@ const unlink = (links: FleetState["links"], agent: string): FleetState["links"] 
 export function reduce(state: FleetState, event: FleetEvent): FleetState {
   if (event.seq <= state.lastSeq) return state; // already applied; replays can overlap
   const next = apply({ ...state, lastSeq: event.seq }, event);
-  return markOutcome(state, next, event);
+  return markOutcome(state, trackStretch(state, next, event), event);
 }
 
 export const reduceAll = (events: Iterable<FleetEvent>, from = emptyState()): FleetState => {
@@ -477,6 +525,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       handovers: 0,
       edits: [],
       threads: [],
+      finished: [],
       history: [{ lane: event.role === "worker" ? "queued" : "idle", from: event.ts }],
       costUsd: 0,
       costByDay: {},
@@ -570,6 +619,21 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         log: appendLine(agent.log, event, "user", event.text + attached, undefined, {
           ...(event.thread && { thread: event.thread }),
         }),
+      });
+    }
+    case "ended_by_user":
+      return patch({ stretch: agent.stretch && { ...agent.stretch, endedByUser: true } });
+    case "run_finished": {
+      const item = { ...event.item, text: event.item.text.slice(0, TEXT_LIMIT) };
+      const others = agent.finished.filter((r) => r.id !== event.replaces);
+      return patch({ stretch: undefined, finished: trimFinished([...others, item]) });
+    }
+    case "finished_read": {
+      const ids = new Set(event.ids);
+      return patch({
+        finished: trimFinished(
+          agent.finished.map((r) => (ids.has(r.id) ? { ...r, read: true } : r)),
+        ),
       });
     }
     case "log":
@@ -755,6 +819,76 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
   }
 }
 
+/** Keeps the newest read and unread items up to their limits. */
+function trimFinished(items: FinishedRun[]): FinishedRun[] {
+  const keep = new Set([
+    ...items.filter((r) => !r.read).slice(-FINISHED_UNREAD_LIMIT),
+    ...items.filter((r) => r.read).slice(-FINISHED_READ_LIMIT),
+  ]);
+  return items.filter((r) => keep.has(r));
+}
+
+/**
+ * Follows the agent's stretch of work. A prompt of the user or another agent opens one,
+ * unless the agent is mid-turn, when it joins the stretch under way. An agent that starts on
+ * its own continues the stretch it had; if that ended in an unread item, the next item
+ * replaces it.
+ */
+function trackStretch(before: FleetState, after: FleetState, event: FleetEvent): FleetState {
+  const old = before.agents[event.agent];
+  const agent = after.agents[event.agent];
+  if (!old || !agent) return after;
+
+  let { stretch } = agent;
+  let lastBy = agent.lastBy;
+  if (event.kind === "user_prompt" && event.by !== "fleet" && !event.replayed) {
+    if (!stretch || agent.activity !== "working") {
+      stretch = { by: event.by, startedAt: event.ts, workMs: 0, endedByUser: false };
+      lastBy = event.by;
+    } else if (event.by === "user" && stretch.by === "agent") {
+      // The user typed into it, so the user waits for its end.
+      stretch = { ...stretch, by: "user" };
+      lastBy = "user";
+    }
+  } else if (
+    event.kind === "activity" &&
+    event.activity === "working" &&
+    old.activity !== "working" &&
+    stretch?.endedByUser
+  ) {
+    // The user ended that stretch; what the agent does on its own now is a new one.
+    stretch = { by: lastBy ?? "agent", startedAt: event.ts, workMs: 0, endedByUser: false };
+  } else if (!stretch && agent.activity === "working" && event.kind !== "run_finished") {
+    const latest = agent.finished.at(-1);
+    stretch = {
+      by: lastBy ?? "agent",
+      startedAt: event.ts,
+      workMs: 0,
+      endedByUser: false,
+      ...(latest && !latest.read && { continues: latest.id }),
+    };
+  }
+  if (!stretch) return after;
+
+  if (event.kind === "log" && event.role === "assistant" && event.parent === null) {
+    stretch = { ...stretch, text: event.text.slice(0, TEXT_LIMIT) };
+  }
+  if (event.kind === "turn_finished") {
+    const { failed: _earlier, ...rest } = stretch;
+    stretch = event.ok
+      ? rest
+      : { ...rest, failed: event.offline ? "offline" : (event.error ?? "error") };
+  }
+  const counting = agent.activity === "working" && agent.pending === 0;
+  if (counting && stretch.countingSince === undefined) {
+    stretch = { ...stretch, countingSince: event.ts };
+  } else if (!counting && stretch.countingSince !== undefined) {
+    const { countingSince, ...rest } = stretch;
+    stretch = { ...rest, workMs: stretch.workMs + event.ts - countingSince };
+  }
+  return { ...after, agents: { ...after.agents, [event.agent]: { ...agent, stretch, lastBy } } };
+}
+
 /**
  * Marks an agent as new when its outcome changes: it starts to need the user or reaches
  * review. Log lines and other churn never count.
@@ -769,6 +903,7 @@ function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): 
     (needsUser(now) && !needsUser(old)) ||
     (moved && column === "review") ||
     event.kind === "open_points" ||
+    event.kind === "run_finished" ||
     (event.kind === "thread_message" &&
       event.message.from === "agent" &&
       now.threads.some((t) => t.id === event.threadId));

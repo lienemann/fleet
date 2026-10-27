@@ -12,6 +12,7 @@ import {
   IMAGE_TYPES,
   PDF_TYPE,
   type PromptAttachment,
+  type PromptOrigin,
   type Report,
   type ReviewKind,
   type SessionHolder,
@@ -408,7 +409,7 @@ export class Supervisor implements ToolHost {
   /** Resumes a session that ran when the daemon stopped; one mid-turn is told to continue. */
   private resume(agent: AgentView): void {
     const session = this.session(agent.name);
-    if (agent.activity === "working") session?.prompt(RESTART_NOTE);
+    if (agent.activity === "working") session?.prompt(RESTART_NOTE, [], { by: "fleet" });
     session?.start();
   }
 
@@ -430,7 +431,7 @@ export class Supervisor implements ToolHost {
         if (this.agent(message.agent)?.activity === "detached") {
           this.background(this.attach(message.agent, message.text, message.attachments));
         } else {
-          this.prompt(message.agent, message.text, message.attachments);
+          this.prompt(message.agent, message.text, "user", message.attachments);
         }
         return;
       case "attach":
@@ -1044,10 +1045,10 @@ export class Supervisor implements ToolHost {
     attachments: PromptAttachment[] = [],
   ): Promise<void> {
     await this.catchUp(name);
-    if (text !== undefined) return this.prompt(name, text, attachments);
+    if (text !== undefined) return this.prompt(name, text, "user", attachments);
     const session = this.session(name);
     const first = this.compose(name);
-    if (first) session?.prompt(first);
+    if (first) session?.prompt(first, [], { by: "fleet" });
     session?.start();
   }
 
@@ -1143,7 +1144,7 @@ export class Supervisor implements ToolHost {
     this.append(name, { kind: "handover", state: "writing", path });
 
     const old = this.session(name);
-    old?.prompt(handoverRequest(path));
+    old?.prompt(handoverRequest(path), [], { by: "fleet" });
     old?.start();
     await this.until(() => {
       const now = this.agent(name);
@@ -1176,7 +1177,7 @@ export class Supervisor implements ToolHost {
     this.sessions.delete(name);
     this.append(name, { kind: "handover", state: "done", path });
     const fresh = this.session(name);
-    fresh?.prompt(start);
+    fresh?.prompt(start, [], { by: "fleet" });
     fresh?.start();
   }
 
@@ -1263,7 +1264,7 @@ export class Supervisor implements ToolHost {
         return;
       }
       this.retryMs = RETRY_FIRST_MS;
-      for (const agent of waiting) this.prompt(agent.name, CONNECTION_NOTE);
+      for (const agent of waiting) this.prompt(agent.name, CONNECTION_NOTE, "fleet");
       return;
     }
     const first = waiting[0];
@@ -1273,7 +1274,7 @@ export class Supervisor implements ToolHost {
     }
     if (now < this.retryAt) return;
     this.scout = first.name;
-    this.prompt(first.name, CONNECTION_NOTE);
+    this.prompt(first.name, CONNECTION_NOTE, "fleet");
   }
 
   /** Ends all sessions without recording it, so the next start resumes them. */
@@ -1903,7 +1904,7 @@ export class Supervisor implements ToolHost {
   /** Like a prompt typed in the tile: no bus message, the card stays. A detached session gets it once fleet runs it again. */
   private sendToThread(name: string, text: string, thread: string): void {
     if (this.agent(name)?.activity === "detached") this.hold(name, text);
-    else this.prompt(name, text, [], thread);
+    else this.prompt(name, text, "user", [], thread);
   }
 
   private async ask(agent: string, request: Parameters<AgentSession["ask"]>[1]): Promise<Answer> {
@@ -1936,6 +1937,7 @@ export class Supervisor implements ToolHost {
   private prompt(
     name: string,
     text: string,
+    by: PromptOrigin,
     attachments: PromptAttachment[] = [],
     thread?: string,
   ): void {
@@ -1951,7 +1953,7 @@ export class Supervisor implements ToolHost {
     const session = this.session(name);
     // Queue first, so the session starts working instead of starting idle. A detached session
     // is taken back from the terminal by sending to it.
-    session?.prompt(this.compose(name, text + mentions) ?? text, inline, thread);
+    session?.prompt(this.compose(name, text + mentions) ?? text, inline, { by, thread });
     session?.start();
   }
 
@@ -1962,7 +1964,7 @@ export class Supervisor implements ToolHost {
   private deliver(to: string, from: string, body: string): void {
     const text = `Message from ${from}:\n\n${body}`;
     if (this.agent(to)?.activity === "detached") this.hold(to, text);
-    else this.prompt(to, text);
+    else this.prompt(to, text, from === USER ? "user" : "agent");
   }
 
   private async move(name: string, to: TaskState): Promise<void> {
@@ -2017,7 +2019,7 @@ export class Supervisor implements ToolHost {
     const session = this.session(agent.name);
     // A reopened task already has its conversation and waits for the user's next prompt.
     // A new task's prompt is queued before the start, so the session starts working.
-    if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title);
+    if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title, [], { by: "user" });
     this.append(agent.name, { kind: "task_state", state: "running" });
     session?.start();
   }

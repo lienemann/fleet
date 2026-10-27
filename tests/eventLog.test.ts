@@ -8,7 +8,7 @@ describe("EventLog", () => {
   it("replays only what a client has not seen", () => {
     const log = new EventLog(":memory:");
     log.append(created);
-    const second = log.append({ kind: "user_prompt", agent: "a", text: "hi" });
+    const second = log.append({ kind: "user_prompt", agent: "a", by: "user", text: "hi" });
     log.append({ kind: "task_state", agent: "a", state: "running" });
 
     expect(log.since(second.seq).map((e) => e.kind)).toEqual(["task_state"]);

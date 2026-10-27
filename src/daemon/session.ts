@@ -16,6 +16,7 @@ import {
   type EventBody,
   type PermissionMode,
   type PromptAttachment,
+  type PromptOrigin,
   type Question,
 } from "../shared/events.ts";
 import type { Answer, TaskOutput } from "../shared/protocol.ts";
@@ -183,12 +184,17 @@ export class AgentSession {
     this.done = this.run(generation);
   }
 
-  /** `thread` marks the prompt as a message of that line thread. */
-  prompt(text: string, attachments: readonly PromptAttachment[] = [], thread?: string): void {
+  /** `by` says who asks; `thread` marks the prompt as a message of that line thread. */
+  prompt(
+    text: string,
+    attachments: readonly PromptAttachment[] = [],
+    { by, thread }: { by: PromptOrigin; thread?: string },
+  ): void {
     const names = attachments.map((file) => file.name);
     this.options.emit({
       kind: "user_prompt",
       text,
+      by,
       ...(names.length > 0 && { attachments: names }),
       ...(thread && { thread }),
     });
