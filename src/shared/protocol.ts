@@ -254,6 +254,17 @@ export const CallSchema = z.discriminatedUnion("type", [
     hunkId: z.string().min(1),
     lines: z.array(z.string()),
   }),
+  /** The commit that last changed lines of the review head, for folding a fix into it. */
+  z
+    .object({
+      type: z.literal("review_origin"),
+      id,
+      agent,
+      path: z.string().min(1),
+      start: z.number().int().min(1),
+      endExclusive: z.number().int().min(1),
+    })
+    .refine(...nonEmpty),
 ]);
 
 export type Answer = z.infer<typeof AnswerSchema>;
@@ -276,6 +287,8 @@ export interface CallResults {
   review_load: ReviewModel;
   review_approve: ReviewModel;
   review_edit: ReviewModel;
+  /** null when the lines come from several commits, the working copy or trunk. */
+  review_origin: { change: string; short: string } | null;
 }
 
 /** The end of a task's output. */

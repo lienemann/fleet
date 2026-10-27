@@ -618,19 +618,37 @@ export class Supervisor implements ToolHost {
       }
       case "review_load":
         return this.trackProgress(
-          await this.reviews.load(agent.name, agent.cwd, agent.report?.walkthrough, call.scope),
+          await this.reviews.load(
+            agent.name,
+            agent.cwd,
+            agent.report?.walkthrough,
+            call.scope,
+            agent.threads,
+          ),
         );
       case "review_approve":
-        return this.trackProgress(await this.reviews.approve(agent.name, call.ids, call.approved));
+        return this.trackProgress(
+          await this.reviews.approve(agent.name, call.ids, call.approved, agent.threads),
+        );
       case "review_edit": {
         // Writing files while the agent works would race with its own edits.
         if (agent.activity === "working" || agent.pending > 0) {
           throw new Error(`${agent.name} is working; interrupt it or wait before editing.`);
         }
-        const { model, edit } = await this.reviews.edit(agent.name, call.hunkId, call.lines);
+        const { model, edit } = await this.reviews.edit(
+          agent.name,
+          call.hunkId,
+          call.lines,
+          agent.threads,
+        );
         this.append(agent.name, { kind: "review_edited", edit });
         return this.trackProgress(model);
       }
+      case "review_origin":
+        return this.reviews.origin(agent.name, call.path, {
+          start: call.start,
+          endExclusive: call.endExclusive,
+        });
     }
   }
 

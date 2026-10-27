@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ReviewError, ReviewService, recognizeLink } from "../src/daemon/review.ts";
+import type { LineThread } from "../src/shared/review.ts";
 
 const env = {
   ...process.env,
@@ -246,5 +247,92 @@ describe("walkthroughs", () => {
     );
     expect(model.order).toBeUndefined();
     expect(model.files[0]?.hunks[0]?.uncovered).toBeUndefined();
+  });
+});
+
+describe("line threads", () => {
+  const thread = (overrides: Partial<LineThread>): LineThread => ({
+    id: "t1",
+    path: "lib.py",
+    side: "head",
+    lines: { start: 2, endExclusive: 3 },
+    quote: ["    return 10"],
+    messages: [],
+    resolved: false,
+    unread: false,
+    ...overrides,
+  });
+
+  it("names the commit that wrote lines, and none for the working copy or a mix", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    jj("commit", "-m", "change a");
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10").replace("return 3", "return 30")),
+    );
+    const reviews = service();
+    const model = await reviews.load("alpha", repo);
+    const earlier = model.commits.find((c) => c.summary === "change a");
+
+    expect(await reviews.origin("alpha", "lib.py", { start: 2, endExclusive: 3 })).toEqual({
+      change: earlier?.change,
+      short: earlier?.short,
+    });
+    // Line 10 is only in the working copy; lines 2 to 10 mix both.
+    const working = { start: 10, endExclusive: 11 };
+    expect(await reviews.origin("alpha", "lib.py", working)).toBeNull();
+    expect(await reviews.origin("alpha", "lib.py", { start: 2, endExclusive: 11 })).toBeNull();
+    // Trunk's lines are outside the review.
+    expect(await reviews.origin("alpha", "lib.py", { start: 5, endExclusive: 6 })).toBeNull();
+  });
+
+  it("places the threads it is given in the model", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    const model = await service().load("alpha", repo, undefined, undefined, [thread({})]);
+    expect(model.threads).toEqual([
+      {
+        thread: "t1",
+        hunk: model.files[0]?.hunks[0]?.id,
+        lines: { start: 2, endExclusive: 3 },
+        outdated: false,
+      },
+    ]);
+  });
+
+  it("places a thread of another commit off the hunks of a single commit", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    jj("commit", "-m", "change a");
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10").replace("return 3", "return 30")),
+    );
+    const reviews = service();
+    const { commits } = await reviews.load("alpha", repo);
+    const working = commits.find((c) => c.workingCopy)?.change ?? "";
+    const own = thread({
+      id: "t2",
+      quote: ["    return 30"],
+      lines: { start: 10, endExclusive: 11 },
+    });
+    const model = await reviews.load(
+      "alpha",
+      repo,
+      undefined,
+      { kind: "commit", change: working },
+      [thread({}), own],
+    );
+    expect(model.threads.map((t) => [t.thread, t.hunk !== undefined, t.outdated])).toEqual([
+      ["t1", false, false],
+      ["t2", true, false],
+    ]);
   });
 });

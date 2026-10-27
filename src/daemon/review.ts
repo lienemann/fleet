@@ -5,6 +5,7 @@ import {
   approvedVersions,
   type CodeReference,
   detectReviewMoves,
+  type EditLocation,
   FileApprovalStore,
   type FileReview,
   finishCommitEdit,
@@ -33,12 +34,15 @@ import {
 import type {
   FileView,
   HunkView,
+  LineRange,
+  LineThread,
   MoveView,
   ReviewCommit,
   ReviewEdit,
   ReviewModel,
   ReviewScope,
 } from "../shared/review.ts";
+import { type PlacementFile, placeThreads } from "./threadPlacement.ts";
 
 /** Unchanged lines shown around each hunk. */
 const CONTEXT = 3;
@@ -55,6 +59,8 @@ interface Loaded {
   target: string;
   commits: ReviewCommit[];
   review: Review;
+  /** The whole branch's review; the same as `review` unless a single commit is shown. */
+  branch: Review;
   moves: Move[];
   walkthrough?: string;
   guide?: Guide;
@@ -100,6 +106,7 @@ export class ReviewService {
     cwd: string,
     walkthrough?: string,
     scope: ReviewScope = BRANCH,
+    threads: LineThread[] = [],
   ): Promise<ReviewModel> {
     const repo = await openRepository(cwd, { prefer: "jj" });
     if (!repo) throw new ReviewError(`${cwd} is not in a jj or git repository.`);
@@ -108,12 +115,15 @@ export class ReviewService {
     const commits = repo instanceof JjAdapter ? await stack(repo, target) : [];
     const commit =
       scope.kind === "commit" ? commits.find((c) => c.change === scope.change) : undefined;
-    const review = await loadReview(
-      repo,
-      commit
-        ? { mode: "compare", base: `${commit.change}-`, head: commit.change }
-        : { mode: "branch", target },
-    );
+    const branchSpec = { mode: "branch", target } as const;
+    // The threads are placed against the whole branch, so a commit's view loads it as well.
+    const [review, branch] = await Promise.all([
+      loadReview(
+        repo,
+        commit ? { mode: "compare", base: `${commit.change}-`, head: commit.change } : branchSpec,
+      ),
+      commit ? loadReview(repo, branchSpec) : undefined,
+    ]);
     const moves = detectReviewMoves(review.files).moves;
     // The walkthrough describes the whole change, so only the branch review follows it.
     const guide =
@@ -125,16 +135,22 @@ export class ReviewService {
       target,
       commits,
       review,
+      branch: branch ?? review,
       moves,
       walkthrough,
       guide,
     };
     this.loaded.set(agent, loaded);
-    return this.model(agent, loaded);
+    return this.model(agent, loaded, threads);
   }
 
   /** Approves or unapproves hunks and moves by id, then returns the updated model. */
-  async approve(agent: string, ids: readonly string[], approved: boolean): Promise<ReviewModel> {
+  async approve(
+    agent: string,
+    ids: readonly string[],
+    approved: boolean,
+    threads: LineThread[] = [],
+  ): Promise<ReviewModel> {
     const loaded = this.require(agent);
     const { store, review, moves } = loaded;
     const head = review.range.head;
@@ -159,7 +175,27 @@ export class ReviewService {
     }
     if (removals.length > 0) await store.unapproveMany(removals);
     if (records.length > 0) await store.approveMany(records);
-    return this.model(agent, loaded);
+    return this.model(agent, loaded, threads);
+  }
+
+  /**
+   * The commit that last changed lines of the reviewed head, when it is one commit of the task
+   * that wrote all of them; null for the working copy, a mix of commits or lines from trunk.
+   */
+  async origin(
+    agent: string,
+    path: string,
+    lines: LineRange,
+  ): Promise<{ change: string; short: string } | null> {
+    const { repo, review } = this.require(agent);
+    if (!(repo instanceof JjAdapter)) return null;
+    try {
+      const { first, same } = await locateRange(repo, review, path, lines);
+      if (!same || first.kind !== "commit") return null;
+      return { change: first.commit.changeId, short: first.commit.shortId };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -171,6 +207,7 @@ export class ReviewService {
     agent: string,
     hunkId: string,
     lines: string[],
+    threads: LineThread[] = [],
   ): Promise<{ model: ReviewModel; edit: ReviewEdit }> {
     const loaded = this.require(agent);
     const { repo, review } = loaded;
@@ -180,13 +217,8 @@ export class ReviewService {
     if (!found || found.hunk.added.length === 0)
       throw new ReviewError("Only added lines can be edited.");
     const { hunk } = found;
-    const first = await locateLine(repo, review.range, hunk.path, hunk.head.start);
-    const last = await locateLine(repo, review.range, hunk.path, hunk.head.endExclusive - 1);
-    const sameCommit =
-      first.kind === last.kind &&
-      (first.kind === "workingCopy" ||
-        (last.kind === "commit" && first.commit.commitId === last.commit.commitId));
-    if (!sameCommit || last.line - first.line !== hunk.added.length - 1) {
+    const { first, same } = await locateRange(repo, review, hunk.path, hunk.head);
+    if (!same) {
       throw new ReviewError(
         "These lines come from more than one commit; edit them one commit at a time.",
       );
@@ -212,10 +244,10 @@ export class ReviewService {
 
     // The edit makes new hunks; the user wrote them, so they count as reviewed.
     const before = new Set(review.files.flatMap((f) => f.hunks.map((h) => h.id)));
-    await this.load(agent, repo.root, loaded.walkthrough, loaded.scope);
+    await this.load(agent, repo.root, loaded.walkthrough, loaded.scope, threads);
     const fresh = this.require(agent).review.files.find((f) => f.change.path === hunk.path);
     const created = (fresh?.hunks ?? []).filter((h) => !before.has(h.id)).map((h) => h.id);
-    const model = await this.approve(agent, created, true);
+    const model = await this.approve(agent, created, true, threads);
     return { model, edit: { path: hunk.path, commit, before: hunk.added, after: lines } };
   }
 
@@ -246,7 +278,8 @@ export class ReviewService {
 
   private model(
     agent: string,
-    { repo, store, scope, target, commits, review, moves, guide }: Loaded,
+    { repo, store, scope, target, commits, review, branch, moves, guide }: Loaded,
+    threads: LineThread[],
   ): ReviewModel {
     const approvedMoves = new Set(moves.filter((m) => store.get(m.id)).map((m) => m.id));
     const moveOf = new Map(moves.flatMap((m) => m.hunkIds.map((id) => [id, m.id] as const)));
@@ -307,6 +340,7 @@ export class ReviewService {
       moves: moveViews,
       progress: { approved: hunks.filter((h) => h.approved).length, total: hunks.length },
       order: guide?.order,
+      threads: placeThreads(threads, placementFiles(branch), placementFiles(review), CONTEXT),
     };
   }
 
@@ -332,6 +366,35 @@ async function stack(repo: JjAdapter, target: string): Promise<ReviewCommit[]> {
     summary: c.summary,
     workingCopy: c.commitId === workingCopy?.commitId,
     empty: c.empty,
+  }));
+}
+
+/**
+ * Where the first and last line of `lines` were last changed, and whether one commit (or the
+ * working copy) wrote all of them in one piece. Throws for lines outside the review.
+ */
+async function locateRange(
+  repo: JjAdapter,
+  review: Review,
+  path: string,
+  lines: LineRange,
+): Promise<{ first: EditLocation; same: boolean }> {
+  const first = await locateLine(repo, review.range, path, lines.start);
+  const last = await locateLine(repo, review.range, path, lines.endExclusive - 1);
+  const same =
+    first.kind === last.kind &&
+    (first.kind === "workingCopy" ||
+      (last.kind === "commit" && first.commit.commitId === last.commit.commitId)) &&
+    last.line - first.line === lines.endExclusive - lines.start - 1;
+  return { first, same };
+}
+
+function placementFiles(review: Review): PlacementFile[] {
+  return review.files.map((file) => ({
+    path: file.change.path,
+    headLines: file.headLines,
+    baseLines: file.baseLines,
+    hunks: file.hunks.map(({ id, base, head }) => ({ id, base, head })),
   }));
 }
 

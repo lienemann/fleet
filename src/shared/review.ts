@@ -63,6 +63,17 @@ export interface ReviewCommit {
   empty: boolean;
 }
 
+/** Where a thread shows in the loaded diff. */
+export interface ThreadPlacement {
+  thread: string;
+  /** The hunk that shows its lines in this scope; absent when they are elsewhere. */
+  hunk?: string;
+  /** Its lines as they are now, when found. */
+  lines?: LineRange;
+  /** Its quoted lines are no longer in the branch's diff. */
+  outdated: boolean;
+}
+
 export interface ReviewModel {
   agent: string;
   scope: ReviewScope;
@@ -79,6 +90,8 @@ export interface ReviewModel {
   progress: { approved: number; total: number };
   /** Hunk ids in the order the agent's walkthrough discusses them, when there is one. */
   order?: string[];
+  /** Where each of the agent's line threads shows, resolved ones included. */
+  threads: ThreadPlacement[];
 }
 
 /** A draft comment on a hunk line, sent to the agent with "Request changes". */

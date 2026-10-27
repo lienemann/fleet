@@ -132,6 +132,25 @@ describe("changeRequest", () => {
   });
 });
 
+describe("line ranges and quotes from the browser", () => {
+  const valid = (command: object) => CommandSchema.safeParse(command).success;
+
+  it("take a quote of one to QUOTE_LIMIT lines", () => {
+    const quote = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`);
+    const lines = { start: 1, endExclusive: 100 };
+    expect(valid({ ...open(false), lines, quote: quote(QUOTE_LIMIT) })).toBe(true);
+    expect(valid({ ...open(false), lines, quote: quote(QUOTE_LIMIT + 1) })).toBe(false);
+    expect(valid({ ...open(false), quote: [] })).toBe(false);
+  });
+
+  it("refuse empty line ranges", () => {
+    expect(valid({ ...open(false), lines: { start: 3, endExclusive: 3 } })).toBe(false);
+    const origin = { type: "review_origin", id: "1", agent: "alpha", path: "lib.py", start: 3 };
+    expect(CallSchema.safeParse({ ...origin, endExclusive: 4 }).success).toBe(true);
+    expect(CallSchema.safeParse({ ...origin, endExclusive: 3 }).success).toBe(false);
+  });
+});
+
 function setup() {
   const repo = mkdtempSync(join(tmpdir(), "fleet-flow-"));
   const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
