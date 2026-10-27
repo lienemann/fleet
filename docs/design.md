@@ -128,6 +128,8 @@ The daemon is the only stateful component: one append-only SQLite event log per 
 | `<workspace>/.fleet/<agent>/`                              | Reports, open-point files, context packs            |
 | ReviewDiff `approvals.json` (common git dir or `.jj/repo`) | Hunk approvals, read and written by the diff view   |
 
+Data that comes and goes with tasks, sessions and agents lives in `fleet.db`: the event log, an agent's model, effort and color, its threads and open points. Configuration whose lifetime doesn't depend on any project or task lives in `config.toml`: hosts, projects and their workspaces, limits, the sleep policy, thresholds such as the one for Finished items. I can edit the file by hand or keep it with my dotfiles, and the settings in the UI write to the same file. Resetting `fleet.db` then costs history, never configuration.
+
 ## UI
 
 One web app served by the daemon, with six views over the same task data. Selection is shared: a task picked in one view stays picked in the others. The mockup on the Agent Supervisor UI canvas is the reference for layout and behaviour.
