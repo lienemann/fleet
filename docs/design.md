@@ -84,6 +84,7 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 | `submit_open_points` | any worker    | path of a Markdown file with `- [ ]` items                 | Points parsed into the inbox; answers go back as one message once all are answered |
 | `report_result`      | any worker    | summary, jj change ids, tests, open questions, walkthrough | Card moves to Review; report tab filled                                            |
 | `report_status`      | any worker    | one-line status, to-do progress                            | Card subtitle and timeline                                                         |
+| `reply_thread`       | any worker    | thread id, body (multi-line)                               | Reply under the lines in the diff; Replies item in the inbox                       |
 | `send_message`       | any agent     | to, body (multi-line)                                      | Message bus, flow view, both transcripts                                           |
 | `spawn_task`         | director only | title, context pack, workspace, host                       | New worker on the board                                                            |
 | `ledger`             | director only | read or update tasks                                       | Director's view of the board                                                       |
@@ -133,7 +134,7 @@ One web app served by the daemon, with six views over the same task data. Select
 | View     | Answers                     | Notes                                                                                                                                           |
 | -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Board    | Whose turn is it?           | Columns Queued, Running, Needs you, Review, Changes requested, Accepted; WIP limits on Running and Review; buttons are the moves you would drag |
-| Inbox    | What waits on me?           | Decisions and permissions with Claude's explanation and risk tags; open points; side-agent notes                                                |
+| Inbox    | What waits on me?           | Decisions and permissions with Claude's explanation and risk tags; open points; replies in line threads; side-agent notes                        |
 | Grid     | What is happening now?      | Live tiles; enlarging one turns the rest into a status strip                                                                                    |
 | Timeline | Where was I the bottleneck? | One lane per agent; waiting-on-me time in orange; 15 min or 2 h window                                                                          |
 | Flow     | Who talks to whom?          | Agents as nodes, messages as packets in the sender's color; click a link to filter                                                              |
@@ -158,10 +159,19 @@ fleet has its own diff view in the browser, built on reviewdiff-core, so review 
 
 **What the view shows**
 - Side-by-side or inline diff of a task's jj change against trunk, one file after another, with syntax highlighting.
+- A scope picker: all changes since the fork point from trunk, or one of the task's commits against its parent, stepping older and newer by key.
 - Per hunk: Approve and next, Skip, Comment. Progress ("3/9 hunks approved") on the card and in the drawer.
 - Accept with unreviewed hunks is allowed but says how many.
 
-**Comments to the agent.** Comments anchor to a hunk hash and line, not to GitLab. They collect as a draft I can edit, reorder or delete; "Request changes" sends them to the agent as one message with file, line and the quoted code. The agent's next revision shows which comments its changed hunks address.
+**Line threads.** I select one or more lines of a hunk, on either side, and write a question or a complaint: "this error message is hard to understand", "why this function and not the other one?". The diff is always one task's, opened in its drawer, so the thread belongs to that task's agent. By default it goes to the agent at once, as an ordinary user message that quotes the lines with file, line range and the short id of the commit that last changed them, so the agent sees it in its session like anything I type in the tile. The message names the thread and asks the agent to answer with the `reply_thread` tool; the answer appears under those lines, in a thread like a GitLab discussion where I can reply again. A message can land in a turn that is busy with other work, or share a turn with other threads, so only `reply_thread` counts as an answer: a thread the agent leaves unanswered says so, and its prose stays in the session. Both sides of the exchange show in the tile and the Live tab, my messages with a link that opens the thread in the diff. Like a prompt typed in the tile, a thread message stays off the message bus. Small edits I made since the last message to the agent go along with the next thread message, so the agent never answers about lines I have already rewritten.
+
+The composer has two checkboxes:
+- **Hold for Request changes.** The message waits in the draft instead of going out, and I can edit or delete it there. "Request changes" sends every held message as one change request, each with its thread, and from then on they are threads like the others.
+- **Fold the fix into `<commit>`.** Shown when the selected lines on the new side were last changed by one of the task's own commits. The message then asks the agent to put any fix into that commit (`jj squash --into`), so the history reads as if it had been right from the start. Off by default, since most questions change nothing. The agent does the folding itself, so the daemon never rewrites history under a running agent.
+
+Asking at once doesn't move the card: a task in Review stays there, and if the agent changes code in answer, the hunks it touches lose their approval, as after Request changes. While the agent is busy, the message waits in the prompt queue like any other. A thread keeps the path, side, line range, quoted text and commit from when I opened it. The daemon places it against the whole branch: at the hunk that still holds that text, or, once the agent has changed those lines or the file has left the diff, marked outdated. In a single-commit scope, threads whose lines aren't in that commit, and outdated threads in every scope, are listed above the first file, each with a link to its place. Only I resolve a thread. Resolved threads fold away, and the state keeps a bounded number of them per agent.
+
+An agent's reply puts the thread in the inbox's Replies section and marks the agent new. Opening the item jumps to the thread in the diff; reading, answering or resolving it clears the item. Threads are mine, like reviews: directors neither see nor answer them.
 
 **Small edits in the diff.** I can edit a few lines myself, typically code comments, docstrings and typos, without a round-trip to the agent:
 1. Edit lines on the right side of a hunk in place.
@@ -169,6 +179,8 @@ fleet has its own diff view in the browser, built on reviewdiff-core, so review 
 3. The hunk is approved as edited; the agent gets a short message listing what I changed.
 
 Edits are only allowed while the agent isn't running in that workspace (Review, Changes requested, or interrupted), so they never race with the agent's own writes. Everything goes through the op log and can be undone with `jj op restore`.
+
+**Later:** a read-only viewer for any file in the task's workspace, so a thread can point at code the change never touched ("this duplicates `parse_header`"). Threads already anchor to path and quoted text rather than to a hunk, so the viewer reuses them.
 
 **Out of scope for now:** GitLab merge request discussions in the web view. ReviewDiff in VS Code keeps covering MR review.
 
