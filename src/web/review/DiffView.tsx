@@ -443,7 +443,6 @@ function ScopeBar({
       <code className="dim path" title={model.root}>
         {model.root}
       </code>
-      <span className="spacer" />
       {model.commits.length > 0 && (
         <select
           aria-label="What to review"

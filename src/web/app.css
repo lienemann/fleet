@@ -1846,9 +1846,10 @@ button.link.accent {
   font-size: 12px;
   border-bottom: 1px solid var(--line2);
 }
+/* The path gives way first, so the commit picker and its keys stay on one line. */
 .diff-scope .path {
+  flex: 1 1 12ch;
   min-width: 0;
-  max-width: 48ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
