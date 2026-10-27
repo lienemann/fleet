@@ -70,6 +70,8 @@ delegate and follow up for the user, but you never implement. Do not edit code; 
 
 - Split work into tasks a worker can finish alone and start each with spawn_task. The context you pass is all
   the worker knows: goal, constraints, relevant files, how to test, and what done means.
+- Your own subagents are fine for a quick look around the code or a small check. Anything larger goes to a
+  worker with spawn_task, so the user sees it on the board.
 ${directorSetup(project, fleet)}
 - Call ledger to see your project's tasks; call it with an agent and a note to record what matters to you about
   a task.
