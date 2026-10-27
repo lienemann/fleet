@@ -56,16 +56,19 @@ Review happens in a diff view built on reviewdiff-core. You approve hunk by hunk
 ReviewDiff's own `approvals.json`, so when the agent revises its change only the hunks it touched come back. The
 diff follows the order of the agent's walkthrough and marks the hunks the walkthrough leaves out. Its header names
 the workspace and the revisions compared, and lets you review the whole change since trunk or one commit of the
-workspace's stack at a time. You can comment
-on lines, fix a typo yourself (the edit lands in the commit that wrote the line), and then accept the task or send
-the comments back as one message.
+workspace's stack at a time. Click a line number (Shift+click for a range) to start a thread under those lines.
+The question goes to the agent at once, quoting the lines, and it answers with `reply_thread` right there in the
+diff. Or hold it for Request changes, which sends all held questions as one message. If one commit of the task wrote
+the lines, you can ask the agent to fold its fix into that commit. Threads whose lines the agent has since rewritten
+are listed above the first file, and its replies turn up in the inbox. You can also fix a typo yourself (the edit
+lands in the commit that wrote the line), and then accept the task.
 
 Daemons on Coder pods show up in the same UI through the daemon on the Mac. On the Mac, fleet keeps the machine
 awake while agents work, can keep it running with the lid closed, and sends desktop notifications when an agent
 needs you while fleet is in the background. Everything is reachable from the keyboard, and the UI installs as an
 app.
 
-Not there yet: rewind (op restore plus a session fork), showing which review comments a revision addressed,
+Not there yet: rewind (op restore plus a session fork), showing which review threads a revision addressed,
 op-log entries attributed to agents and agent colors in jj orbit, the CLI's "You should know" side agent, and
 read-only lists of skills, hooks and MCP servers.
 
@@ -300,7 +303,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | `t`, Shift+T, `x` | next or previous drawer tab, close the drawer (in the grid: back to all tiles) |
 | `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
 | Shift+H, Shift+F | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
-| `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, comment, edit, side by side, walkthrough or file order, reload |
+| `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, ask about the hunk's changed lines, edit, side by side, walkthrough or file order, reload |
 | `[`, `]` in the diff | review the next newer or older commit; above the newest is the whole change |
 | `w` in the timeline | switch between the last 15 minutes and 2 hours |
 

@@ -179,6 +179,23 @@ await review
 await page.getByRole("button", { name: /^Diff/ }).click();
 await page.locator(".diff .hunk").first().waitFor();
 await shot("diff");
+
+// The first hunk approved, a question on an added line of the second, and the agent's answer under
+// it. The approved hunk folds away, so the file's name and the hunk show above the thread.
+const diff = page.locator(".diff");
+await diff
+  .locator(".hunk")
+  .first()
+  .getByRole("button", { name: /^Approve/ })
+  .click();
+await diff.locator(".progress", { hasText: "1/" }).waitFor();
+const runs = diff.locator(".hunk", { hasText: "return 50" });
+await runs.locator(".row.added", { hasText: "return 50" }).getByRole("button").click();
+await diff.locator(".compose").getByRole("textbox").fill("Why 50 runs?");
+await diff.locator(".compose").getByRole("button", { name: "Send", exact: true }).click();
+await diff.locator(".thread", { hasText: "Why 50 runs?" }).getByText("Fifty runs").waitFor();
+await diff.evaluate((el) => el.scrollTo(0, 0));
+await shot("thread");
 await press("x");
 await press("4");
 await page.locator(".lane").first().waitFor();

@@ -16,7 +16,7 @@ fleet is a personal web UI and daemon that let one engineer run 4–8 Claude Cod
 - A daemon that runs Claude Code sessions through the Agent SDK, on the Mac first and on Coder pods later.
 - A director session that plans, spawns workers with context, tracks a task ledger and collects results.
 - A web UI with board, inbox, grid, timeline, flow and jj history views.
-- An own diff view built on reviewdiff-core, with hunk approvals, small edits and line comments that go back to agents.
+- An own diff view built on reviewdiff-core, with hunk approvals, small edits and threads on lines that agents answer.
 - jj workspaces as the isolation unit; jj orbit for history.
 
 **Non-goals**
@@ -54,7 +54,7 @@ Every task follows one lifecycle. The daemon moves it on its own; only two state
 
 &#91;embedded content: task lifecycle · 7 states, 2 wait on me\]
 - A permission prompt or question moves a running task to Needs you; my answer moves it back.
-- `report_result` moves it to Review. Accept moves it on; Request changes sends my comments and it revises.
+- `report_result` moves it to Review. Accept moves it on; Request changes sends my held thread messages and edits, and it revises.
 - Stop keeps the session; Start resumes it. WIP limits: 4 running, 2 in review; the director spawns nothing new while Review is full.
 
 ## Projects
@@ -168,7 +168,7 @@ fleet has its own diff view in the browser, built on reviewdiff-core, so review 
 **What the view shows**
 - Side-by-side or inline diff of a task's jj change against trunk, one file after another, with syntax highlighting.
 - A scope picker: all changes since the fork point from trunk, or one of the task's commits against its parent, stepping older and newer by key.
-- Per hunk: Approve and next, Skip, Comment. Progress ("3/9 hunks approved") on the card and in the drawer.
+- Per hunk: Approve and next, Skip, Ask (opens a thread on its changed lines). Progress ("3/9 hunks approved") on the card and in the drawer.
 - Accept with unreviewed hunks is allowed but says how many.
 
 **Line threads.** I select one or more lines of a hunk, on either side, and write a question or a complaint: "this error message is hard to understand", "why this function and not the other one?". The diff is always one task's, opened in its drawer, so the thread belongs to that task's agent. By default it goes to the agent at once, as an ordinary user message that quotes the lines with file, line range and the short id of the commit that last changed them, so the agent sees it in its session like anything I type in the tile. The message names the thread and asks the agent to answer with the `reply_thread` tool; the answer appears under those lines, in a thread like a GitLab discussion where I can reply again. A message can land in a turn that is busy with other work, or share a turn with other threads, so only `reply_thread` counts as an answer: a thread the agent leaves unanswered says so, and its prose stays in the session. Both sides of the exchange show in the tile and the Live tab, my messages with a link that opens the thread in the diff. Like a prompt typed in the tile, a thread message stays off the message bus. Small edits I made since the last message to the agent go along with the next thread message, so the agent never answers about lines I have already rewritten.
@@ -288,7 +288,7 @@ Design happens in chat and on the canvas; code happens in Claude Code, in a new 
 1. **One agent, better than tmux.** Daemon with one SDK session, event log, reconnecting web view, tile, decision inbox with explanations.
 2. **Several agents.** Board, grid, tree, spawn and kill, colors, hosts, unseen marks, CLI bar.
 3. **Director.** Custom tools, `spawn_task`, ledger, message bus, flow view, open points.
-4. **Review.** Diff view on reviewdiff-core with shared approvals, comments to agents, small edits via jj.
+4. **Review.** Diff view on reviewdiff-core with shared approvals, line threads with agents, small edits via jj.
 5. **History and time.** jj orbit embedded, op-log checkpoints, timeline view.
 6. **Remote.** Daemons on Coder pods, merged UI, lid-closed mode, watchdog.
 

@@ -530,11 +530,15 @@ section {
 .feature:nth-of-type(even) {
   grid-template-columns: 1.7fr 1fr;
 }
-.feature:nth-of-type(even) > div {
+.feature:nth-of-type(even) > div:first-child {
   order: 2;
 }
 .feature p {
   color: var(--muted);
+}
+.shots {
+  display: grid;
+  gap: 24px;
 }
 .pair {
   display: grid;
@@ -658,7 +662,7 @@ footer .by {
   .band .cols {
     grid-template-columns: 1fr;
   }
-  .feature:nth-of-type(even) > div {
+  .feature:nth-of-type(even) > div:first-child {
     order: 0;
   }
   .feature {
