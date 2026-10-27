@@ -141,11 +141,28 @@ const needsYou = page.locator(".column", {
 });
 await needsYou.locator(".card").nth(1).waitFor();
 await shot("board", "light");
-await press("2");
-await shot("inbox");
 await press("3");
 await page.locator(".tile").first().waitFor();
 await shot("grid");
+
+// Answer alpha only, until it has finished a run: bravo still waits on its first permission, so the
+// inbox shows a prompt and a finished run.
+const alphaFinished = page.locator(".finished", { hasText: "alpha" });
+for (let i = 0; i < 40 && !(await alphaFinished.count()); i++) {
+  await press("2");
+  const decision = page.locator(".decision", { hasText: "alpha" }).first();
+  if (await decision.count()) {
+    const allow = decision.getByRole("button", { name: /^(Allow|Approve)/ });
+    const option = decision.getByRole("button", { name: /Scale the tolerance/ });
+    if (await allow.count()) await allow.first().click();
+    else if (await option.count()) await option.first().click();
+  }
+  await page.waitForTimeout(500);
+}
+await press("2");
+await alphaFinished.first().waitFor();
+await page.locator(".decision", { hasText: "bravo" }).first().waitFor();
+await shot("inbox");
 
 // Answer everything until both workers hand in their work.
 const review = page.locator(".column", { has: page.getByRole("heading", { name: /^Review/ }) });

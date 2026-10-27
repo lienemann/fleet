@@ -51,11 +51,13 @@ const daemon = (director: boolean) =>
 
 // Every run the user started ends in a Finished item, however short the demo agents' work.
 const inbox = "[inbox]\nfinished_after_seconds = 0\n\n";
+// The demo must not depend on the free space of the machine it runs on.
+const disk = "[disk]\nmin_free_gb = 1\n\n";
 
 let config: string;
 if (isPod) {
   // A pod has workers only; the directors live on the Mac.
-  config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${inbox}${daemon(false)}`;
+  config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${inbox}${disk}${daemon(false)}`;
 } else {
   const site = repo("site");
   execFileSync("jj", ["workspace", "add", "--name", "pages", join(home, "pages")], {
@@ -64,7 +66,7 @@ if (isPod) {
     stdio: "ignore",
   });
   config =
-    `port = ${port}\nhost = "macbook"\n\n${inbox}[wip]\nrunning = 6\nreview = 3\n\n` +
+    `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}[wip]\nrunning = 6\nreview = 3\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n` +
     `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(home, "pages"))}` +
     // The screenshots show the history of a repository with more in it than the demo's.

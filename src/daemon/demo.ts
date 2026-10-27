@@ -300,6 +300,14 @@ type Step =
 const WALKTHROUGH =
   "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.";
 
+/** What a worker says last: its own task's outcome, so two workers in one demo do not repeat each other. */
+function closingText(prompt: string): string {
+  if (prompt.includes("Batch the event log writes")) {
+    return "Batched the event log writes into one transaction per 100 events; replaying 10,000 events takes 0.4 s instead of 2.1 s.\n\nStill open: whether the batch size should be a setting. I left it fixed at 100.";
+  }
+  return "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter; 50 of 50 repetitions are green.\n\nStill open: whether the two similar replay tests get the same fix. I listed both in the open points.";
+}
+
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string): Step[] {
   const id = (n: number) => `${session}-${turn}-${n}`;
@@ -425,10 +433,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
         walkthrough: WALKTHROUGH,
       },
     },
-    {
-      type: "say",
-      text: "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter; 50 of 50 repetitions are green.\n\nStill open: whether the two similar replay tests get the same fix. I listed both in the open points.",
-    },
+    { type: "say", text: closingText(prompt) },
   ];
 }
 

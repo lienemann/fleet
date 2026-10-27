@@ -18,16 +18,21 @@ work: sessions resume where they were, and a crashed session reconnects with bac
 There are six views, numbered as in the design. The board shows whose turn it is, with one column per task state.
 The inbox collects what waits on you: permission prompts and questions with the text Claude wrote just before
 asking, risk tags (network, writes outside the workspace, runs code), review requests, and Markdown files of open
-points that you answer point by point. The grid shows the agents live, the way the CLI would, with the transcript,
-subagents, to-do list, permission mode, model, context usage and a prompt that knows slash commands and `@` file
-mentions. You can paste, drop or attach files there: images and PDFs go to Claude as they are, anything else is
-saved into the agent's `.fleet` folder and mentioned by path. Assistant text and messages render as Markdown, with
-tables and highlighted code. The timeline shows how long each agent waited on you, the flow view shows who sends
-messages to whom, and the history view embeds jj orbit with the op log as checkpoints.
+points that you answer point by point. When an agent finishes work you started, its closing message arrives as a
+Finished item, with a comment box, Mark read (or Send, when you wrote something) and Go, which tells it to go
+ahead. A run that stops without you, because the machine went offline, a request failed or the session crashed,
+shows up as Stopped. Runs you started that take less than 15 seconds do not show up, and one you watched in a
+focused window goes straight to Read, which keeps the last 20 per agent. The grid shows the agents live, the way
+the CLI would, with the transcript, subagents, to-do list, permission mode, model, context usage and a prompt that
+knows slash commands and `@` file mentions. You can paste, drop or attach files there: images and PDFs go to Claude
+as they are, anything else is saved into the agent's `.fleet` folder and mentioned by path. Assistant text and
+messages render as Markdown, with tables and highlighted code. The timeline shows how long each agent waited on
+you, the flow view shows who sends messages to whom, and the history view embeds jj orbit with the op log as
+checkpoints.
 
 | | |
 | --- | --- |
-| ![The inbox with two permission requests and Claude's reason for each](docs/screenshots/inbox.png) | ![The grid of live tiles, each like the CLI](docs/screenshots/grid.png) |
+| ![The inbox with a permission request and Claude's reason for it, and a finished run with Claude's closing message](docs/screenshots/inbox.png) | ![The grid of live tiles, each like the CLI](docs/screenshots/grid.png) |
 | ![The diff of a task in review, in the order of its walkthrough](docs/screenshots/diff.png) | ![The flow view with the director, three workers and two running subagents](docs/screenshots/flow.png) |
 | ![The timeline with time spent waiting on you](docs/screenshots/timeline.png) | ![The history view: jj orbit with the branches and workspaces of a repo](docs/screenshots/history.png) |
 
@@ -175,6 +180,9 @@ path = "~/Projects/foo/workspaces/ws1"  # a jj workspace of the same repo
 [[remotes]]                             # a daemon on a Coder pod, through a tunnel to its port
 name = "pod1"
 url = "http://127.0.0.1:7801"
+
+[inbox]
+finished_after_seconds = 15             # shorter runs you started stay out of the inbox (the default)
 
 [history]
 # enabled = false                       # no history view
