@@ -255,6 +255,72 @@ describe("worker tools", () => {
     );
   });
 
+  describe("reply_thread", () => {
+    function withThread() {
+      const flow = setup();
+      flow.supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+      flow.supervisor.spawn(DIRECTOR, { title: "Two", context: "y" });
+      flow.supervisor.handle({
+        type: "thread_open",
+        agent: "alpha",
+        path: "lib.py",
+        side: "head",
+        lines: { start: 1, endExclusive: 2 },
+        quote: ["a = 2"],
+        body: "Why 2?",
+        held: true,
+      });
+      const threadId = flow.log.state.agents.alpha?.threads[0]?.id ?? "";
+      const reply = (agent: string, thread: string, body = "Because.") => {
+        const tools = toolsOf(fleetServer(agent, "worker", flow.supervisor));
+        return tools.find((t) => t.name === "reply_thread")?.handler({ thread, body }, {});
+      };
+      return { ...flow, threadId, reply };
+    }
+
+    it("posts the answer under the lines and marks it unread", async () => {
+      const { log, threadId, reply } = withThread();
+      const result = await reply("alpha", threadId, "Because the test wants it.");
+      expect(result?.content).toEqual([{ type: "text", text: "Posted." }]);
+      const thread = log.state.agents.alpha?.threads[0];
+      expect(thread?.messages.at(-1)).toMatchObject({
+        from: "agent",
+        body: "Because the test wants it.",
+      });
+      expect(thread?.unread).toBe(true);
+    });
+
+    it("refuses a thread of another agent", async () => {
+      const { log, threadId, reply } = withThread();
+      const before = structuredClone(log.state.agents.alpha?.threads);
+      const result = await reply("bravo", threadId);
+      expect(result?.isError).toBe(true);
+      expect(result?.content[0]).toMatchObject({ text: expect.stringMatching(/No thread/) });
+      expect(log.state.agents.alpha?.threads).toEqual(before);
+      expect(log.state.agents.bravo?.threads).toEqual([]);
+    });
+
+    it("refuses an unknown thread", async () => {
+      const { reply } = withThread();
+      expect((await reply("alpha", "nope"))?.isError).toBe(true);
+    });
+
+    it("stays resolved after an answer", async () => {
+      const { log, supervisor, threadId, reply } = withThread();
+      supervisor.handle({ type: "thread_resolve", agent: "alpha", threadId, resolved: true });
+      await reply("alpha", threadId);
+      expect(log.state.agents.alpha?.threads[0]).toMatchObject({ resolved: true, unread: true });
+    });
+
+    it("is for workers only", () => {
+      const { supervisor } = setup();
+      for (const role of ["director", "fleet-director"] as const) {
+        const names = toolsOf(fleetServer("someone", role, supervisor)).map((t) => t.name);
+        expect(names).not.toContain("reply_thread");
+      }
+    });
+  });
+
   it("send_message logs the message and lands in the recipient's transcript", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });

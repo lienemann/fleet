@@ -50,6 +50,7 @@ export interface ToolHost {
   openPoints(agent: string, path: string): string;
   report(agent: string, report: Report): string;
   status(agent: string, text: string): void;
+  replyThread(agent: string, threadId: string, body: string): string;
   message(from: string, to: string, body: string): string;
   spawn(director: string, request: SpawnRequest): string;
   ledger(director: string): string;
@@ -169,6 +170,15 @@ function workerTools(agent: string, host: ToolHost) {
           host.status(agent, args.status);
           return "Status updated.";
         }),
+    ),
+    tool(
+      "reply_thread",
+      "Answer the user's question on lines of your change. Each such question names its thread; answer each one with this tool, briefly. The user reads the answer under those lines.",
+      {
+        thread: z.string().describe("The thread id from the user's message"),
+        body: z.string().min(1).describe("Your answer, in Markdown"),
+      },
+      (args) => run(() => host.replyThread(agent, args.thread, args.body)),
     ),
   ];
 }

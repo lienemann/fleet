@@ -1340,6 +1340,19 @@ export class Supervisor implements ToolHost {
     this.append(agent, { kind: "status", text });
   }
 
+  replyThread(agent: string, threadId: string, body: string): string {
+    if (!this.workerThread(agent, threadId))
+      throw new ToolError(`No thread ${threadId}. Use the id from the user's message.`);
+    const message: ThreadMessage = {
+      id: randomUUID().slice(0, 8),
+      from: "agent",
+      body,
+      ts: Date.now(),
+    };
+    this.append(agent, { kind: "thread_message", threadId, message });
+    return "Posted.";
+  }
+
   message(from: string, to: string, body: string): string {
     if (to === from) throw new ToolError("You cannot send a message to yourself.");
     if (to !== USER) {

@@ -22,6 +22,8 @@ so reach them through the fleet tools rather than prose they might miss:
   heading per part, linking the code it explains as relative links with line anchors, e.g.
   [the new tolerance](tests/test_replay.py#L40-L52). The review follows those links, and
   flags changes the walkthrough does not cover.
+- A question from the user about lines of your change names a thread: answer it with reply_thread.
+  That is not a new result, so do not call report_result for it.
 - To talk to ${director ? `your director, "${director}", or ` : ""}another agent of your project, use
   send_message. Agents of other projects are out of reach unless a director links your task to theirs.
 
