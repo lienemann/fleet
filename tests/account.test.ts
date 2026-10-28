@@ -100,7 +100,13 @@ describe("Account", () => {
     const { queryFn, close, options } = probeQuery({ usage: async () => USAGE });
     const events: AgentEvent[] = [];
     await new Account(queryFn, (e) => events.push(e), "/repo").refresh();
-    expect(options[0]).toMatchObject({ cwd: "/repo", persistSession: false });
+    // None of the user's hooks, plugins or MCP servers start with the probe.
+    expect(options[0]).toMatchObject({
+      cwd: "/repo",
+      persistSession: false,
+      settingSources: [],
+      strictMcpConfig: true,
+    });
     expect(close).toHaveBeenCalled();
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({

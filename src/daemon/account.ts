@@ -93,7 +93,12 @@ async function probe(queryFn: QueryFn, cwd: string): Promise<AgentEvent | undefi
       release = resolve;
     });
   })();
-  const query = queryFn({ prompt, options: { cwd, persistSession: false } });
+  // Without the user's settings, plugins and MCP servers, no hook or server of theirs starts
+  // with every probe.
+  const query = queryFn({
+    prompt,
+    options: { cwd, persistSession: false, settingSources: [], strictMcpConfig: true },
+  });
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([

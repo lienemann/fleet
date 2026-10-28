@@ -54,7 +54,9 @@ const supervisor = new Supervisor({
 // Workspaces of Claude Code sessions that ended are released once nobody took them over.
 setInterval(() => supervisor.expireClaims(), 30_000).unref();
 // The models Claude Code offers and the subscription's usage, for the model picker and the header.
-const account = new Account(queryFn, (event) => log.append({ ...event, agent: DAEMON }), home);
+const probeDir = join(home, "probe");
+mkdirSync(probeDir, { recursive: true });
+const account = new Account(queryFn, (event) => log.append({ ...event, agent: DAEMON }), probeDir);
 void account.refresh();
 setInterval(() => void account.refresh(), ACCOUNT_POLL_MS).unref();
 // Sessions held by a terminal, VS Code or the Desktop app are taken back once those let go.
