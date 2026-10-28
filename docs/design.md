@@ -154,7 +154,7 @@ One web app served by the daemon, with six views over the same task data. Select
 
 **Theming.** Dark and light. Light is beige with a dark red accent and serif headings; agent colors switch to darker variants so they stay readable. All colors are CSS variables per theme.
 
-**Keyboard and mouse.** Everything reachable by both: number keys for views, `j`/`k` in lists, `Enter` to open, `a`/`r` to approve or reject, `Esc` to interrupt. Mouse: drag cards, click to enlarge, hover for details.
+**Keyboard and mouse.** Everything reachable by both: number keys for views, `j`/`k` in lists, `Enter` to open, `a`/`r` to approve or reject, `Esc` to interrupt. Every shortcut that is a letter, digit or sign takes Option (Alt elsewhere), as in ⌥N for New task, so keys typed while the focus is somewhere unexpected never start anything. Fleet reads the physical key, because Option turns letters into other characters on the Mac. `Enter` and `Esc` in a focused list or dialog, ⌘K for the palette and `?` for the overview stay without it. Mouse: drag cards, click to enlarge, hover for details.
 
 ## Review and diff view
 
