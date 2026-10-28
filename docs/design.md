@@ -138,7 +138,7 @@ One web app served by the daemon, with six views over the same task data. Select
 - Header: view switcher (keys 1–6), counters (working, need me, in review, open points, new), New task, lid-closed mode, theme, command palette (⌘K).
 - Bus ticker: the last two messages, each with a packet that crosses from sender to receiver three times when it arrives and then rests at the receiver; multi-line bodies show their first line plus a line count.
 - Director dock: the director's latest reply and a prompt to it.
-- Left rail: agent tree (director → workers → subagents) with status dots and "new" marks; hosts and jj workspaces, each with the disk it takes and Purge.
+- Left rail: agent tree (director → workers → subagents) with status dots and "new" marks. Under each director, workers sort by what they need from me: Needs you, Review, Changes requested, Running, Queued, then Accepted ones dimmed at the bottom, so finished agents stay findable; hosts and jj workspaces, each with the disk it takes and Purge.
 - Right drawer: Live (the tile), Files, Diff, Report, Messages for the selected task.
 
 | View     | Answers                     | Notes                                                                                                                                           |
