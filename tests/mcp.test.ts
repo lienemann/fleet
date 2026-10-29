@@ -57,6 +57,7 @@ async function serve(supervisor: Supervisor, log: EventLog): Promise<string> {
       workspaces: [],
       projects: [],
       wip: { running: 4, review: 2 },
+      readWhileWatching: false,
       remotes: [],
     }),
     staticDir: "/nonexistent",

@@ -113,7 +113,8 @@ export function App() {
     if (selected && unseen) send({ type: "open", agent: selected });
   }, [selected, unseen, send]);
 
-  // A run that ends while the user looks at the agent is read already.
+  // With read_while_watching, a run that ends while the user looks at the agent is read already.
+  const readWhileWatching = info?.readWhileWatching ?? false;
   const focused = useWindowFocus();
   const known = useRef<Set<string> | undefined>(undefined);
   useEffect(() => {
@@ -126,10 +127,11 @@ export function App() {
       agent: view === "grid" ? undefined : selected,
       enlarged: view === "grid" ? enlarged : undefined,
     };
+    if (!readWhileWatching) return;
     for (const { agent, ids } of toMarkRead(seen, unread, open, focused)) {
       send({ type: "finished_read", agent, ids });
     }
-  }, [state, view, selected, enlarged, focused, send]);
+  }, [state, view, selected, enlarged, focused, readWhileWatching, send]);
 
   useCommands([
     ...VIEWS.map(

@@ -144,6 +144,7 @@ export const testConfig = (
   wip: {},
   allowedTools: [],
   finishedAfterMs: 15_000,
+  readWhileWatching: false,
   projects: [testProject("test", first), ...others],
 });
 

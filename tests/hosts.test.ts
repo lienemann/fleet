@@ -156,6 +156,7 @@ describe("mergeInfo", () => {
     })),
     projects,
     wip: { running: 4, review: 2 },
+    readWhileWatching: false,
     remotes,
   });
 

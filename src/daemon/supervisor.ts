@@ -182,7 +182,10 @@ export interface SessionHook {
 export interface SupervisorOptions {
   log: EventLog;
   queryFn: QueryFn;
-  config: Pick<Config, "projects" | "wip" | "model" | "host" | "allowedTools" | "finishedAfterMs">;
+  config: Pick<
+    Config,
+    "projects" | "wip" | "model" | "host" | "allowedTools" | "finishedAfterMs" | "readWhileWatching"
+  >;
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
   sessions?: SessionSource;
@@ -280,7 +283,7 @@ export class Supervisor implements ToolHost {
 
   /** What the browser needs to know about the projects and workspaces; the host adds the rest. */
   daemonInfo(): Omit<DaemonInfo, "remotes" | "build"> {
-    const { host, projects, wip } = this.config;
+    const { host, projects, wip, readWhileWatching } = this.config;
     return {
       host,
       workspaces: this.workspaces.map(({ name, path, project }) => ({
@@ -297,6 +300,7 @@ export class Supervisor implements ToolHost {
         wip: project.wip,
       })),
       wip,
+      readWhileWatching,
     };
   }
 

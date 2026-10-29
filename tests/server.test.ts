@@ -30,6 +30,7 @@ async function start(
     workspaces: [],
     projects: [],
     wip: { running: 4, review: 2 },
+    readWhileWatching: false,
     remotes: [],
   });
   const { server, close } = createFleetServer({

@@ -351,6 +351,8 @@ export interface DaemonInfo {
   projects: ProjectInfo[];
   /** The limits of the whole fleet, on top of each project's. */
   wip: Limits;
+  /** Whether a run that ends while the user has the agent open goes straight to Read. */
+  readWhileWatching: boolean;
   /** Daemons on other hosts this one relays at `/remote/<name>/ws`. */
   remotes: string[];
   /** Build number of the web UI the daemon serves; absent when it serves none. */

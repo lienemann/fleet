@@ -67,8 +67,10 @@ const ConfigFile = z.object({
     .object({
       /** How long an agent works on what the user started before its end becomes a Finished item. */
       finished_after_seconds: z.number().nonnegative().default(15),
+      /** Whether a run that ends while the user has the agent open goes straight to Read. */
+      read_while_watching: z.boolean().default(false),
     })
-    .default({ finished_after_seconds: 15 }),
+    .default({ finished_after_seconds: 15, read_while_watching: false }),
   /** jj orbit for the history view. */
   history: z
     .object({ enabled: z.boolean().default(true), python: z.string().default("python3") })
@@ -121,6 +123,8 @@ export interface Config {
   diskMinFree: number;
   /** Working time after which a run the user started ends up in the inbox. */
   finishedAfterMs: number;
+  /** Whether a Finished item for an agent the user has open counts as read at once. */
+  readWhileWatching: boolean;
   /** Whether the daemon asks for its secret. */
   auth: boolean;
 }
@@ -229,6 +233,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     remotes: parsed.remotes,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
     finishedAfterMs: parsed.inbox.finished_after_seconds * 1000,
+    readWhileWatching: parsed.inbox.read_while_watching,
     auth: parsed.auth,
     history: parsed.history.enabled ? { python: parsed.history.python } : undefined,
   };

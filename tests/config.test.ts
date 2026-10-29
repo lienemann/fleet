@@ -113,6 +113,13 @@ it("rejects a workspace name used in two projects", () => {
   expect(() => loadConfig(dir)).toThrow(/ws1/);
 });
 
+it("keeps Finished items unread while the user watches, unless the setting says otherwise", () => {
+  expect(loadConfig(home(), "/work/here").readWhileWatching).toBe(false);
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), "[inbox]\nread_while_watching = true\n");
+  expect(loadConfig(dir, "/work/here").readWhileWatching).toBe(true);
+});
+
 it("reads the inbox threshold, 15 s by default", () => {
   expect(loadConfig(home(), "/work/here").finishedAfterMs).toBe(15_000);
   const dir = home();

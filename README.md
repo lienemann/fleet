@@ -183,6 +183,7 @@ url = "http://127.0.0.1:7801"
 
 [inbox]
 finished_after_seconds = 15             # shorter runs you started stay out of the inbox (the default)
+# read_while_watching = true            # a run that ends while you watch the agent goes straight to Read
 
 [history]
 # enabled = false                       # no history view

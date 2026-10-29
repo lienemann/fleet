@@ -49,8 +49,9 @@ const daemon = (director: boolean) =>
   "wip = { running = 4, review = 2 }\n" +
   ["ws1", "ws2"].map((name) => workspace(name, repo(name))).join("");
 
-// Every run the user started ends in a Finished item, however short the demo agents' work.
-const inbox = "[inbox]\nfinished_after_seconds = 0\n\n";
+// Every run the user started ends in a Finished item, however short the demo agents' work, and
+// one that ends while the user watches the agent is read already.
+const inbox = "[inbox]\nfinished_after_seconds = 0\nread_while_watching = true\n\n";
 // The demo must not depend on the free space of the machine it runs on.
 const disk = "[disk]\nmin_free_gb = 1\n\n";
 
