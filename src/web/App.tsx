@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { PERMISSION_MODES, type UserMove } from "../shared/events.ts";
 import { lastWorkspace } from "../shared/hosts.ts";
 import {
@@ -27,9 +27,11 @@ import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
 import { attachAgent } from "./tile/attach.ts";
 import { canHandOver } from "./tile/CliBar.tsx";
+import { ResizeHandle } from "./ui/ResizeHandle.tsx";
 import { ViewHead } from "./ui/ViewHead.tsx";
 import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
 import { useNotifications } from "./useNotifications.ts";
+import { DRAWER, RAIL, useSidebarWidth } from "./useSidebarWidth.ts";
 import { useTilesPerRow } from "./useTilesPerRow.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
@@ -85,6 +87,9 @@ export function App() {
   };
   const { font, setFont, cycleFont } = useFont();
   const tiles = useTilesPerRow();
+  const showsDrawer = agent !== undefined && view !== "grid";
+  const rail = useSidebarWidth(RAIL, showsDrawer ? DRAWER.min : 0);
+  const drawer = useSidebarWidth(DRAWER, rail.width);
   const notifications = useNotifications(state, select);
   /** Opens the agent's diff at one of its line threads. */
   const showThread = (name: string, id: string): void => {
@@ -199,6 +204,15 @@ export function App() {
       run: () => send({ type: "mark_all_seen" }),
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    {
+      id: "sidebars.reset",
+      label: "Reset the sidebar widths",
+      group: "Fleet",
+      run: () => {
+        rail.reset();
+        drawer.reset();
+      },
+    },
     {
       id: "font.next",
       label: "Next text font",
@@ -515,7 +529,15 @@ export function App() {
           The browser blocks notifications from fleet; allow them in its site settings.
         </div>
       )}
-      <div className="body">
+      <div
+        className="body"
+        style={
+          {
+            "--rail-width": `${rail.width}px`,
+            "--drawer-width": `${drawer.width}px`,
+          } as CSSProperties
+        }
+      >
         <Rail
           selected={selected}
           onSelect={view === "grid" ? open : select}
@@ -524,6 +546,7 @@ export function App() {
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
         />
+        <ResizeHandle label="Resize the rail" sidebar={rail} grows="right" />
         <main className="main">
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
@@ -541,6 +564,9 @@ export function App() {
           {view === "timeline" && <Timeline onOpen={select} />}
           {view === "history" && <History />}
         </main>
+        {agent && view !== "grid" && tab !== "diff" && (
+          <ResizeHandle label="Resize the drawer" sidebar={drawer} grows="left" />
+        )}
         {agent && view !== "grid" && (
           <Drawer
             agent={agent}

@@ -357,7 +357,7 @@ h2 {
 .rail {
   display: flex;
   flex-direction: column;
-  width: 250px;
+  width: var(--rail-width, 250px);
   flex-shrink: 0;
   padding: 12px 8px;
   background: var(--bg2);
@@ -529,12 +529,41 @@ h2 {
   white-space: nowrap;
 }
 
+/* The inner edge of a sidebar: a thin grip that overlaps the border without taking layout room. */
+.resize-handle {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after,
+.resize-handle.dragging::after {
+  background: var(--accent);
+}
+/* While dragging, text under the pointer must not get selected. */
+.body:has(.resize-handle.dragging) {
+  user-select: none;
+  cursor: col-resize;
+}
+
 /* Drawer */
 .drawer {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: clamp(380px, 33vw, 470px);
+  width: var(--drawer-width, 420px);
   min-width: 0;
   background: var(--bg2);
   border-left: 1px solid var(--line);

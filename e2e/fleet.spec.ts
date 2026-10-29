@@ -790,3 +790,54 @@ test("can be installed as an app", async ({ page, request }) => {
   const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
   expect(scope).toMatch(/\/$/);
 });
+
+test("the rail and the drawer resize by their inner edge, remember it, and reset on a double click", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.keyboard.press("2");
+  const rail = page.locator(".rail");
+  const handle = page.getByRole("separator", { name: "Resize the rail" });
+  const width = async () => Math.round((await rail.boundingBox())?.width ?? 0);
+  const initial = await width();
+
+  // Drag the edge 60px to the right.
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("no handle");
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(width).toBe(initial + 60);
+  await expect(handle).toHaveAttribute("aria-valuenow", String(initial + 60));
+
+  // Too far stops at the maximum; arrow keys move it by a step.
+  await handle.focus();
+  const min = Number(await handle.getAttribute("aria-valuemin"));
+  const max = Number(await handle.getAttribute("aria-valuemax"));
+  await page.keyboard.press("End");
+  await expect(handle).toHaveAttribute("aria-valuenow", String(max));
+  await page.keyboard.press("Home");
+  await expect(handle).toHaveAttribute("aria-valuenow", String(min));
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(width).toBe(min + 16);
+
+  await page.reload();
+  await expect(handle).toHaveAttribute("aria-valuenow", String(min + 16));
+  expect(await width()).toBe(min + 16);
+
+  await handle.dblclick();
+  await expect.poll(width).toBe(initial);
+
+  // The drawer's edge works the same way once an agent is open.
+  await rail.locator(".rail-item").first().click();
+  const drawer = page.getByRole("complementary", { name: "Selected task" });
+  const grip = page.getByRole("separator", { name: "Resize the drawer" });
+  const before = Math.round((await drawer.boundingBox())?.width ?? 0);
+  await grip.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect
+    .poll(async () => Math.round((await drawer.boundingBox())?.width ?? 0))
+    .toBe(before + 16);
+});
