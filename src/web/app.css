@@ -2704,14 +2704,20 @@ button.ln:hover {
   gap: 8px;
   margin: 4px 0 6px;
 }
-/* The workspaces within a project's section: a smaller heading than the project's. */
+/* What a project owns sits indented under its name, so the name reads as the heading. */
+.rail-body {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line2);
+}
+/* The workspaces within a project's section: a quiet label, not a second heading. */
 .rail .rail-sub {
-  margin: 0 0 2px 4px;
+  margin: 8px 0 2px;
   color: var(--dim);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .add-project {
   align-self: flex-start;
@@ -2729,6 +2735,13 @@ button.ln:hover {
   text-transform: none;
   letter-spacing: 0;
   color: var(--accent);
+}
+.rail-sub .link {
+  opacity: 0;
+}
+.rail-sub:hover .link,
+.rail-sub:focus-within .link {
+  opacity: 1;
 }
 .workspace-offers {
   list-style: none;

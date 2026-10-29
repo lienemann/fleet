@@ -123,10 +123,10 @@ export function Rail({
                   )}
                 </h2>
                 {open && (
-                  <>
+                  <div className="rail-body">
                     {tree(own)}
                     <WorkspaceList project={name} onSelect={onSelect} onAdd={onAddWorkspace} />
-                  </>
+                  </div>
                 )}
               </section>
             );
