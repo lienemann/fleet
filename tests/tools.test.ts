@@ -270,7 +270,8 @@ describe("worker tools", () => {
         body: "Why 2?",
         held: true,
       });
-      const threadId = flow.log.state.agents.alpha?.threads[0]?.id ?? "";
+      const threadId = flow.log.state.agents.alpha?.threads[0]?.id;
+      if (!threadId) throw new Error("the thread was not opened");
       const reply = (agent: string, thread: string, body = "Because.") => {
         const tools = toolsOf(fleetServer(agent, "worker", flow.supervisor));
         return tools.find((t) => t.name === "reply_thread")?.handler({ thread, body }, {});
@@ -302,7 +303,9 @@ describe("worker tools", () => {
 
     it("refuses an unknown thread", async () => {
       const { reply } = withThread();
-      expect((await reply("alpha", "nope"))?.isError).toBe(true);
+      const result = await reply("alpha", "nope");
+      expect(result?.isError).toBe(true);
+      expect(result?.content[0]).toMatchObject({ text: expect.stringMatching(/No thread/) });
     });
 
     it("stays resolved after an answer", async () => {

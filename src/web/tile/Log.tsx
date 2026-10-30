@@ -134,6 +134,7 @@ export function Log({
         if (line.edits) return <EditedFiles key={line.seq} title={line.text} edits={line.edits} />;
         const { glyph, kind } = kindOf(line);
         const sub = line.parent !== null;
+        const { thread } = line;
         return (
           <div key={line.seq} className={`line ${kind} ${sub ? "sub" : ""}`}>
             <span className="glyph">{sub ? "↳" : glyph}</span>
@@ -148,12 +149,8 @@ export function Log({
               <span className="text">{line.text}</span>
             )}
             {line.truncated && <span className="truncated"> …</span>}
-            {line.thread && onOpenThread && (
-              <button
-                type="button"
-                className="link dim"
-                onClick={() => line.thread && onOpenThread(line.thread)}
-              >
+            {thread && onOpenThread && (
+              <button type="button" className="link dim" onClick={() => onOpenThread(thread)}>
                 Open in diff
               </button>
             )}

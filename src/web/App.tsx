@@ -98,7 +98,7 @@ export function App() {
     setThread({ id });
   };
   const open = (name: string): void => {
-    setSelected(name);
+    select(name);
     setEnlarged(name);
     setView("grid");
   };
