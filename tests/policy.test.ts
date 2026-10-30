@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { jjPolicy, readPolicy } from "../src/daemon/policy.ts";
+import { foreignWorkspace, jjPolicy, readPolicy } from "../src/daemon/policy.ts";
 
 describe("readPolicy", () => {
   const root = mkdtempSync(join(tmpdir(), "fleet-reads-"));
@@ -45,6 +45,31 @@ describe("readPolicy", () => {
     ["Write", { file_path: join(ws, "src", "lib.py") }],
   ])("leaves %s %j to the user", (tool, input) => {
     expect(readPolicy(ws, roots, tool, input)).toBeUndefined();
+  });
+});
+
+describe("foreignWorkspace", () => {
+  const root = mkdtempSync(join(tmpdir(), "fleet-foreign-"));
+  const repo = join(root, "repo");
+  // A workspace inside another counts as itself.
+  const nested = join(repo, ".workspaces", "ws2");
+  const ws1 = join(root, "ws1");
+  const workspaces = [repo, nested, ws1];
+  const edit = (cwd: string, tool: string, input: Record<string, unknown>) =>
+    foreignWorkspace(cwd, workspaces, tool, input);
+
+  it("names the other workspace an edit tool writes into", () => {
+    expect(edit(ws1, "Edit", { file_path: join(nested, "lib.py") })).toBe(nested);
+    expect(edit(ws1, "Write", { file_path: "../repo/README.md" })).toBe(repo);
+    expect(edit(nested, "NotebookEdit", { notebook_path: join(repo, "a.ipynb") })).toBe(repo);
+    expect(edit(repo, "MultiEdit", { file_path: join(nested, "lib.py") })).toBe(nested);
+  });
+
+  it("leaves the agent's own workspace, other places and other tools alone", () => {
+    expect(edit(nested, "Edit", { file_path: join(nested, "lib.py") })).toBeUndefined();
+    expect(edit(ws1, "Write", { file_path: "notes.md" })).toBeUndefined();
+    expect(edit(ws1, "Write", { file_path: join(root, "scratch.txt") })).toBeUndefined();
+    expect(edit(ws1, "Read", { file_path: join(repo, "lib.py") })).toBeUndefined();
   });
 });
 

@@ -9,7 +9,16 @@ import { EventLog } from "../src/daemon/eventLog.ts";
 import { createFleetServer } from "../src/daemon/server.ts";
 import { CLAIM_GRACE_MS, Supervisor } from "../src/daemon/supervisor.ts";
 import { ToolError } from "../src/daemon/tools.ts";
-import { DIRECTOR, echoing, fakeQuery, result, testConfig, testProject } from "./helpers.ts";
+import {
+  DIRECTOR,
+  echoing,
+  fakeQuery,
+  noChanges,
+  result,
+  settled,
+  testConfig,
+  testProject,
+} from "./helpers.ts";
 
 // Real directories, since a new task's brief is written into its workspace.
 const root = mkdtempSync(join(tmpdir(), "fleet-mcp-"));
@@ -27,6 +36,7 @@ mkdirSync(b1.path, { recursive: true });
 function setup(director?: string, withB = false) {
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: withB
@@ -83,20 +93,23 @@ async function connect(supervisor: Supervisor, log: EventLog) {
 }
 
 describe("workspace claims", () => {
-  it("hold back a task until the claim is released", () => {
+  it("hold back a task until the claim is released", async () => {
     const { log, supervisor } = setup();
     supervisor.claimWorkspace("cli", "ws1");
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await settled();
     expect(log.state.tasks.t1?.state).toBe("queued");
 
     supervisor.releaseWorkspace("cli", "ws1");
+    await settled();
     expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
     expect(log.state.claims).toEqual({});
   });
 
-  it("are refused for a workspace a task works in, or someone else claimed", () => {
+  it("are refused for a workspace a task works in, or someone else claimed", async () => {
     const { supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await settled();
     expect(() => supervisor.claimWorkspace("cli", "ws1")).toThrow("holds the work of t1");
 
     supervisor.claimWorkspace("cli", "ws2");
@@ -109,15 +122,12 @@ describe("workspace claims", () => {
     expect(() => supervisor.claimWorkspace("other")).toThrow("No workspace is free");
   });
 
-  it("steer the director's tasks to another workspace", () => {
+  it("steer the director's tasks to another workspace", async () => {
     const { log, supervisor } = setup();
     supervisor.claimWorkspace("cli", "ws1");
     supervisor.spawn(DIRECTOR, { title: "Fix it", context: "Do it." });
-    expect(log.state.tasks.t1).toMatchObject({
-      workspace: "ws2",
-      state: "in_progress",
-      agent: "bravo",
-    });
+    await settled();
+    expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "bravo" });
   });
 
   it("can be ended from the UI", () => {
@@ -133,7 +143,7 @@ describe("session hooks", () => {
   const start = (session: string, cwd = ws1) => ({ event: "SessionStart", session, cwd }) as const;
   const end = (session: string, cwd = ws1) => ({ event: "SessionEnd", session, cwd }) as const;
 
-  it("reserve the workspace a session starts in, and hand it on after the session ends", () => {
+  it("reserve the workspace a session starts in, and hand it on after the session ends", async () => {
     const { log, supervisor } = setup();
     expect(supervisor.sessionHook(start("aaaaaaaa-1", join(ws1, "src")))).toContain(
       "ws1 is reserved for this session as session-aaaaaaaa",
@@ -155,12 +165,14 @@ describe("session hooks", () => {
     expect(log.state.claims.ws1).toBeDefined();
     supervisor.expireClaims(Date.now() + CLAIM_GRACE_MS);
     expect(log.state.claims).toEqual({});
+    await settled();
     expect(log.state.tasks.t1?.state).toBe("in_progress");
   });
 
-  it("warn a session that starts where a task works, and ignore other directories", () => {
+  it("warn a session that starts where a task works, and ignore other directories", async () => {
     const { log, supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await settled();
     expect(supervisor.sessionHook(start("aaaaaaaa-1"))).toContain(
       'ws1 holds the work of alpha ("Fix it")',
     );
@@ -189,6 +201,7 @@ describe("session hooks", () => {
 
   it("offer no workspace that a queued task waits for", () => {
     const supervisor = new Supervisor({
+      changes: noChanges,
       log: new EventLog(":memory:"),
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces, director: root, running: 1 }),
@@ -264,7 +277,7 @@ describe("MCP server", () => {
     expect((await call("list_workspaces")).text.split("\n")).toHaveLength(3);
 
     const created = await call("create_task", { title: "Fix b", context: "Do it.", cwd: repoB });
-    expect(created.text).toBe("Spawned t1 in b1; it is in_progress on charlie.");
+    expect(created.text).toBe("Spawned t1; it starts on charlie in b1.");
     expect((await call("list_tasks", { cwd: join(root, "ws1") })).text).toBe("No tasks yet.");
     expect((await call("list_tasks", { cwd: repoB })).text).toContain("## t1: Fix b");
   });
@@ -274,7 +287,7 @@ describe("MCP server", () => {
     const call = await connect(supervisor, log);
 
     const created = await call("create_task", { title: "Fix it", context: "Do it." });
-    expect(created.text).toBe("Spawned t1 in ws1; it is in_progress on alpha.");
+    expect(created.text).toBe("Spawned t1; it starts on alpha in ws1.");
     expect((await call("list_tasks")).text).toContain("## t1: Fix it");
 
     await call("send_message", { from: "feature-x", to: "you", body: "Done with ws1." });

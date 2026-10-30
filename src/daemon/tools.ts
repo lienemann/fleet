@@ -211,12 +211,15 @@ function workerTools(agent: string, host: ToolHost) {
 }
 
 const SPAWN_TASK =
-  "Start a task for the worker of a jj workspace; it returns the task's id. The context is all the worker knows: goal, constraints, where to look, how to test, what done means.";
+  "Start a task for a worker; it returns the task's id. The context is all the worker knows: goal, constraints, where to look, how to test, what done means.";
 
 const SPAWN_ARGS = {
   title: z.string().max(80),
   context: z.string().describe("Everything the worker needs to know, in Markdown"),
-  workspace: z.string().optional().describe("Workspace name; a free one if omitted"),
+  workspace: z
+    .string()
+    .optional()
+    .describe("The workspace whose worker takes it; the first free worker if omitted"),
 };
 
 function directorTools(agent: string, host: ToolHost) {

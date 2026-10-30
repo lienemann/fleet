@@ -104,7 +104,9 @@ function mcpServer(host: McpHost): McpServer {
         workspace: z
           .string()
           .optional()
-          .describe("Workspace name; a free one of your project if omitted"),
+          .describe(
+            "The workspace whose worker takes it; the first free worker of your project if omitted",
+          ),
         cwd,
       },
     },

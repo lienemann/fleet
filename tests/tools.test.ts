@@ -23,7 +23,9 @@ import {
   echoing,
   fakeQuery,
   init,
+  noChanges,
   result,
+  settled,
   testConfig,
   testProject,
   until,
@@ -41,6 +43,7 @@ function setup(review = 2) {
   const log = new EventLog(":memory:");
   const { queryFn } = fakeQuery(echoing(result()));
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn,
     config: testConfig({ workspaces, review, director }),
@@ -69,30 +72,36 @@ describe("director", () => {
     expect(log.state.agents[DIRECTOR]).toMatchObject({ role: "director", cwd: director });
   });
 
-  it("spawns tasks into a free workspace and writes their context.md", () => {
+  it("spawns tasks for free workers and writes their context.md", async () => {
     const { log, supervisor, workspaces } = setup();
     expect(supervisor.spawn(DIRECTOR, { title: "One", context: "Do one." })).toBe(
-      "Spawned t1 in ws1; it is in_progress on alpha.",
+      "Spawned t1; it starts on alpha in ws1.",
     );
     expect(supervisor.spawn(DIRECTOR, { title: "Two", context: "Do two." })).toBe(
-      "Spawned t2 in ws2; it is in_progress on bravo.",
+      "Spawned t2; it starts on bravo in ws2.",
     );
+    expect(supervisor.spawn(DIRECTOR, { title: "Three", context: "Do three." })).toBe(
+      "Spawned t3; it waits for a free worker.",
+    );
+    await settled();
     expect(log.state.tasks.t2).toMatchObject({ brief: "Do two.", by: DIRECTOR, agent: "bravo" });
     expect(
       readFileSync(join(workspaces[1]?.path ?? "", ".fleet/bravo/t2/context.md"), "utf8"),
     ).toContain("Do two.");
   });
 
-  it("spawns nothing new while review is full", () => {
+  it("spawns nothing new while review is full", async () => {
     const { supervisor } = setup(1);
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    await settled();
     supervisor.report("alpha", { summary: "done", changes: [], openQuestions: [] });
     expect(() => supervisor.spawn(DIRECTOR, { title: "Two", context: "y" })).toThrow(ToolError);
   });
 
-  it("reads the ledger and keeps notes on tasks", () => {
+  it("reads the ledger and keeps notes on tasks", async () => {
     const { supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "Fix it", context: "x" });
+    await settled();
     supervisor.note("t1", "blocked on CI");
     supervisor.status("alpha", "Running the tests");
     const ledger = supervisor.ledger();
@@ -102,11 +111,13 @@ describe("director", () => {
     expect(ledger).toContain("director's note: blocked on CI");
   });
 
-  it("renames tasks, and rewrites or moves them only while queued", () => {
+  it("renames tasks, and rewrites or moves them only while queued", async () => {
     const { log, supervisor, workspaces } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "Do one.", workspace: "ws1" });
-    supervisor.spawn(DIRECTOR, { title: "Two", context: "Do two.", workspace: "ws1" });
-    expect(log.state.tasks.t2?.state).toBe("queued");
+    expect(supervisor.spawn(DIRECTOR, { title: "Two", context: "Do two.", workspace: "ws1" })).toBe(
+      "Spawned t2; it waits for ws1.",
+    );
+    await settled();
 
     supervisor.updateTask("t1", { title: "One, renamed" });
     expect(log.state.tasks.t1?.title).toBe("One, renamed");
@@ -114,8 +125,9 @@ describe("director", () => {
 
     // Moved to a free workspace, the queued task starts there with its new brief.
     expect(supervisor.updateTask("t2", { context: "Do two better.", workspace: "ws2" })).toBe(
-      "Updated t2; it is in_progress in ws2.",
+      "Updated t2; it starts on bravo in ws2.",
     );
+    await settled();
     const ws2 = workspaces[1]?.path ?? "";
     expect(log.state.tasks.t2).toMatchObject({ brief: "Do two better.", agent: "bravo" });
     expect(log.state.agents.bravo?.cwd).toBe(ws2);
@@ -128,6 +140,7 @@ describe("director", () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", workspace: "ws1" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "y", workspace: "ws1" });
+    await settled();
     expect(await supervisor.removeTask("t2", DIRECTOR)).toBe("Dropped t2.");
     expect(log.state.tasks.t2?.state).toBe("dropped");
 
@@ -223,6 +236,7 @@ describe("worker tools", () => {
   it("request_decision waits for the user's choice", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    await settled();
     const pending = supervisor.decide("alpha", {
       question: "Which db?",
       context: "Both work.",
@@ -240,6 +254,7 @@ describe("worker tools", () => {
   it("request_review shows the file and returns the verdict", async () => {
     const { log, supervisor, workspaces } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    await settled();
     writeFileSync(join(workspaces[0]?.path ?? "", "plan.md"), "# Plan");
     const pending = supervisor.review("alpha", "plan.md", "plan");
     const decision = await answerNext(log, supervisor, {
@@ -287,6 +302,7 @@ describe("worker tools", () => {
   it("report_result moves the task to review and tells the director", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    await settled();
     supervisor.report("alpha", {
       summary: "Fixed the tolerance.",
       changes: ["zmplwqrs"],
@@ -302,10 +318,11 @@ describe("worker tools", () => {
   });
 
   describe("reply_thread", () => {
-    function withThread() {
+    async function withThread() {
       const flow = setup();
       flow.supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
       flow.supervisor.spawn(DIRECTOR, { title: "Two", context: "y" });
+      await settled();
       flow.supervisor.handle({
         type: "thread_open",
         task: "t1",
@@ -326,7 +343,7 @@ describe("worker tools", () => {
     }
 
     it("posts the answer under the lines and marks it unread", async () => {
-      const { log, threadId, reply } = withThread();
+      const { log, threadId, reply } = await withThread();
       const result = await reply("alpha", threadId, "Because the test wants it.");
       expect(result?.content).toEqual([{ type: "text", text: "Posted." }]);
       const thread = log.state.tasks.t1?.threads[0];
@@ -338,7 +355,7 @@ describe("worker tools", () => {
     });
 
     it("refuses a thread of another agent", async () => {
-      const { log, threadId, reply } = withThread();
+      const { log, threadId, reply } = await withThread();
       const before = structuredClone(log.state.tasks.t1?.threads);
       const result = await reply("bravo", threadId);
       expect(result?.isError).toBe(true);
@@ -348,14 +365,14 @@ describe("worker tools", () => {
     });
 
     it("refuses an unknown thread", async () => {
-      const { reply } = withThread();
+      const { reply } = await withThread();
       const result = await reply("alpha", "nope");
       expect(result?.isError).toBe(true);
       expect(result?.content[0]).toMatchObject({ text: expect.stringMatching(/No thread/) });
     });
 
     it("stays resolved after an answer", async () => {
-      const { log, supervisor, threadId, reply } = withThread();
+      const { log, supervisor, threadId, reply } = await withThread();
       supervisor.handle({ type: "thread_resolve", task: "t1", threadId, resolved: true });
       await reply("alpha", threadId);
       expect(log.state.tasks.t1?.threads[0]).toMatchObject({ resolved: true, unread: true });
@@ -409,10 +426,11 @@ describe("files", () => {
 });
 
 describe("scheduling and policy", () => {
-  it("starts a queued task when a report frees a running slot", () => {
+  it("starts a queued task when a report frees a running slot", async () => {
     const log = new EventLog(":memory:");
     const workspaces = ["ws1", "ws2"].map((name) => ({ name, path: tmpdir(), allowedTools: [] }));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces, running: 1 }),
@@ -420,14 +438,17 @@ describe("scheduling and policy", () => {
     supervisor.init();
     supervisor.createTask("one", "x", "ws1");
     supervisor.createTask("two", "y", "ws2");
+    await settled();
     expect(log.state.tasks.t2?.state).toBe("queued");
     supervisor.report("alpha", { summary: "done", changes: [], openQuestions: [] });
+    await settled();
     expect(log.state.tasks.t2).toMatchObject({ state: "in_progress", agent: "bravo" });
   });
 
   it("gives the next task of a workspace to the worker that finished the last, and keeps Done final", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "first", context: "x", workspace: "ws1" });
+    await settled();
     supervisor.handle({ type: "move", task: "t1", to: "done" });
     supervisor.spawn(DIRECTOR, { title: "second", context: "y", workspace: "ws1" });
     // The worker takes it once it has ended its turn on the first.
@@ -443,6 +464,7 @@ describe("scheduling and policy", () => {
     const log = new EventLog(":memory:");
     const fake = fakeQuery(echoing(result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       config: testConfig({ director: root }),
@@ -475,6 +497,7 @@ describe("attachments", () => {
     const log = new EventLog(":memory:");
     const fake = fakeQuery(echoing(result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       config: testConfig({ workspaces: [{ name: "ws1", path: root, allowedTools: [] }] }),
@@ -520,6 +543,7 @@ describe("handover", () => {
       }
     });
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn,
       config: testConfig({
@@ -572,7 +596,7 @@ describe("handover", () => {
 });
 
 describe("messages between projects", () => {
-  function twoProjects() {
+  async function twoProjects() {
     const root = mkdtempSync(join(tmpdir(), "fleet-links-"));
     const dir = (name: string) => {
       mkdirSync(join(root, name));
@@ -581,6 +605,7 @@ describe("messages between projects", () => {
     const workspace = (name: string) => ({ name, path: dir(name), allowedTools: [] });
     const log = new EventLog(":memory:");
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig(
@@ -592,11 +617,12 @@ describe("messages between projects", () => {
     supervisor.spawn(DIRECTOR, { title: "Fleet side", context: "x" });
     supervisor.spawn("director-site", { title: "Site side", context: "y" });
     supervisor.spawn(DIRECTOR, { title: "Other", context: "z" });
+    await settled();
     return { log, supervisor };
   }
 
-  it("keeps a worker's messages within its project, and names whom to ask", () => {
-    const { supervisor } = twoProjects();
+  it("keeps a worker's messages within its project, and names whom to ask", async () => {
+    const { supervisor } = await twoProjects();
     expect(() => supervisor.message("alpha", "charlie", "hi")).toThrow(
       "charlie works in the project site; ask director-test to link your tasks.",
     );
@@ -607,7 +633,7 @@ describe("messages between projects", () => {
   });
 
   it("lets a project's director change only its own project's tasks", async () => {
-    const { log, supervisor } = twoProjects();
+    const { log, supervisor } = await twoProjects();
     const refusal = (name: string) =>
       `${name} is of the project test; ask director-test or the fleet director.`;
     expect(() => supervisor.updateTask("t1", { title: "Mine" }, "director-site")).toThrow(
@@ -634,10 +660,10 @@ describe("messages between projects", () => {
     );
   });
 
-  it("tells both linked workers whom they reach, and shows directors the other projects' tasks", () => {
-    const { log, supervisor } = twoProjects();
+  it("tells both linked workers whom they reach, and shows directors the other projects' tasks", async () => {
+    const { log, supervisor } = await twoProjects();
     expect(supervisor.ledger(DIRECTOR)).toContain(
-      "Other projects' open tasks, to link with yours:\n- t2: Site side (project site, in_progress)",
+      "Other projects' open tasks, to link with yours:\n- t2: Site side (project site, needs_you)",
     );
     supervisor.linkTasks(DIRECTOR, "t1", "t2");
     const told = log.state.messages.filter((m) => m.from === DIRECTOR).map((m) => [m.to, m.body]);
@@ -653,14 +679,14 @@ describe("messages between projects", () => {
     ]);
   });
 
-  it("lets directors message anyone", () => {
-    const { supervisor } = twoProjects();
+  it("lets directors message anyone", async () => {
+    const { supervisor } = await twoProjects();
     expect(supervisor.message(DIRECTOR, "charlie", "hi")).toBe("Sent to charlie.");
     expect(supervisor.message("director-site", "alpha", "hi")).toBe("Sent to alpha.");
   });
 
   it("opens messages between two tasks a director links, until one is accepted", async () => {
-    const { log, supervisor } = twoProjects();
+    const { log, supervisor } = await twoProjects();
     expect(() => supervisor.linkTasks(DIRECTOR, "t1", "t3")).toThrow(
       "are both of the project test",
     );
@@ -680,8 +706,8 @@ describe("messages between projects", () => {
     );
   });
 
-  it("shows a director the ledger of its project and the tasks linked to it", () => {
-    const { supervisor } = twoProjects();
+  it("shows a director the ledger of its project and the tasks linked to it", async () => {
+    const { supervisor } = await twoProjects();
     // Other projects' tasks show as one line each, to link with, and no more.
     expect(supervisor.ledger("director-site")).not.toContain("## t1");
     supervisor.linkTasks(DIRECTOR, "t1", "t2");
@@ -712,6 +738,7 @@ describe("fleet director", () => {
     /** A daemon on the same log, as after a restart; `reversed` lists the projects the other way round. */
     const start = (reversed = false) => {
       const supervisor = new Supervisor({
+        changes: noChanges,
         log,
         queryFn: fake.queryFn,
         config: reversed ? { ...config, projects: [...config.projects].reverse() } : config,
@@ -732,14 +759,20 @@ describe("fleet director", () => {
 
   it("goes once the config switches it off", () => {
     const { log, config } = fleet();
-    new Supervisor({ log, queryFn: fakeQuery(echoing(result())).queryFn, config }).init();
+    new Supervisor({
+      changes: noChanges,
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config,
+    }).init();
     expect(log.state.agents[FLEET_DIRECTOR]).toBeUndefined();
     expect(log.state.agents[DIRECTOR]).toBeDefined();
   });
 
-  it("keeps each director with its project when the config lists them in another order", () => {
+  it("keeps each director with its project when the config lists them in another order", async () => {
     const { log, supervisor, restart } = fleet();
     supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Site work", context: "x" });
+    await settled();
     const again = restart(true);
     const directors = Object.values(log.state.agents).filter((a) => a.role === "director");
     expect(directors.map((d) => [d.name, d.project])).toEqual([
@@ -804,11 +837,12 @@ describe("fleet director", () => {
     }
   });
 
-  it("spawns a task in another project, which that project's director hears about", () => {
+  it("spawns a task in another project, which that project's director hears about", async () => {
     const { log, supervisor } = fleet();
     expect(
       supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Fix it", context: "x" }),
     ).toContain("in s1");
+    await settled();
     expect(log.state.tasks.t1).toMatchObject({ project: "site", agent: "bravo" });
     supervisor.report("bravo", { summary: "Fixed.", changes: [], openQuestions: [] });
     expect(log.state.messages.at(-1)).toMatchObject({ from: "bravo", to: "director-site" });
@@ -817,9 +851,10 @@ describe("fleet director", () => {
     );
   });
 
-  it("starts a queued task, but leaves every other move to the user", () => {
+  it("starts a queued task, but leaves every other move to the user", async () => {
     const { log, supervisor } = fleet();
     supervisor.spawn(FLEET_DIRECTOR, { project: "test", title: "One", context: "x" });
+    await settled();
     supervisor.report("alpha", { summary: "Done.", changes: [], openQuestions: [] });
     expect(() => supervisor.moveTask("t1", "done")).toThrow(
       "Review, Accept and Request changes are the user's",

@@ -9,7 +9,16 @@ import type { HolderHost, ProcessInfo } from "../src/daemon/holders.ts";
 import { BACK_IN_FLEET, BRIEFING_ACK } from "../src/daemon/prompts.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { ATTACH_TIMEOUT_MS, Supervisor } from "../src/daemon/supervisor.ts";
-import { DIRECTOR, echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
+import {
+  DIRECTOR,
+  echoing,
+  fakeQuery,
+  noChanges,
+  result,
+  settled,
+  testConfig,
+  until,
+} from "./helpers.ts";
 
 const ID = "3f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11";
 const STARTED = "Mon Oct 19 00:14:35 2026";
@@ -81,9 +90,11 @@ function setup(host?: HolderHost, log = new EventLog(":memory:")) {
   const source: SessionSource = {
     list: async () => [{ sessionId: ID, summary: "Sweep", lastModified: 1000 }],
     messages: async () => transcript,
+    fork: async () => "forked",
   };
   const fake = fakeQuery(echoing(result()));
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: fake.queryFn,
     sessions: source,
@@ -460,6 +471,7 @@ describe("bringing my own director", () => {
     const source: SessionSource = {
       list: async () => [{ sessionId: ID, summary: "Coordinate", lastModified: 1 }],
       messages: async () => [],
+      fork: async () => "forked",
     };
     const script = async function* () {
       if (fork === "throws") throw new Error("No conversation found");
@@ -472,6 +484,7 @@ describe("bringing my own director", () => {
     };
     const fake = fakeQuery(script, echoing(result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       sessions: source,
@@ -646,6 +659,7 @@ describe("review fixes", () => {
     await importIt();
     expect(agent()).toMatchObject({ guest: true, workspace: "ws1" });
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await settled();
     expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
     expect(agent()?.task).toBeUndefined();
   });

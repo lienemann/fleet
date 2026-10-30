@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { type SessionSource, sessionTitle, transcriptEvents } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
-import { DIRECTOR, echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
+import { DIRECTOR, echoing, fakeQuery, noChanges, result, testConfig, until } from "./helpers.ts";
 
 const ID = "6f1c2a4e-0b7d-4c1e-9a55-3c2d1e0f9a11";
 
@@ -95,9 +95,11 @@ describe("importing a session", () => {
         { sessionId: ID, summary: "Speed up the sweep", lastModified: 1000, gitBranch: "main" },
       ],
       messages: async () => transcript,
+      fork: async () => "forked",
     };
     const fake = fakeQuery(echoing(result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       sessions: source,

@@ -8,7 +8,7 @@ import { EventLog } from "../src/daemon/eventLog.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { SWATCHES } from "../src/shared/colors.ts";
-import { echoing, fakeQuery, result, testConfig } from "./helpers.ts";
+import { echoing, fakeQuery, noChanges, result, settled, testConfig } from "./helpers.ts";
 
 const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
 
@@ -27,6 +27,7 @@ it("offers the repo's existing jj workspaces and adds one for good", async () =>
   const config = loadConfig(home);
   const changed = vi.fn();
   const supervisor = new Supervisor({
+    changes: noChanges,
     log: new EventLog(":memory:"),
     queryFn: fakeQuery(echoing(result())).queryFn,
     config,
@@ -70,6 +71,7 @@ it("checks any other directory before it becomes a workspace, and imports its se
   const home = join(root, "home");
   execFileSync("mkdir", ["-p", home]);
   const supervisor = new Supervisor({
+    changes: noChanges,
     log: new EventLog(":memory:"),
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: testConfig(),
@@ -98,13 +100,15 @@ it("checks any other directory before it becomes a workspace, and imports its se
   );
 
   // Tasks go there only when they name it.
-  expect(() => supervisor.startTask({ title: "Any", context: "x" })).toThrow("Name the workspace");
+  expect(supervisor.startTask({ title: "Any", context: "x" })).toBe(
+    "Spawned t1; it waits for a free worker.",
+  );
   expect(supervisor.startTask({ title: "Here", context: "x", workspace: "other-repo" })).toContain(
     "in other-repo",
   );
 });
 
-it("removes only a workspace nobody uses, and never the last one", () => {
+it("removes only a workspace nobody uses, and never the last one", async () => {
   const home = mkdtempSync(join(tmpdir(), "fleet-remove-"));
   const file = join(home, "config.toml");
   const entry = (name: string) =>
@@ -115,6 +119,7 @@ it("removes only a workspace nobody uses, and never the last one", () => {
   );
   const changed = vi.fn();
   const supervisor = new Supervisor({
+    changes: noChanges,
     log: new EventLog(":memory:"),
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: loadConfig(home),
@@ -125,6 +130,7 @@ it("removes only a workspace nobody uses, and never the last one", () => {
   const remove = (workspace: string) => supervisor.handle({ type: "remove_workspace", workspace });
 
   supervisor.startTask({ title: "One", context: "x", workspace: "ws1" });
+  await settled();
   supervisor.claimWorkspace("outside", "ws2");
   expect(() => remove("ws1")).toThrow('ws1 stays: it holds the work of t1 "One".');
   expect(() => remove("ws2")).toThrow("ws2 stays: outside has claimed it.");
@@ -148,6 +154,7 @@ it("adding a workspace keeps the file's header, its other settings and allowed_t
   );
   const before = loadConfig(home);
   const supervisor = new Supervisor({
+    changes: noChanges,
     log: new EventLog(":memory:"),
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: before,
@@ -179,6 +186,7 @@ it("changes a project's color, writes it to config.toml and tells the pages", ()
   writeFileSync(file, `# Mine.\n[[projects]]\nname = "p"\npath = "/work/p"\ndirector = false\n`);
   const changed = vi.fn();
   const supervisor = new Supervisor({
+    changes: noChanges,
     log: new EventLog(":memory:"),
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: loadConfig(home),

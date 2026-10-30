@@ -79,11 +79,12 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("remove_workspace"), workspace: z.string().min(1) }),
   /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
   z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
+  /** A task for the workspace's worker; without a workspace, for any free worker. */
   z.object({
     type: z.literal("create_task"),
     title: z.string().trim().min(1),
     brief: z.string().trim().min(1),
-    workspace: z.string().min(1),
+    workspace: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("start"), agent }),
   z.object({ type: z.literal("stop"), agent }),

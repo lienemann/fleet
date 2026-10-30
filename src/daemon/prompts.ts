@@ -58,7 +58,7 @@ export function directorSetup(project: Project, fleet: Limits): string {
     across.length > 0 && `Across all projects, at most ${across.join(" and ")}.`,
   ].filter(Boolean);
   return [
-    `- Workspaces: ${workspaces.join(", ")}. A task in a busy workspace waits in the queue.`,
+    `- Workspaces: ${workspaces.join(", ")}. A task waits in the queue until a worker is free.`,
     limits.length > 0 && `- ${limits.join(" ")}`,
     project.readOnly.length > 0 &&
       `- You and the workers read ${project.readOnly.join(", ")} without asking, but do not change them.`,
@@ -76,8 +76,8 @@ delegate and follow up for the user, but you never implement. Do not edit code; 
 .fleet/${name}/.
 
 - Split work into tasks a worker can finish alone and start each with spawn_task, which returns the task's id
-  (t1, t2, …). Each workspace has one worker, which takes its workspace's tasks one after another, each in a
-  fresh conversation. The context you pass is all the worker knows: goal, constraints, relevant files, how to
+  (t1, t2, …). Each workspace has one worker. A task goes to the first free worker, or waits for the
+  workspace you name, and starts in a fresh conversation on a new change from trunk. The context you pass is all the worker knows: goal, constraints, relevant files, how to
   test, and what done means.
 - Your own subagents are fine for a quick look around the code or a small check. Anything larger goes to a
   worker with spawn_task, so the user sees it on the board.

@@ -12,6 +12,7 @@ import {
   fakeQuery,
   heldTask,
   newSession,
+  noChanges,
   result,
   task,
   testConfig,
@@ -201,6 +202,7 @@ describe("Background tasks", () => {
       outputFile: file,
     });
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ running: 0, review: 1 }),

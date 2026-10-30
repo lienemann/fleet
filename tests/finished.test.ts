@@ -12,6 +12,7 @@ import {
   echoing,
   fakeQuery,
   init,
+  noChanges,
   result,
   sdk,
   testConfig,
@@ -27,6 +28,7 @@ function setup(script: Script, finishedAfterMs = 0, path = "/work/ws1") {
   const log = new EventLog(":memory:");
   const fake = fakeQuery(script);
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: fake.queryFn as QueryFn,
     config: {
@@ -192,6 +194,7 @@ describe("Finished runs", () => {
     void supervisor.shutdown();
 
     const again = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(assistantText("Back."), result())).queryFn as QueryFn,
       config: { ...testConfig({ workspaces }), finishedAfterMs: 15_000 },
@@ -252,7 +255,12 @@ describe("Finished runs", () => {
   });
 
   it("does not report a failed turn while a prompt queued behind it keeps the agent working", async () => {
+    let go: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      go = resolve;
+    });
     const script: Script = async function* () {
+      await started;
       yield sdk({ type: "system", subtype: "session_state_changed", state: "running" });
       yield result({ is_error: true, subtype: "error_during_execution" });
       yield assistantText("Carried on.");
@@ -261,7 +269,9 @@ describe("Finished runs", () => {
     };
     const { supervisor, alpha, log } = setup(script);
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => log.state.tasks.t1?.state === "in_progress");
     supervisor.handle({ type: "prompt", agent: "alpha", text: "And this too." });
+    go();
     // The script ends after its last run, which stops the session.
     await until(() => alpha()?.activity === "stopped");
     expect(alpha()?.finished).toMatchObject([{ text: "Carried on.", stopped: undefined }]);

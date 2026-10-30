@@ -44,6 +44,7 @@ import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
 import {
   CLOSED,
   columnOf,
+  conversationsOf,
   HOLDS_WORKSPACE,
   holderOf,
   holdsWorkspace,
@@ -58,6 +59,7 @@ import {
 } from "../shared/tasks.ts";
 import { secretFile } from "./auth.ts";
 import { changeRequest, threadMessage } from "./changeRequest.ts";
+import { type Changes, jjChanges } from "./changes.ts";
 import {
   allWorkspaces,
   type Config,
@@ -77,6 +79,7 @@ import {
   type Workspace,
   writeConfig,
 } from "./config.ts";
+import { continueTask, freshStart, movedBriefing } from "./conversations.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
   agentNotes,
@@ -94,7 +97,7 @@ import {
 } from "./files.ts";
 import { writeForkHandover } from "./forkHandover.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
-import { jjPolicy, readPolicy } from "./policy.ts";
+import { EDIT_TOOLS, foreignEditHooks, foreignWorkspace, jjPolicy, readPolicy } from "./policy.ts";
 import type { Power } from "./power.ts";
 import {
   BACK_IN_FLEET,
@@ -158,7 +161,6 @@ const ACTIVE: ReadonlySet<TaskState> = new Set(["in_progress", "changes_requeste
 
 const NO_TASK =
   "You hold no task; this tool reports on a task you work on. Answer with send_message instead.";
-const EDIT_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 const RESTART_NOTE =
   "The fleet daemon restarted while you were working. Continue where you left off; " +
@@ -174,6 +176,27 @@ export interface WorkspaceStatus {
   claim?: Claim;
   /** Only tasks that name it go there. */
   explicit?: boolean;
+}
+
+/**
+ * How a worker's conversation on a task begins: fresh with the brief, resuming the task's
+ * earlier session in place, or forking the session that the agent `from` had.
+ */
+type Opening =
+  | { kind: "fresh" }
+  | { kind: "resume"; session: string }
+  | { kind: "fork"; session: string; from: AgentView };
+
+/** The free worker that takes a queued task, and how its conversation begins. */
+interface Placement {
+  worker: AgentView;
+  opening: Opening;
+}
+
+/** A worker readied for a task: how its conversation begins, and the session it resumes. */
+interface Readied {
+  opening: Opening;
+  resume?: string;
 }
 
 /** How often the daemon looks at which Claude Code processes hold its sessions. */
@@ -219,8 +242,10 @@ export interface SupervisorOptions {
     | "readWhileWatching"
   >;
   power?: Pick<Power, "setLidMode">;
-  /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
+  /** Existing Claude Code sessions, for importing and forking; the SDK's own store unless replaced. */
   sessions?: SessionSource;
+  /** Starts each ticket on a change of its own; jj unless replaced. */
+  changes?: Changes;
   /** Which Claude Code processes hold sessions; without it fleet cannot tell. */
   holders?: HolderHost;
   /** Where added workspaces are written; without it they last until the daemon stops. */
@@ -245,6 +270,12 @@ export class Supervisor implements ToolHost {
   private readonly reviews = new ReviewService();
   private readonly power: SupervisorOptions["power"];
   private readonly sessionSource: SessionSource;
+  private readonly changes: Changes;
+  /**
+   * Queued tasks whose worker is being readied, by task: the worker. Both count as taken until
+   * the task starts.
+   */
+  private readonly starting = new Map<string, string>();
   private readonly importing = new Set<string>();
   private readonly holders: HolderHost | undefined;
   /** The pid of the holder each detached agent waits for; it is picked up once that exits. */
@@ -278,12 +309,14 @@ export class Supervisor implements ToolHost {
     config,
     power,
     sessions,
+    changes,
     holders,
     restart,
     configFile,
     fleetDir,
     onWorkspacesChanged,
   }: SupervisorOptions) {
+    this.changes = changes ?? jjChanges;
     this.fleetDir = fleetDir;
     this.holders = holders;
     this.configFile = configFile;
@@ -321,10 +354,14 @@ export class Supervisor implements ToolHost {
     return this.agents.find((a) => a.role === "worker" && !a.guest && a.workspace === workspace);
   }
 
-  /** Whether an agent may take a task now: it holds none, rests, and nothing waits on the user. */
+  /**
+   * Whether an agent may take a task now: it holds none, is not being readied for one, rests,
+   * and nothing waits on the user.
+   */
   private isFree(agent: AgentView): boolean {
     return (
       agent.task === undefined &&
+      ![...this.starting.values()].includes(agent.name) &&
       agent.activity !== "working" &&
       agent.activity !== "detached" &&
       agent.pending === 0
@@ -452,7 +489,7 @@ export class Supervisor implements ToolHost {
   /** The limit that leaves no room, as "count/limit" and where it applies. */
   private fullLimit(project: string | undefined, kind: keyof Limits): string | undefined {
     const counted = taskList(this.state).filter((t) =>
-      kind === "running" ? ACTIVE.has(t.state) : t.state === "review",
+      kind === "running" ? ACTIVE.has(t.state) || this.starting.has(t.id) : t.state === "review",
     );
     const own = counted.filter((a) => a.project === project).length;
     const ownLimit = this.config.projects.find((p) => p.name === project)?.wip[kind];
@@ -510,7 +547,11 @@ export class Supervisor implements ToolHost {
         });
       }
     }
-    const live = this.agents.filter((a) => a.activity === "working" || a.activity === "idle");
+    // A free worker that rested stays stopped until it gets work.
+    const free = (a: AgentView) => a.role === "worker" && !a.guest && a.task === undefined;
+    const live = this.agents.filter(
+      (a) => a.activity === "working" || (a.activity === "idle" && !free(a)),
+    );
     if (this.holders) this.background(this.resumeUnlessHeld(live));
     else for (const agent of live) this.resume(agent);
     this.schedule();
@@ -1293,20 +1334,31 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  /** Queues a worker task for a workspace and returns its id; `by` is who asks. */
-  createTask(title: string, brief: string, workspace: string, by = USER): string | undefined {
-    const ws = this.workspace(workspace);
-    if (!ws) return undefined;
+  /**
+   * Queues a worker task and returns its id: for a workspace's worker, or, without one, for any
+   * free worker of `project`. `by` is who asks.
+   */
+  createTask(
+    title: string,
+    brief: string,
+    workspace: string | undefined,
+    by = USER,
+    project = this.home,
+  ): string | undefined {
+    const ws = workspace === undefined ? undefined : this.workspace(workspace);
+    if (workspace !== undefined && !ws) return undefined;
+    const owner = ws?.project ?? project?.name;
+    if (owner === undefined) return undefined;
     const id = `t${this.log.state.taskCount + 1}`;
     this.append(DAEMON, {
       kind: "task_created",
       id,
       title,
       brief,
-      project: ws.project,
+      project: owner,
       role: "worker",
       by,
-      workspace: ws.name,
+      ...(ws && { workspace: ws.name }),
     });
     this.schedule();
     return id;
@@ -1656,8 +1708,8 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Creates a worker task with its brief written to the workspace; the director's limits aside.
-   * With a project, the task goes to one of its workspaces. `by` is who asks.
+   * Creates a worker task, the director's limits aside: for the named workspace, else for any
+   * free worker of `project`. `by` is who asks.
    */
   startTask(
     { title, context, workspace }: SpawnRequest,
@@ -1665,19 +1717,29 @@ export class Supervisor implements ToolHost {
     by: string = USER,
   ): string {
     const names = this.workspaceNames(project);
-    const ws = workspace ?? this.pickWorkspace(project);
-    if (!ws)
-      throw new ToolError(`Name the workspace; none takes tasks unasked. Workspaces: ${names}.`);
-    const owner = projectOf(this.config, ws);
-    if (project && owner && owner !== project) {
-      throw new ToolError(`${ws} belongs to the project ${owner.name}. Workspaces: ${names}.`);
+    const ws = workspace === undefined ? undefined : this.workspace(workspace);
+    if (workspace !== undefined && !ws) {
+      throw new ToolError(`No workspace "${workspace}". Workspaces: ${names}.`);
     }
-    const id = this.createTask(title, context, ws, by);
-    if (!id) throw new ToolError(`No workspace "${ws}". Workspaces: ${names}.`);
-    this.writeContextPack(id);
+    if (project && ws && ws.project !== project.name) {
+      throw new ToolError(
+        `${workspace} belongs to the project ${ws.project}. Workspaces: ${names}.`,
+      );
+    }
+    const id = this.createTask(title, context, workspace, by, project);
+    if (id === undefined) throw new ToolError("No project takes tasks; add one first.");
+    return `Spawned ${id}; ${this.standing(id)}.`;
+  }
+
+  /** Where a task stands, for a tool's answer. */
+  private standing(id: string): string {
+    const worker = this.starting.get(id);
+    if (worker !== undefined) return `it starts on ${worker} in ${this.agent(worker)?.workspace}`;
     const task = this.task(id);
-    const holder = task?.agent === undefined ? "" : ` on ${task.agent}`;
-    return `Spawned ${id} in ${ws}; it is ${task?.state}${holder}.`;
+    if (task?.state === "queued") {
+      return `it waits for ${task.pin ?? task.workspace ?? "a free worker"}`;
+    }
+    return `it is ${task?.state} in ${task && workspaceOf(this.state, task)}`;
   }
 
   /**
@@ -1709,11 +1771,12 @@ export class Supervisor implements ToolHost {
       const linked = links(t).join(", ");
       const where = project === undefined ? ` (project ${t.project})` : "";
       const holder = holderOf(this.state, t);
+      const workspace = workspaceOf(this.state, t);
       const lines = [
         ours(t)
           ? `## ${t.id}: ${t.title}${where}`
           : `## ${t.id}: ${t.title} (project ${t.project}, linked to ${linked})`,
-        `- state: ${columnOf(this.state, t)}${holder ? `, held by ${holder.name} (${holder.activity})` : ""}, workspace ${workspaceOf(this.state, t)}`,
+        `- state: ${columnOf(this.state, t)}${holder ? `, held by ${holder.name} (${holder.activity})` : ""}, ${workspace === undefined ? "any free worker" : `workspace ${workspace}`}`,
       ];
       if (ours(t) && linked) lines.push(`- linked to ${linked}`);
       if (t.status) lines.push(`- status: ${t.status}`);
@@ -1780,10 +1843,8 @@ export class Supervisor implements ToolHost {
       brief: context,
       workspace: ws?.name,
     });
-    if (context !== undefined) this.writeContextPack(id);
     if (ws) this.schedule();
-    const now = this.task(id);
-    return `Updated ${id}; it is ${now?.state} in ${now && workspaceOf(this.state, now)}.`;
+    return `Updated ${id}; ${this.standing(id)}.`;
   }
 
   /**
@@ -1853,10 +1914,12 @@ export class Supervisor implements ToolHost {
     if (task.state !== "queued") {
       throw new ToolError(`${id} is ${columnOf(this.state, task)}, not queued.`);
     }
-    const blocked = this.blocker(task);
-    if (blocked) throw new ToolError(`${blocked}; ${id} starts once it is free.`);
-    this.startNow(task);
-    return `Started ${id}.`;
+    const placement = this.starting.has(id) ? undefined : this.placement(task);
+    if (typeof placement === "string") {
+      throw new ToolError(`${placement}; ${id} starts once it is free.`);
+    }
+    if (placement) this.begin(task, placement);
+    return `Started ${id} on ${this.starting.get(id)}.`;
   }
 
   setModel(agent: string, model: string): string {
@@ -2233,7 +2296,9 @@ export class Supervisor implements ToolHost {
     const task = this.task(id);
     if (!task || task.state === to) return;
     if (task.state === "queued") {
-      if (to === "in_progress" && !this.blocker(task)) this.startNow(task);
+      const placement =
+        to === "in_progress" && !this.starting.has(id) ? this.placement(task) : undefined;
+      if (typeof placement === "object") this.begin(task, placement);
       return;
     }
     if (!HOLDS_WORKSPACE.has(task.state)) return;
@@ -2262,43 +2327,146 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Hands queued tasks in creation order to their workspace's worker, once it is free and the
-   * limits leave room. A task whose project is full waits without holding up the other projects'.
+   * The pool: hands queued tasks in creation order to free workers while the limits leave room.
+   * A task whose project is full waits without holding up the other projects'.
    */
   private schedule(): void {
     for (const task of taskList(this.state)) {
-      if (task.state !== "queued" || !this.hasRoom(task.project, "running")) continue;
-      if (!this.blocker(task)) this.startNow(task);
+      if (task.state !== "queued" || this.starting.has(task.id)) continue;
+      if (!this.hasRoom(task.project, "running")) continue;
+      const placement = this.placement(task);
+      if (typeof placement === "object") this.begin(task, placement);
     }
   }
 
-  /** What keeps a queued task from starting, past the limits; undefined when nothing does. */
-  private blocker(task: TaskView): string | undefined {
-    const workspace = task.workspace;
-    const worker = workspace === undefined ? undefined : this.workerOf(workspace);
-    if (workspace === undefined || !worker) return `${task.id} has no worker to take it`;
-    const holder = workspaceHolder(this.state, workspace, task.id);
-    if (holder !== undefined) return `${workspace} is held by ${holder}`;
-    if (!this.isFree(worker)) return `${worker.name} is busy`;
-    return undefined;
+  /**
+   * Which free worker takes a queued task, past the limits, and how its conversation begins; else
+   * what keeps the task waiting. A pinned task waits for its worker, one for a workspace for that
+   * workspace's; any other goes to a worker of its project outside the explicit workspaces. The
+   * worker that had the task's last conversation resumes it in place; another one forks it.
+   */
+  private placement(task: TaskView): Placement | string {
+    const candidates = this.candidates(task);
+    if (typeof candidates === "string") return candidates;
+    const free = candidates.filter(
+      (w) => this.isFree(w) && workspaceHolder(this.state, w.workspace, task.id) === undefined,
+    );
+    const [first] = free;
+    if (!first) {
+      const [only] = candidates;
+      if (!only || candidates.length > 1) return `no worker of ${task.project} is free`;
+      const holder = workspaceHolder(this.state, only.workspace, task.id);
+      return holder === undefined
+        ? `${only.name} is busy`
+        : `${only.workspace} is held by ${holder}`;
+    }
+    const last = conversationsOf(this.state, task).at(-1);
+    if (last?.sessionId === undefined) return { worker: first, opening: { kind: "fresh" } };
+    const session = last.sessionId;
+    const own = free.find((w) => w.name === last.agent);
+    if (own) return { worker: own, opening: { kind: "resume", session } };
+    const from = this.agent(last.agent);
+    return { worker: first, opening: from ? { kind: "fork", session, from } : { kind: "fresh" } };
+  }
+
+  /** The workers that may take a task, free or not; what keeps it waiting when there is none. */
+  private candidates(task: TaskView): AgentView[] | string {
+    if (task.pin !== undefined) {
+      const pinned = this.agent(task.pin);
+      return pinned && isWorker(pinned) ? [pinned] : `${task.pin} is gone`;
+    }
+    if (task.workspace !== undefined) {
+      const worker = this.workerOf(task.workspace);
+      return worker ? [worker] : `${task.id} has no worker to take it`;
+    }
+    return this.agents.filter(
+      (a) =>
+        a.role === task.role &&
+        !a.guest &&
+        a.project === task.project &&
+        !this.workspace(a.workspace)?.explicit,
+    );
+  }
+
+  /** Reserves the worker for the task, readies it, and then hands the task over. */
+  private begin(task: TaskView, { worker, opening }: Placement): void {
+    this.starting.set(task.id, worker.name);
+    this.background(this.ready(task, worker, opening));
+  }
+
+  private async ready(task: TaskView, worker: AgentView, planned: Opening): Promise<void> {
+    let ready: Readied;
+    try {
+      ready = await this.prepare(task, worker, planned);
+    } finally {
+      this.starting.delete(task.id);
+    }
+    // Meanwhile the task may have been dropped, the worker removed or busy with a command, and
+    // its workspace claimed.
+    const now = this.task(task.id);
+    const agent = this.agent(worker.name);
+    if (
+      now?.state !== "queued" ||
+      !agent ||
+      !this.isFree(agent) ||
+      workspaceHolder(this.state, agent.workspace, task.id) !== undefined
+    ) {
+      return this.schedule();
+    }
+    this.startNow(now, agent, ready.opening, ready.resume);
   }
 
   /**
-   * Gives a queued task to its workspace's worker in a fresh conversation: the worker keeps its
-   * name and settings, and its session starts anew with the brief.
+   * Readies a worker for a task: its session ends, the task's conversation is forked over if it
+   * moves, and its workspace gets a new change: from trunk for a fresh conversation, on top of
+   * the task's change for one that continues. Never in an explicit workspace, the user's checkout.
+   * What fails is logged, and the task starts anyway; a fork that fails starts fresh.
    */
-  private startNow(task: TaskView): void {
-    const worker = task.workspace === undefined ? undefined : this.workerOf(task.workspace);
-    if (!worker) return;
-    // The old session stops without a word; the reducer archives its conversation.
-    const old = this.sessions.get(worker.name);
-    this.sessions.delete(worker.name);
-    this.forgetHolder(worker.name);
-    this.background(old?.close());
-    this.append(worker.name, { kind: "conversation_started", task: task.id });
-    const session = this.session(worker.name);
-    // The brief goes first, so the worker takes the task working, without a moment stopped.
-    session?.prompt(task.brief, [], { by: "user" });
+  private async prepare(task: TaskView, worker: AgentView, planned: Opening): Promise<Readied> {
+    await this.closeSession(worker.name);
+    let opening = planned;
+    let resume = planned.kind === "resume" ? planned.session : undefined;
+    if (planned.kind === "fork") {
+      try {
+        resume = await this.sessionSource.fork(planned.session, planned.from.cwd);
+      } catch (error) {
+        console.error(`fleet: forking the conversation of ${task.id} failed:`, error);
+        opening = { kind: "fresh" };
+      }
+    }
+    const base = task.change ?? (opening.kind === "fresh" ? "trunk" : undefined);
+    if (base !== undefined && !this.workspace(worker.workspace)?.explicit) {
+      try {
+        await this.changes.startChange(worker.cwd, base);
+      } catch (error) {
+        console.error(
+          `fleet: starting a change for ${task.id} in ${worker.workspace} failed:`,
+          error,
+        );
+      }
+    }
+    return { opening, resume };
+  }
+
+  /**
+   * Gives a queued task to a readied worker in a new conversation: the worker keeps its name and
+   * settings, and its session starts anew with the brief, or resumes the task's conversation.
+   */
+  private startNow(task: TaskView, worker: AgentView, opening: Opening, resume?: string): void {
+    // Whatever the worker ran meanwhile stops without a word; the reducer archives it.
+    this.background(this.closeSession(worker.name));
+    this.append(worker.name, {
+      kind: "conversation_started",
+      task: task.id,
+      ...(opening.kind === "resume" && { resume: opening.session }),
+      ...(opening.kind === "fork" && {
+        fork: { session: opening.session, from: opening.from.workspace },
+      }),
+    });
+    if (task.by !== USER) this.writeContextPack(task, worker);
+    const session = this.session(worker.name, resume);
+    // The first prompt goes first, so the worker takes the task working, without a moment stopped.
+    session?.prompt(this.firstPrompt(task, worker, opening), [], { by: "user" });
     this.append(DAEMON, {
       kind: "task_state",
       task: task.id,
@@ -2308,24 +2476,36 @@ export class Supervisor implements ToolHost {
     session?.start();
   }
 
-  /** A free workspace with nothing queued for it, else the one with the shortest queue. */
-  private pickWorkspace(project?: Project): string {
-    const busy = (ws: Workspace) => Number(workspaceHolder(this.state, ws.name) !== undefined);
-    const queued = (ws: Workspace) => workspaceUse(this.state, ws.name).queued;
-    const ranked = (project?.workspaces ?? this.workspaces)
-      .filter((ws) => !ws.explicit)
-      .sort((a, b) => busy(a) - busy(b) || queued(a) - queued(b));
-    return ranked[0]?.name ?? "";
+  private firstPrompt(task: TaskView, worker: AgentView, opening: Opening): string {
+    if (opening.kind === "fresh") return freshStart(task.brief, task.note);
+    if (opening.kind === "resume") return continueTask(task.id);
+    const briefing = movedBriefing({
+      task: task.id,
+      worker: worker.name,
+      workspace: worker.workspace,
+      from: opening.from.workspace,
+      cwd: worker.cwd,
+    });
+    return `${briefing}\n\n${continueTask(task.id)}`;
   }
 
-  /** Writes the task's brief where its worker keeps notes for the user. */
-  private writeContextPack(id: string): void {
-    const task = this.task(id);
-    const worker = task?.workspace === undefined ? undefined : this.workerOf(task.workspace);
-    if (!task || !worker) return;
-    const dir = join(worker.cwd, ".fleet", worker.name, task.id);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "context.md"), `# ${task.title}\n\n${task.brief}\n`);
+  /** Ends the agent's session without a word; the next one starts afresh or resumes another. */
+  private async closeSession(name: string): Promise<void> {
+    const old = this.sessions.get(name);
+    this.sessions.delete(name);
+    this.forgetHolder(name);
+    await old?.close();
+  }
+
+  /** Writes a director's brief where the worker keeps notes for the user. */
+  private writeContextPack(task: TaskView, worker: AgentView): void {
+    try {
+      const dir = join(worker.cwd, ".fleet", worker.name, task.id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "context.md"), `# ${task.title}\n\n${task.brief}\n`);
+    } catch {
+      // In a read-only workspace the worker's own writes fail too, with a clearer error.
+    }
   }
 
   /** Repos an agent reads besides its own directory: every project's for the fleet director. */
@@ -2373,7 +2553,8 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  private session(name: string): AgentSession | undefined {
+  /** The agent's session, made if it has none; a new one resumes `resume`, else the agent's own. */
+  private session(name: string, resume?: string): AgentSession | undefined {
     const existing = this.sessions.get(name);
     if (existing) return existing;
     const agent = this.agent(name);
@@ -2388,10 +2569,14 @@ export class Supervisor implements ToolHost {
     // Bare tool names in allowedTools would skip canUseTool with an SDK warning, so the
     // daemon approves those itself; only rules with a pattern go to the CLI.
     const approved = new Set(allowed.filter((rule) => !rule.includes("(")));
+    const workspaces = () => this.workspaces.map((ws) => ws.path);
     const autoDecide = (
       tool: string,
       input: Record<string, unknown>,
     ): PermissionResult | undefined => {
+      if (!director && foreignWorkspace(agent.cwd, workspaces(), tool, input) !== undefined) {
+        return undefined;
+      }
       if (approved.has(tool) || tool.startsWith(`mcp__${SERVER}__`)) {
         return { behavior: "allow", updatedInput: input };
       }
@@ -2405,7 +2590,7 @@ export class Supervisor implements ToolHost {
       cwd: agent.cwd,
       emit: (event) => this.append(name, event),
       queryFn: this.queryFn,
-      resume: agent.sessionId,
+      resume: resume ?? agent.sessionId,
       model: agent.model ?? this.config.model,
       effort: agent.effort ?? this.config.effort,
       permissionMode: agent.permissionMode,
@@ -2420,7 +2605,7 @@ export class Supervisor implements ToolHost {
           ? directorPrompt(name, project, this.config.wip)
           : workerPrompt(name, agent.workspace, this.directorFor(agent)),
       autoDecide,
-      hooks: director ? directorHooks(agent.cwd, name) : undefined,
+      hooks: director ? directorHooks(agent.cwd, name) : foreignEditHooks(agent.cwd, workspaces),
     });
     this.sessions.set(name, session);
     return session;

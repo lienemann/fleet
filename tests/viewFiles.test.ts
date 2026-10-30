@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { fleetServer, toolsOf } from "../src/daemon/tools.ts";
-import { DIRECTOR, echoing, fakeQuery, result, testConfig } from "./helpers.ts";
+import { DIRECTOR, echoing, fakeQuery, noChanges, result, settled, testConfig } from "./helpers.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
 /** The worker "alpha" of ws1, holding the task t1, with Claude's config directory and fleet's home in the temp dir. */
-function setup() {
+async function setup() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-view-")));
   const dirs = {
     ws: join(root, "ws1"),
@@ -27,6 +27,7 @@ function setup() {
 
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: testConfig({
@@ -36,6 +37,7 @@ function setup() {
   });
   supervisor.init();
   supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+  await settled();
 
   const write = (path: string, content: string | Buffer = "text\n") => {
     mkdirSync(join(path, ".."), { recursive: true });
@@ -59,14 +61,14 @@ function setup() {
 
 describe("reading a file for the viewer", () => {
   it("shows files of the workspace, by relative or absolute path", async () => {
-    const t = setup();
+    const t = await setup();
     t.write(join(t.ws, "notes/a.md"), "# Hi\n");
     expect(await t.read("notes/a.md")).toEqual({ kind: "text", size: 5, text: "# Hi\n" });
     expect(await t.read(join(t.ws, "notes/a.md"))).toMatchObject({ kind: "text" });
   });
 
   it("refuses anything else, `..` and symlinks included", async () => {
-    const t = setup();
+    const t = await setup();
     const outside = t.write(join(t.elsewhere, "x.txt"));
     symlinkSync(outside, join(t.ws, "link.txt"));
     await expect(t.read(outside)).rejects.toThrow(/outside what fleet shows/);
@@ -75,7 +77,7 @@ describe("reading a file for the viewer", () => {
   });
 
   it("shows a plan only once the agent wrote or attached it", async () => {
-    const t = setup();
+    const t = await setup();
     const plan = t.write(join(t.claude, "plans/review.md"));
     await expect(t.read(plan)).rejects.toThrow(/outside what fleet shows/);
     t.wrote(plan);
@@ -87,7 +89,7 @@ describe("reading a file for the viewer", () => {
   });
 
   it("does not follow a listed plan that links out of the plans", async () => {
-    const t = setup();
+    const t = await setup();
     const target = t.write(join(t.elsewhere, "x.txt"));
     const link = join(t.claude, "plans/link.md");
     symlinkSync(target, link);
@@ -96,7 +98,7 @@ describe("reading a file for the viewer", () => {
   });
 
   it("never shows fleet's secrets, even when listed", async () => {
-    const t = setup();
+    const t = await setup();
     const secret = join(t.home, "secret");
     t.wrote(secret);
     await expect(t.read(secret)).rejects.toThrow(/never shown/);
@@ -106,7 +108,7 @@ describe("reading a file for the viewer", () => {
   });
 
   it("shows what a director wrote in its notes, plans and memory, and still nothing else", async () => {
-    const t = setup();
+    const t = await setup();
     const notes = t.write(join(t.repo, ".fleet", DIRECTOR, "backlog.md"));
     const plan = t.write(join(t.claude, "plans/proposal/outline.md"));
     const memory = t.write(join(t.claude, "projects/-x-repo/memory/feedback.md"));
@@ -122,14 +124,14 @@ describe("reading a file for the viewer", () => {
   });
 
   it("names a listed file that is gone from the disk", async () => {
-    const t = setup();
+    const t = await setup();
     const plan = join(t.claude, "plans/moved.md");
     t.wrote(plan, DIRECTOR);
     await expect(t.read(plan, DIRECTOR)).rejects.toThrow(/does not exist/);
   });
 
   it("says binary and too large instead of sending the bytes", async () => {
-    const t = setup();
+    const t = await setup();
     t.write(join(t.ws, "img.png"), Buffer.from([0x89, 0x50, 0, 0x0d]));
     expect(await t.read("img.png")).toEqual({ kind: "binary", size: 4 });
     t.write(join(t.ws, "big.txt"), "x".repeat(600 * 1024));
@@ -141,7 +143,7 @@ describe("reading a file for the viewer", () => {
 
 describe("attach_file and report_result files", () => {
   it("lists files with their notes, newest first, and keeps the note of a re-attached one", async () => {
-    const t = setup();
+    const t = await setup();
     const review = t.write(join(t.claude, "plans/mr5886-review.md"));
     const diff = t.write(join(t.claude, "plans/mr5886-review.diff"));
     const first = await t.attach([{ path: review, note: "Review for Jan" }]);
@@ -155,7 +157,7 @@ describe("attach_file and report_result files", () => {
   });
 
   it("resolves a relative path against the workspace and refuses what cannot be shown", async () => {
-    const t = setup();
+    const t = await setup();
     t.write(join(t.ws, "out.md"));
     await t.attach([{ path: "out.md" }]);
     expect(t.log.state.tasks.t1?.attached.map((f) => f.path)).toEqual([join(t.ws, "out.md")]);
@@ -173,7 +175,7 @@ describe("attach_file and report_result files", () => {
   });
 
   it("report_result attaches its files before the report", async () => {
-    const t = setup();
+    const t = await setup();
     const notes = t.write(join(t.claude, "plans/notes.md"));
     const tool = toolsOf(fleetServer("alpha", "worker", t.supervisor)).find(
       (x) => x.name === "report_result",
@@ -189,7 +191,7 @@ describe("attach_file and report_result files", () => {
   });
 
   it("a report with an unreadable file fails without reporting", async () => {
-    const t = setup();
+    const t = await setup();
     const tool = toolsOf(fleetServer("alpha", "worker", t.supervisor)).find(
       (x) => x.name === "report_result",
     );

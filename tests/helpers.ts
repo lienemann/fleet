@@ -1,5 +1,6 @@
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { expect, vi } from "vitest";
+import type { Changes } from "../src/daemon/changes.ts";
 import type { Project, Workspace } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { AgentSession, type QueryFn, type SessionOptions } from "../src/daemon/session.ts";
@@ -158,6 +159,13 @@ export const testConfig = (
   projects: [testProject("test", first), ...others],
 });
 
+/** Workspaces without jj: every ticket starts where the workspace is. */
+export const noChanges: Changes = {
+  startChange: async () => undefined,
+  currentChange: async () => undefined,
+  holdsWork: async () => false,
+};
+
 export function newSession(queryFn: QueryFn, extra: Partial<SessionOptions> = {}) {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));
@@ -174,6 +182,9 @@ export const kinds = (events: FleetEvent[]): string[] => events.map((e) => e.kin
 
 export const until = (predicate: () => boolean): Promise<void> =>
   vi.waitFor(() => expect(predicate()).toBe(true));
+
+/** Lets work that waits on nothing outside the process finish, such as a worker being readied. */
+export const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** A task the daemon created, by default for "ws1" of the project "test". */
 export const taskCreated = (

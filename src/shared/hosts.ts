@@ -163,9 +163,14 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       const { host, name } = locate(message.docId, remotes);
       return [{ host, message: { ...message, docId: name } }];
     }
+    case "create_task": {
+      // A task for any free worker goes to the local daemon's pool.
+      if (message.workspace === undefined) return [{ host: LOCAL, message }];
+      const { host, name } = locate(message.workspace, remotes);
+      return [{ host, message: { ...message, workspace: name } }];
+    }
     case "import_session":
     case "adopt_director":
-    case "create_task":
     case "release_workspace":
     case "remove_workspace": {
       const { host, name } = locate(message.workspace, remotes);

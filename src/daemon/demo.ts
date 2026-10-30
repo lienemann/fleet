@@ -7,6 +7,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { USAGE_METHOD } from "./account.ts";
+import type { Changes } from "./changes.ts";
 import { claudeConfigDir } from "./files.ts";
 import type { HolderHost } from "./holders.ts";
 import type { QueryFn } from "./session.ts";
@@ -665,6 +666,14 @@ export const demoSessions: SessionSource = {
       { type: "text", text: "It parses every event twice; keeping the parsed ones should help." },
     ]),
   ],
+  fork: async (sessionId) => `${sessionId}-fork`,
+};
+
+/** The demo's workspaces are plain directories, so tickets start where they are. */
+export const demoChanges: Changes = {
+  startChange: async () => undefined,
+  currentChange: async () => undefined,
+  holdsWork: async () => false,
 };
 
 const stored = (

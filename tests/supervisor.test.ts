@@ -13,7 +13,9 @@ import {
   DIRECTOR,
   echoing,
   fakeQuery,
+  noChanges,
   result,
+  settled,
   testConfig,
   testProject,
   until,
@@ -29,6 +31,7 @@ const workspaces = ["ws1", "ws2"].map((name) => ({
 function setup(log = new EventLog(":memory:"), queryFn?: QueryFn, running = 4) {
   const fake = fakeQuery(echoing(assistantText("ok"), result()));
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: queryFn ?? fake.queryFn,
     config: testConfig({ workspaces, running }),
@@ -62,6 +65,7 @@ describe("Supervisor", () => {
   it("starts a new task on its workspace's worker and waits for the user after the turn", async () => {
     const { log, supervisor, calls, column, task } = setup();
     const id = supervisor.createTask("Fix the flaky test", "It fails 1 in 5.", "ws1");
+    await settled();
 
     expect(id).toBe("t1");
     expect(task("t1")).toMatchObject({
@@ -124,9 +128,14 @@ describe("Supervisor", () => {
     await until(() => log.state.agents.alpha?.effort === undefined);
   });
 
-  it("starts a new task straight into work, without a moment in Needs you", () => {
-    const { log, supervisor } = setup();
+  it("starts a new task straight into work, without a moment in Needs you", async () => {
+    // A turn that never ends, so the start is all there is to see.
+    const busy = fakeQuery(async function* () {
+      await new Promise(() => undefined);
+    });
+    const { log, supervisor } = setup(undefined, busy.queryFn);
     supervisor.createTask("Fix it", "Do it.", "ws1");
+    await settled();
     const lanes = log.state.agents.alpha?.history.map((s) => s.lane);
     expect(lanes).toEqual(["idle", "in_progress"]);
     expect(log.state.agents.alpha?.unseen).toBe(false);
@@ -145,7 +154,8 @@ describe("Supervisor", () => {
 
     supervisor.handle({ type: "move", task: "t1", to: "done" });
     expect(task("t1")).toMatchObject({ state: "done", agent: undefined });
-    expect(task("t2")).toMatchObject({ state: "in_progress", agent: "alpha" });
+    await until(() => task("t2")?.state === "in_progress");
+    expect(task("t2")?.agent).toBe("alpha");
     // A fresh conversation: a new session without resume, the first task's log archived.
     await until(() => calls.length === 2);
     expect(calls[1]?.options?.resume).toBeUndefined();
@@ -167,9 +177,10 @@ describe("Supervisor", () => {
     expect(queries[0]?.close).not.toHaveBeenCalled();
   });
 
-  it("keeps Done final", () => {
+  it("keeps Done final", async () => {
     const { supervisor, task } = setup();
     supervisor.createTask("first", "one", "ws1");
+    await settled();
     supervisor.handle({ type: "move", task: "t1", to: "done" });
     supervisor.handle({ type: "move", task: "t1", to: "in_progress" });
     supervisor.handle({ type: "remove", task: "t1" });
@@ -224,22 +235,26 @@ describe("Supervisor", () => {
     expect(() => supervisor.replyThread("alpha", "th", "Yes.")).toThrow("You hold no task");
   });
 
-  it("keeps to the WIP limit for running tasks", () => {
+  it("keeps to the WIP limit for running tasks", async () => {
     const { supervisor, task } = setup(undefined, undefined, 1);
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws2");
+    await settled();
     expect(task("t1")?.state).toBe("in_progress");
     expect(task("t2")?.state).toBe("queued");
   });
 
-  it("starts a queued task on request past the WIP limit, but not in a held workspace", () => {
+  it("starts a queued task on request past the WIP limit, but not in a held workspace", async () => {
     const { supervisor, task } = setup(undefined, undefined, 1);
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws1");
     supervisor.createTask("third", "three", "ws2");
+    await settled();
     supervisor.handle({ type: "move", task: "t2", to: "in_progress" });
+    await settled();
     expect(task("t2")?.state).toBe("queued");
     supervisor.handle({ type: "move", task: "t3", to: "in_progress" });
+    await settled();
     expect(task("t3")?.state).toBe("in_progress");
   });
 
@@ -290,6 +305,7 @@ describe("workspaces and their workers", () => {
     if (project) project.workspaces = [standIn(project)];
     const log = new EventLog(":memory:");
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config,
@@ -316,6 +332,7 @@ describe("restart", () => {
     const log = new EventLog(":memory:");
     let restarted = 0;
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces }),
@@ -332,6 +349,7 @@ describe("restart", () => {
 
     // The next daemon finds the request in the log and clears it.
     new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces }),
@@ -343,6 +361,7 @@ describe("restart", () => {
     const log = new EventLog(":memory:");
     let restarted = 0;
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces }),
@@ -393,6 +412,7 @@ describe("agents of a project the config does not list", () => {
     const log = new EventLog(":memory:");
     stray(log);
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces }, testProject("gone")),
@@ -408,6 +428,7 @@ describe("projects", () => {
       workspaces: [{ name: "s1", path: "/work/s1", allowedTools: [] }],
     });
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces }, site),
@@ -416,10 +437,11 @@ describe("projects", () => {
     return { log, supervisor };
   }
 
-  it("puts a task into the project of its workspace", () => {
+  it("puts a task into the project of its workspace", async () => {
     const { log, supervisor } = twoProjects();
     supervisor.createTask("Fix the site", "x", "s1");
     supervisor.createTask("Fix fleet", "y", "ws1");
+    await settled();
     expect(log.state.tasks.t1).toMatchObject({ project: "site", agent: "charlie" });
     expect(log.state.tasks.t2).toMatchObject({ project: "test", agent: "alpha" });
   });
@@ -434,6 +456,7 @@ describe("a director per project", () => {
     };
     const fake = fakeQuery(echoing(result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       config: testConfig(
@@ -459,9 +482,10 @@ describe("a director per project", () => {
     ]);
   });
 
-  it("hears the reports of its project's workers", () => {
+  it("hears the reports of its project's workers", async () => {
     const { log, supervisor } = directed();
     supervisor.createTask("Fix the site", "x", "s1");
+    await settled();
     supervisor.report("charlie", { summary: "Fixed.", changes: [], openQuestions: [] });
     const sent = log.since(0).filter((e) => e.kind === "message" && e.agent === "charlie");
     expect(sent.map((e) => e.kind === "message" && e.to)).toEqual(["director-site"]);
@@ -470,8 +494,8 @@ describe("a director per project", () => {
   it("spawns tasks only in its own project's workspaces", () => {
     const { log, supervisor } = directed();
     supervisor.createTask("Busy", "x", "s1");
-    expect(supervisor.spawn("director-site", { title: "Next", context: "y" })).toContain(
-      "Spawned t2 in s2",
+    expect(supervisor.spawn("director-site", { title: "Next", context: "y" })).toBe(
+      "Spawned t2; it starts on delta in s2.",
     );
     expect(log.state.tasks.t2).toMatchObject({ project: "site", by: "director-site" });
     expect(() =>
@@ -497,6 +521,7 @@ describe("limits", () => {
   function limited(config: SupervisorOptions["config"]) {
     const log = new EventLog(":memory:");
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config,
@@ -509,7 +534,7 @@ describe("limits", () => {
     return { supervisor, tasks };
   }
 
-  it("lets another project's queued task start while one project is full", () => {
+  it("lets another project's queued task start while one project is full", async () => {
     const { supervisor, tasks } = limited(
       testConfig(
         { workspaces: [workspace("a1"), workspace("a2")], running: 1 },
@@ -519,11 +544,12 @@ describe("limits", () => {
     supervisor.createTask("first", "x", "a1");
     supervisor.createTask("second", "x", "a2");
     supervisor.createTask("site", "x", "s1");
+    await settled();
     expect(tasks("in_progress")).toEqual(["first", "site"]);
     expect(tasks("queued")).toEqual(["second"]);
   });
 
-  it("caps the sum of all projects with the fleet's limit", () => {
+  it("caps the sum of all projects with the fleet's limit", async () => {
     const { supervisor, tasks } = limited({
       ...testConfig(
         { workspaces: [workspace("a1"), workspace("a2")] },
@@ -534,20 +560,22 @@ describe("limits", () => {
     supervisor.createTask("first", "x", "a1");
     supervisor.createTask("site", "x", "s1");
     supervisor.createTask("second", "x", "a2");
+    await settled();
     expect(tasks("queued")).toEqual(["second"]);
   });
 
-  it("takes an absent limit as no limit", () => {
+  it("takes an absent limit as no limit", async () => {
     const config = testConfig({ workspaces: ["n1", "n2", "n3", "n4", "n5"].map(workspace) });
     const { supervisor, tasks } = limited({
       ...config,
       projects: config.projects.map((p) => ({ ...p, wip: {} })),
     });
     for (const ws of ["n1", "n2", "n3", "n4", "n5"]) supervisor.createTask(ws, "x", ws);
+    await settled();
     expect(tasks("in_progress")).toHaveLength(5);
   });
 
-  it("stops a director from spawning while its own project's review is full", () => {
+  it("stops a director from spawning while its own project's review is full", async () => {
     const { supervisor } = limited(
       testConfig(
         { workspaces: [workspace("r1"), workspace("r2")], director: root, review: 1 },
@@ -555,6 +583,7 @@ describe("limits", () => {
       ),
     );
     supervisor.createTask("done", "x", "r1");
+    await settled();
     supervisor.report("alpha", { summary: "Done.", changes: [], openQuestions: [] });
     expect(() => supervisor.spawn(DIRECTOR, { title: "more", context: "y" })).toThrow(
       "Review is full (1/1 in test)",
@@ -564,22 +593,26 @@ describe("limits", () => {
 });
 
 describe("a project without workspaces", () => {
-  it("runs a task that asks for its checkout, where its director works too", () => {
+  it("runs a task that asks for its checkout, where its director works too", async () => {
     const config = testConfig({ director: "/work/test" });
     const [project] = config.projects;
     if (project) project.workspaces = [standIn(project)];
     const log = new EventLog(":memory:");
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
       config,
     });
     supervisor.init();
-    expect(() => supervisor.startTask({ title: "Any", context: "x" })).toThrow(
-      "Name the workspace",
+    // Only a task that names the checkout goes there.
+    expect(supervisor.startTask({ title: "Any", context: "x" })).toBe(
+      "Spawned t1; it waits for a free worker.",
     );
     supervisor.createTask("Here", "x", "test");
-    expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
+    await settled();
+    expect(log.state.tasks.t1?.state).toBe("queued");
+    expect(log.state.tasks.t2).toMatchObject({ state: "in_progress", agent: "alpha" });
     expect(log.state.agents.alpha?.cwd).toBe("/work/test");
   });
 });
@@ -594,6 +627,7 @@ describe("what agents do without asking", () => {
     const log = new EventLog(":memory:");
     const fake = fakeQuery(echoing(assistantText("ok"), result()));
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn: fake.queryFn,
       config: testConfig({

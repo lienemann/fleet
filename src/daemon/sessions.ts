@@ -6,6 +6,7 @@ import {
   type SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentEvent } from "../shared/events.ts";
+import { forkConversation } from "./conversations.ts";
 import { translate } from "./translate.ts";
 
 /** Transcript lines carried over into an imported task's tile; the full transcript stays with Claude Code. */
@@ -15,11 +16,14 @@ const IMPORTED_LINES = 400;
 export interface SessionSource {
   list: (dir: string) => Promise<SDKSessionInfo[]>;
   messages: (sessionId: string, dir: string) => Promise<SessionMessage[]>;
+  /** Forks a session of `dir`, for another directory to resume; returns the fork's id. */
+  fork: (sessionId: string, dir: string) => Promise<string>;
 }
 
 export const sdkSessions: SessionSource = {
   list: (dir) => listSessions({ dir, limit: 50, includeWorktrees: false }),
   messages: (sessionId, dir) => getSessionMessages(sessionId, { dir }),
+  fork: forkConversation,
 };
 
 /** A title for the session picker: the one set with /rename, else Claude's summary, else the first prompt. */

@@ -10,7 +10,7 @@ import { CallSchema, type Command, CommandSchema } from "../src/shared/protocol.
 import { type AgentView, QUOTE_LIMIT } from "../src/shared/reducer.ts";
 import type { LineThread, ReviewEdit, ThreadMessage } from "../src/shared/review.ts";
 import { heldMessages, type TaskView } from "../src/shared/tasks.ts";
-import { echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
+import { echoing, fakeQuery, noChanges, result, settled, testConfig, until } from "./helpers.ts";
 
 const thread: LineThread = {
   id: "1a2b3c4d",
@@ -126,7 +126,7 @@ describe("line ranges and quotes from the browser", () => {
     expect(valid({ ...open(false), quote: [] })).toBe(false);
   });
 
-  it("refuse empty line ranges", () => {
+  it("refuse empty line ranges", async () => {
     expect(valid({ ...open(false), lines: { start: 3, endExclusive: 3 } })).toBe(false);
     const origin = { type: "review_origin", id: "1", task: "t1", path: "lib.py", start: 3 };
     expect(CallSchema.safeParse({ ...origin, endExclusive: 4 }).success).toBe(true);
@@ -134,7 +134,7 @@ describe("line ranges and quotes from the browser", () => {
   });
 });
 
-function setup() {
+async function setup() {
   const repo = mkdtempSync(join(tmpdir(), "fleet-flow-"));
   const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
   const jj = (...args: string[]) => execFileSync("jj", args, { cwd: repo, env });
@@ -147,17 +147,19 @@ function setup() {
 
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
+    changes: noChanges,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: testConfig({ workspaces: [{ name: "ws1", path: repo, allowedTools: [] }] }),
   });
   supervisor.init();
   supervisor.createTask("Fix", "Fix it", "ws1");
+  await settled();
   return { log, supervisor };
 }
 
-function review() {
-  const flow = setup();
+async function review() {
+  const flow = await setup();
   flow.supervisor.handle({ type: "move", task: "t1", to: "review" });
   return flow;
 }
@@ -181,14 +183,14 @@ const promptsOf = (log: EventLog) =>
 
 describe("review flow", () => {
   it("records progress for the card when the diff view loads", async () => {
-    const { log, supervisor } = setup();
+    const { log, supervisor } = await setup();
     const model = await supervisor.call({ type: "review_load", id: "1", task: "t1" });
     expect(model).toMatchObject({ task: "t1", progress: { approved: 0, total: 1 } });
     expect(t1(log).reviewProgress).toEqual({ approved: 0, total: 1 });
   });
 
   it("sends a thread message at once without moving the card", async () => {
-    const { log, supervisor } = review();
+    const { log, supervisor } = await review();
     await until(() => t1(log).state === "review");
     const before = log.state.messages.length;
     supervisor.handle(open(false));
@@ -203,8 +205,8 @@ describe("review flow", () => {
     expect(t1(log).state).toBe("review");
   });
 
-  it("keeps only the thread's own fields in the log", () => {
-    const { log, supervisor } = review();
+  it("keeps only the thread's own fields in the log", async () => {
+    const { log, supervisor } = await review();
     supervisor.handle({ ...open(true), commit: "zmplwqrs" });
     const [created] = t1(log).threads;
     expect(created).toEqual({
@@ -220,8 +222,8 @@ describe("review flow", () => {
     });
   });
 
-  it("holds a thread message for a detached agent", () => {
-    const { log, supervisor } = review();
+  it("holds a thread message for a detached agent", async () => {
+    const { log, supervisor } = await review();
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
     supervisor.handle(open(false));
     expect(log.state.agents.alpha?.held?.map((h) => h.text).join("\n")).toContain("Why 1?");
@@ -229,7 +231,7 @@ describe("review flow", () => {
   });
 
   it("links the prompt that flushes a held thread message to its thread", async () => {
-    const { log, supervisor } = review();
+    const { log, supervisor } = await review();
     await until(() => t1(log).state === "review");
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
     supervisor.handle(open(false));
@@ -241,8 +243,8 @@ describe("review flow", () => {
     expect(promptsOf(log)[0]?.text).toContain("Back again");
   });
 
-  it("reports pending edits with a message held for a detached agent", () => {
-    const { log, supervisor } = review();
+  it("reports pending edits with a message held for a detached agent", async () => {
+    const { log, supervisor } = await review();
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
     log.append({ kind: "review_edited", agent: "alpha", task: "t1", edit });
     supervisor.handle(open(false));
@@ -251,8 +253,8 @@ describe("review flow", () => {
     expect(agent.held?.at(-1)?.text).toContain("I edited these lines myself");
   });
 
-  it("keeps a thread message for a task nobody holds until the change request", () => {
-    const { log, supervisor } = setup();
+  it("keeps a thread message for a task nobody holds until the change request", async () => {
+    const { log, supervisor } = await setup();
     supervisor.createTask("Next", "Then this", "ws1");
     log.append({ kind: "review_edited", agent: "daemon", task: "t2", edit });
     supervisor.handle({ ...open(false), task: "t2" });
@@ -264,7 +266,7 @@ describe("review flow", () => {
   });
 
   it("carries pending edits with the next thread message, once", async () => {
-    const { log, supervisor } = review();
+    const { log, supervisor } = await review();
     await until(() => t1(log).state === "review");
     log.append({ kind: "review_edited", agent: "alpha", task: "t1", edit });
     supervisor.handle(open(false));
@@ -279,7 +281,7 @@ describe("review flow", () => {
   });
 
   it("sends held thread messages as one change request", async () => {
-    const { log, supervisor } = review();
+    const { log, supervisor } = await review();
     await until(() => t1(log).state === "review");
     supervisor.handle(open(true));
     supervisor.handle({ ...open(true), path: "other.py" });
@@ -295,8 +297,8 @@ describe("review flow", () => {
     await until(() => promptsOf(log).some((l) => l.text.includes("Answer each with")));
   });
 
-  it("edits and removes only held messages", () => {
-    const { log, supervisor } = review();
+  it("edits and removes only held messages", async () => {
+    const { log, supervisor } = await review();
     supervisor.handle(open(false));
     supervisor.handle(open(true));
     const [sent, draft] = t1(log).threads;
@@ -311,8 +313,8 @@ describe("review flow", () => {
     expect(after[0]?.messages[0]?.body).toBe("Why 1?");
   });
 
-  it("marks a reply read once, however many tabs report it", () => {
-    const { log, supervisor } = review();
+  it("marks a reply read once, however many tabs report it", async () => {
+    const { log, supervisor } = await review();
     supervisor.handle(open(true));
     const threadId = t1(log).threads[0]?.id ?? "";
     const read = { type: "thread_read", task: "t1", threadId } as const;
@@ -333,8 +335,8 @@ describe("review flow", () => {
     expect(t1(log).threads[0]?.unread).toBe(false);
   });
 
-  it("ignores thread commands for unknown tasks and threads", () => {
-    const { log, supervisor } = review();
+  it("ignores thread commands for unknown tasks and threads", async () => {
+    const { log, supervisor } = await review();
     supervisor.handle({ ...open(true), task: "t9" });
     supervisor.handle({
       type: "thread_reply",
@@ -349,7 +351,7 @@ describe("review flow", () => {
   });
 
   it("refuses edits while the agent works in the workspace", async () => {
-    const { log, supervisor } = setup();
+    const { log, supervisor } = await setup();
     await supervisor.call({ type: "review_load", id: "1", task: "t1" });
     log.append({ kind: "activity", agent: "alpha", activity: "working" });
     await expect(
@@ -358,7 +360,7 @@ describe("review flow", () => {
   });
 
   it("refuses to read files outside the workspace", async () => {
-    const { supervisor } = setup();
+    const { supervisor } = await setup();
     await expect(
       supervisor.call({ type: "read_file", id: "1", agent: "alpha", path: "../../etc/hosts" }),
     ).rejects.toThrow(/outside/);
@@ -367,7 +369,7 @@ describe("review flow", () => {
 
 describe("workspace files", () => {
   it("lists tracked files for @ mentions and the agent's notes for the Files tab", async () => {
-    const { log, supervisor } = setup();
+    const { log, supervisor } = await setup();
     const cwd = log.state.agents.alpha?.cwd ?? "";
     mkdirSync(join(cwd, ".fleet", "alpha"), { recursive: true });
     writeFileSync(join(cwd, ".fleet", "alpha", "report.md"), "# Report");

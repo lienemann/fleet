@@ -10,8 +10,10 @@ import {
   fakeQuery,
   heldTask,
   newSession,
+  noChanges,
   result,
   sdk,
+  settled,
   testConfig,
   until,
 } from "./helpers.ts";
@@ -101,6 +103,7 @@ describe("Agents cut off from Claude", () => {
     }).queryFn as QueryFn;
     const log = new EventLog(":memory:");
     const supervisor = new Supervisor({
+      changes: noChanges,
       log,
       queryFn,
       config: testConfig({
@@ -112,6 +115,7 @@ describe("Agents cut off from Claude", () => {
     const [alpha, bravo] = ["alpha", "bravo"];
     expect(supervisor.createTask("One", "Do one.", "ws1")).toBe("t1");
     expect(supervisor.createTask("Two", "Do two.", "ws2")).toBe("t2");
+    await settled();
     expect([log.state.tasks.t1?.agent, log.state.tasks.t2?.agent]).toEqual([alpha, bravo]);
     const agent = (name: string) => log.state.agents[name];
     const waiting = (name: string) => agent(name)?.offline && agent(name)?.activity === "idle";

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { resolveInside } from "./files.ts";
 
 /**
@@ -19,6 +19,34 @@ export function readPolicy(
 
 const text = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
+
+/** The tools that write files. */
+export const EDIT_TOOLS: ReadonlySet<string> = new Set([
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+]);
+
+/**
+ * The workspace an edit tool writes into when that is not the agent's own: one of `workspaces`,
+ * the innermost that holds the path, so that a workspace inside another counts as itself.
+ * Undefined for any other tool and for writes outside every workspace.
+ */
+export function foreignWorkspace(
+  cwd: string,
+  workspaces: readonly string[],
+  tool: string,
+  input: Record<string, unknown>,
+): string | undefined {
+  const path = EDIT_TOOLS.has(tool) ? text(input.file_path ?? input.notebook_path) : undefined;
+  if (path === undefined) return undefined;
+  const target = resolve(cwd, path);
+  const [home] = workspaces
+    .filter((ws) => isInside(ws, target))
+    .sort((a, b) => b.length - a.length);
+  return home !== undefined && resolve(home) !== resolve(cwd) ? home : undefined;
+}
 
 /** The paths a read tool looks at, or undefined when that is not plain. */
 function readTargets(
@@ -65,6 +93,38 @@ const isInside = (root: string, path: string): boolean => {
     return false;
   }
 };
+
+/**
+ * Edits into another agent's workspace ask the user in every permission mode: the CLI runs hooks
+ * whatever the mode, and asks through `canUseTool`, which leaves such edits to the user.
+ */
+export function foreignEditHooks(
+  cwd: string,
+  workspaces: () => string[],
+): NonNullable<Options["hooks"]> {
+  return {
+    PreToolUse: [
+      {
+        matcher: [...EDIT_TOOLS].join("|"),
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== "PreToolUse") return {};
+            const tool_input = (input.tool_input ?? {}) as Record<string, unknown>;
+            const other = foreignWorkspace(cwd, workspaces(), input.tool_name, tool_input);
+            if (other === undefined) return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PreToolUse",
+                permissionDecision: "ask",
+                permissionDecisionReason: `${other} is another agent's workspace.`,
+              },
+            };
+          },
+        ],
+      },
+    ],
+  };
+}
 
 /**
  * jj commands that only read, as their first word and, for commands with subcommands, the
