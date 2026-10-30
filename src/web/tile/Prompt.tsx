@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { PromptAttachment } from "../../shared/events.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { Icon } from "../ui/Icon.tsx";
 
 interface Props {
@@ -39,7 +40,7 @@ interface Suggestions {
  * images and PDFs for Claude to read, anything else saved into the workspace.
  */
 export function Prompt({ name, commands, loadFiles, onSend, hint, disabled }: Props) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useAgentDraft(name, "prompt");
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [files, setFiles] = useState<string[]>();

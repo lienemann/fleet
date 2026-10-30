@@ -7,6 +7,7 @@ import {
   unreadFinished,
   unreadThreads,
 } from "../../shared/reducer.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
@@ -200,8 +201,6 @@ export function Inbox({
 }
 
 function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
-  const { send } = useFleet();
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const open = doc.points.filter((p) => p.answer === undefined);
   return (
     <article className="decision points">
@@ -212,47 +211,49 @@ function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
           {doc.points.length - open.length}/{doc.points.length} answered
         </span>
       </header>
-      {doc.points.map((point) => {
-        const answer = (text: string) =>
-          send({ type: "answer_point", docId: doc.docId, pointId: point.id, answer: text });
-        return (
-          <form
-            key={point.id}
-            className="point"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const draft = drafts[point.id]?.trim();
-              if (draft) answer(draft);
-            }}
-          >
-            <span>{point.text}</span>
-            {point.answer === undefined ? (
-              <div className="point-answer">
-                {QUICK_ANSWERS.map((quick) => (
-                  <button key={quick} type="button" className="small" onClick={() => answer(quick)}>
-                    {quick}
-                  </button>
-                ))}
-                <input
-                  aria-label={`Answer to: ${point.text}`}
-                  value={drafts[point.id] ?? ""}
-                  onChange={(e) => setDrafts({ ...drafts, [point.id]: e.target.value })}
-                  placeholder="or write an answer"
-                />
-                <button
-                  type="submit"
-                  className="small primary"
-                  disabled={!drafts[point.id]?.trim()}
-                >
-                  Answer
-                </button>
-              </div>
-            ) : (
-              <span className="answered">✓ {point.answer}</span>
-            )}
-          </form>
-        );
-      })}
+      {doc.points.map((point) => (
+        <PointForm key={point.id} doc={doc} point={point} />
+      ))}
     </article>
+  );
+}
+
+function PointForm({ doc, point }: { doc: OpenPointsDoc; point: OpenPointsDoc["points"][number] }) {
+  const { send } = useFleet();
+  const [draft, setDraft] = useAgentDraft(doc.agent, `point:${doc.docId}:${point.id}`);
+  const answer = (text: string) => {
+    send({ type: "answer_point", docId: doc.docId, pointId: point.id, answer: text });
+    setDraft("");
+  };
+  return (
+    <form
+      className="point"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (draft.trim()) answer(draft.trim());
+      }}
+    >
+      <span>{point.text}</span>
+      {point.answer === undefined ? (
+        <div className="point-answer">
+          {QUICK_ANSWERS.map((quick) => (
+            <button key={quick} type="button" className="small" onClick={() => answer(quick)}>
+              {quick}
+            </button>
+          ))}
+          <input
+            aria-label={`Answer to: ${point.text}`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="or write an answer"
+          />
+          <button type="submit" className="small primary" disabled={!draft.trim()}>
+            Answer
+          </button>
+        </div>
+      ) : (
+        <span className="answered">✓ {point.answer}</span>
+      )}
+    </form>
   );
 }

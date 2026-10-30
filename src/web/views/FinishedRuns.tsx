@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useState } from "react";
 import type { AgentView, FinishedRun } from "../../shared/reducer.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
@@ -97,17 +98,20 @@ export function FinishedGroup({
   onFocus: () => void;
 }) {
   const { send } = useFleet();
-  const [comment, setComment] = useState("");
+  // The same draft as the agent's message box: a comment on a run is a message to the agent.
+  const [comment, setComment] = useAgentDraft(agent.name, "prompt");
   const [newest, ...earlier] = runs;
   if (!newest) return null;
   const ids = runs.map((run) => run.id);
   const text = comment.trim();
-  const submit = () =>
+  const submit = () => {
     send(
       text
         ? { type: "finished_reply", agent: agent.name, ids, text }
         : { type: "finished_read", agent: agent.name, ids },
     );
+    setComment("");
+  };
   const pressed = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();

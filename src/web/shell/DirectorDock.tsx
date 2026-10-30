@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { FLEET_DIRECTOR } from "../../shared/events.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { type Command, useCommands } from "../keys/keymap.tsx";
 import { useProjects } from "../projects.tsx";
@@ -12,7 +13,6 @@ import { AgentLabel } from "../ui/AgentLabel.tsx";
 export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
   const { state, send } = useFleet();
   const projects = useProjects();
-  const [draft, setDraft] = useState("");
   const [chosen, setChosen] = useState<string>();
   const directors = [
     { name: FLEET_DIRECTOR, label: "Fleet director", whom: "the fleet director" },
@@ -24,6 +24,7 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
   ].filter((d) => state.agents[d.name]);
   const target = directors.find((d) => d.name === chosen) ?? directors[0];
   const director = target && state.agents[target.name];
+  const [draft, setDraft] = useAgentDraft(target?.name ?? "", "prompt");
 
   useCommands(
     directors.length > 1

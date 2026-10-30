@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
 import type { AgentView, Decision } from "../../shared/reducer.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { keyLabel } from "../keys/keymap.tsx";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
@@ -148,15 +149,21 @@ function Questions({
   onAnswer,
 }: Pick<Props, "decision" | "onAnswer"> & { inline: boolean; compact: boolean }) {
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
-  const [other, setOther] = useState<Record<string, string>>({});
+  // The typed answers are one draft of the decision, one text per question.
+  const [typed, setTyped] = useAgentDraft(decision.agent, `answer:${decision.requestId}`);
+  const other = useMemo((): Record<string, string> => (typed ? JSON.parse(typed) : {}), [typed]);
+  const setOther = (next: Record<string, string>): void =>
+    setTyped(Object.values(next).some(Boolean) ? JSON.stringify(next) : "");
   const questions = decision.questions ?? [];
   const answerTo = (question: string): string =>
     other[question]?.trim() || (chosen[question] ?? []).join(", ");
   const complete = questions.every((q) => answerTo(q.question) !== "");
   const oneClick = questions.length === 1 && !questions[0]?.multiSelect;
 
-  const send = (answers: Record<string, string>): void =>
+  const send = (answers: Record<string, string>): void => {
     onAnswer({ behavior: "answers", answers });
+    setTyped("");
+  };
   const pick = (question: string, label: string, multi: boolean): void => {
     if (oneClick && !other[question]?.trim()) {
       send({ [question]: label });
@@ -228,10 +235,13 @@ function Questions({
 }
 
 function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
-  const [comment, setComment] = useState("");
   const path = decision.path ?? "";
-
+  const [comment, setComment] = useAgentDraft(decision.agent, `review:${decision.requestId}`);
   const message = comment.trim() || undefined;
+  const answer = (approved: boolean): void => {
+    onAnswer({ behavior: "review", approved, message });
+    setComment("");
+  };
   return (
     <>
       <p className="review-path">
@@ -245,18 +255,10 @@ function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
         placeholder="Comments for the agent (needed when asking for changes)"
       />
       <footer>
-        <button
-          type="button"
-          className="primary"
-          onClick={() => onAnswer({ behavior: "review", approved: true, message })}
-        >
+        <button type="button" className="primary" onClick={() => answer(true)}>
           Approve
         </button>
-        <button
-          type="button"
-          disabled={!message}
-          onClick={() => onAnswer({ behavior: "review", approved: false, message })}
-        >
+        <button type="button" disabled={!message} onClick={() => answer(false)}>
           Request changes
         </button>
       </footer>

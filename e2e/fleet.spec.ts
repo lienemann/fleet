@@ -1073,6 +1073,38 @@ test("the sidebars collapse to a strip and come back at their old width", async 
   await expect.poll(drawerWidth).toBe(open);
 });
 
+test("a draft belongs to its agent: the dock, the drawer and a reload show the same one until it is sent", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const dock = page.locator(".dock");
+  await dock.getByLabel("Talk to").selectOption("director-site");
+  const inDock = dock.getByPlaceholder(/Message the director of site/);
+  await inDock.fill("Half a thought");
+
+  // Another agent's box is not touched, and the drawer shows what the dock has.
+  await dock.getByRole("button", { name: "director-site" }).click();
+  const inDrawer = page
+    .getByRole("complementary", { name: "Selected task" })
+    .locator("[data-prompt]");
+  await expect(inDrawer).toHaveValue("Half a thought");
+  await dock.getByLabel("Talk to").selectOption("fleet");
+  await expect(dock.getByPlaceholder(/Message the fleet director/)).toHaveValue("");
+
+  await inDrawer.fill("Half a thought, finished");
+  await page.reload();
+  await dock.getByLabel("Talk to").selectOption("director-site");
+  await expect(inDock).toHaveValue("Half a thought, finished");
+
+  // Sending from the drawer clears it in the dock.
+  await dock.getByRole("button", { name: "director-site" }).click();
+  await expect(inDrawer).toHaveValue("Half a thought, finished");
+  await inDrawer.press("Enter");
+  await expect(inDock).toHaveValue("");
+  await expect(inDrawer).toHaveValue("");
+  await page.keyboard.press("Alt+x");
+});
+
 test("the drawer fills the window and shrinks back without losing its draft", async ({ page }) => {
   await page.goto("/");
   await page.keyboard.press("Alt+2");
