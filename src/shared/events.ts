@@ -29,10 +29,11 @@ export type Tint = (typeof TINTS)[number];
 /** Who a prompt comes from. */
 export type PromptOrigin = "user" | "agent" | "fleet";
 
-/** A prompt kept for a detached session, with who sent it. */
+/** A prompt kept for a detached session, with who sent it and the line thread it belongs to, if any. */
 export interface HeldText {
   text: string;
   by: PromptOrigin;
+  thread?: string;
 }
 
 /** What an agent's stretch of work came to, as the inbox shows it. */

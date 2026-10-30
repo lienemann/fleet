@@ -1076,8 +1076,9 @@ export class Supervisor implements ToolHost {
     const session = this.session(name);
     // What waited may be the user's own words.
     const by = this.agent(name)?.held?.some((h) => h.by === "user") ? "user" : "fleet";
+    const thread = this.heldThread(name);
     const first = this.compose(name);
-    if (first) session?.prompt(first, [], { by });
+    if (first) session?.prompt(first, [], { by, thread });
     session?.start();
   }
 
@@ -1103,8 +1104,14 @@ export class Supervisor implements ToolHost {
   }
 
   /** Keeps a prompt until fleet runs the detached session again. */
-  private hold(name: string, text: string, by: PromptOrigin): void {
-    this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), { text, by }] });
+  private hold(name: string, text: string, by: PromptOrigin, thread?: string): void {
+    const entry = { text, by, ...(thread && { thread }) };
+    this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), entry] });
+  }
+
+  /** The line thread the held messages of `name` end with, so the prompt that sends them links to it. */
+  private heldThread(name: string): string | undefined {
+    return this.agent(name)?.held?.findLast((h) => h.thread)?.thread;
   }
 
   /**
@@ -1900,7 +1907,8 @@ export class Supervisor implements ToolHost {
 
   private openThread(command: Extract<Command, { type: "thread_open" }>): void {
     if (this.agent(command.agent)?.role !== "worker") return;
-    const { agent: name, held, body, fold, path, side, lines, quote, commit } = command;
+    const { agent: name, body, fold, path, side, lines, quote, commit } = command;
+    const held = command.held || this.agent(name)?.task === "queued";
     const id = randomUUID().slice(0, 8);
     this.append(name, {
       kind: "thread_opened",
@@ -1913,8 +1921,10 @@ export class Supervisor implements ToolHost {
   private postThread(
     name: string,
     threadId: string,
-    { body, held, fold }: { body: string; held: boolean; fold?: string | undefined },
+    { body, fold, ...rest }: { body: string; held: boolean; fold?: string | undefined },
   ): void {
+    // A queued task takes no prompt, so what the user writes waits for the change request.
+    const held = rest.held || this.agent(name)?.task === "queued";
     const message = this.threadEntry(body, held, fold);
     this.append(name, { kind: "thread_message", threadId, message });
     if (!held) this.sendThreadMessage(name, threadId);
@@ -1943,7 +1953,7 @@ export class Supervisor implements ToolHost {
 
   /** Like a prompt typed in the tile: no bus message, the card stays. A detached session gets it once fleet runs it again. */
   private sendToThread(name: string, text: string, thread: string): void {
-    if (this.agent(name)?.activity === "detached") this.hold(name, text, "user");
+    if (this.agent(name)?.activity === "detached") this.hold(name, text, "user", thread);
     else this.prompt(name, text, "user", [], thread);
   }
 
@@ -1993,7 +2003,11 @@ export class Supervisor implements ToolHost {
     const session = this.session(name);
     // Queue first, so the session starts working instead of starting idle. A detached session
     // is taken back from the terminal by sending to it.
-    session?.prompt(this.compose(name, text + mentions) ?? text, inline, { by, thread });
+    const heldThread = this.heldThread(name);
+    session?.prompt(this.compose(name, text + mentions) ?? text, inline, {
+      by,
+      thread: thread ?? heldThread,
+    });
     session?.start();
   }
 

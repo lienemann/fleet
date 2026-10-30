@@ -224,6 +224,34 @@ describe("review flow", () => {
     expect(promptsOf(log)).toHaveLength(0);
   });
 
+  it("links the prompt that flushes a held thread message to its thread", async () => {
+    const { log, supervisor } = review();
+    await until(() => log.state.agents.alpha?.task === "review");
+    log.append({ kind: "activity", agent: "alpha", activity: "detached" });
+    supervisor.handle(open(false));
+    const [created] = log.state.agents.alpha?.threads ?? [];
+    log.append({ kind: "activity", agent: "alpha", activity: "idle" });
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Back again" });
+    await until(() => promptsOf(log).length > 0);
+    expect(promptsOf(log)[0]).toMatchObject({ thread: created?.id });
+    expect(promptsOf(log)[0]?.text).toContain("Back again");
+  });
+
+  it("keeps a thread message for a queued task until the change request", () => {
+    const { log, supervisor } = setup();
+    log.append({ kind: "task_state", agent: "alpha", state: "queued" });
+    log.append({
+      kind: "review_edited",
+      agent: "alpha",
+      edit,
+    });
+    supervisor.handle(open(false));
+    const agent = log.state.agents.alpha as AgentView;
+    expect(heldMessages(agent)).toBe(1);
+    expect(agent.edits).toEqual([edit]);
+    expect(promptsOf(log)).toHaveLength(0);
+  });
+
   it("carries pending edits with the next thread message, once", async () => {
     const { log, supervisor } = review();
     await until(() => log.state.agents.alpha?.task === "review");
