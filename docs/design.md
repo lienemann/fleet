@@ -109,7 +109,8 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 | `request_decision`   | any worker    | question, context (multi-line), options, risk tags         | Inbox item and decision bar on the tile; the answer is the tool result             |
 | `request_review`     | any worker    | path, kind (plan, doc, mockup)                             | Review item; opens the file in the viewer                                          |
 | `submit_open_points` | any worker    | path of a Markdown file with `- [ ]` items                 | Points parsed into the inbox; answers go back as one message once all are answered |
-| `report_result`      | any worker    | summary, jj change ids, tests, open questions, walkthrough | Card moves to Review; report tab filled                                            |
+| `report_result`      | any worker    | summary, jj change ids, tests, open questions, walkthrough, files | Card moves to Review; report tab filled, attached files listed in it        |
+| `attach_file`        | any worker    | files: absolute path and an optional one-line note each    | Files in the task's Files and Report tabs, opened in the viewer                    |
 | `report_status`      | any worker    | one-line status, to-do progress                            | Card subtitle and timeline                                                         |
 | `reply_thread`       | any worker    | thread id, body (multi-line)                               | Reply under the lines in the diff; Replies item in the inbox                       |
 | `send_message`       | any agent     | to, body (multi-line)                                      | Message bus, flow view, both transcripts                                           |
@@ -123,6 +124,8 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 **Messages.** All agent-to-agent traffic goes through `send_message`, never Claude Code's built-in cross-session messaging, so the daemon sees and logs every message. Bodies are multi-line Markdown.
 
 **Walkthroughs.** `report_result` includes a walkthrough written with the AI instructions from the ReviewDiff README, with permalinks pinned to change ids. Hunks the walkthrough doesn't cover are flagged in review.
+
+**Files for me.** A worker's review files, plans and deliverables often live outside its workspace, such as Claude's `plans/`, and may come from a Bash command that fleet cannot see. So the worker attaches them, with `attach_file` while it works or `files` on `report_result`, each with an optional one-line note. Naming a path in the report text attaches nothing. The Files tab lists what the worker attached first, then its notes under `.fleet/<agent>/`, then every file it wrote with Write or Edit, in the workspace or elsewhere, each file once. The Report tab lists the attached files under the summary. Every entry opens in the same viewer: Markdown rendered, other text with syntax colors, a notice for a binary file or one over 512 KiB. The event log keeps paths, notes and a bounded number of them (the latest 50 per task); the content is read from disk when I open a file, on the daemon of the host the agent runs on.
 
 **Side agent.** Claude Code's "You should know" plugin runs only in its terminal UI, so fleet does the same thing itself, switched on per agent: after each turn it asks the session a side question, without tools, whether there is something I should know but might miss. A note appears above the tile's prompt and in the inbox's FYI section; "Tell agent" forwards it as a user message.
 

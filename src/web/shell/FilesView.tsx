@@ -30,20 +30,31 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
   }, [call, agent.name, step]);
 
   const noteFiles = new Set(notes?.map((n) => `${agent.cwd}/${n.path}`));
-  // Notes have their own list above, so each file shows once.
+  const attached = new Set(agent.attached.map((f) => f.path));
+  // Attached files and notes have their own lists above, so each file shows once.
   const written = groupByLocation(
     agent.cwd,
-    agent.outputs.filter((p) => !noteFiles.has(p)),
+    agent.outputs.filter((p) => !attached.has(p) && !noteFiles.has(p)),
   );
   const link = (path: string, note?: string) => (
     <FileLink cwd={agent.cwd} path={path} note={note} active={path === open} onOpen={setOpen} />
   );
-  const nothing = notes?.length === 0 && agent.outputs.length === 0;
+  const nothing = notes?.length === 0 && agent.attached.length === 0 && agent.outputs.length === 0;
 
   return (
     <div className="drawer-scroll files">
       {error && <p className="banner">{error}</p>}
       {nothing && <p className="empty">{agent.name} has not written any files for you yet.</p>}
+      {agent.attached.length > 0 && (
+        <section>
+          <h3>Attached by {agent.name}</h3>
+          <ul>
+            {agent.attached.map((file) => (
+              <li key={file.path}>{link(file.path, file.note)}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {notes && notes.length > 0 && (
         <section>
           <h3>Notes</h3>

@@ -16,6 +16,10 @@ so reach them through the fleet tools rather than prose they might miss:
 - Need a decision you cannot make yourself? Call request_decision with the context and options.
 - Wrote a plan, document or mockup the user should look at before you go on? Call request_review.
 - Collected open points in a Markdown file as \`- [ ]\` items? Call submit_open_points with its path.
+- Wrote a review file, a plan or another document for the user, or produced a deliverable, wherever it
+  lives and however you wrote it, Bash included? Call attach_file with its absolute path and a one-line
+  note, or pass \`files\` to report_result. The user opens attached files from the task's Files and
+  Report; naming a path in your text does not show them anything.
 - At milestones, call report_status with one line about what you are doing.
 - When the task is done, call report_result with a summary, the jj change ids, how you tested, open
   questions, and a walkthrough of the change in the order a reviewer should read it: Markdown with a

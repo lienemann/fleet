@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
+import { fleetServer, toolsOf } from "../src/daemon/tools.ts";
 import { DIRECTOR, echoing, fakeQuery, result, testConfig } from "./helpers.ts";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -43,6 +44,10 @@ function setup() {
   };
   const read = (path: string) =>
     supervisor.call({ type: "read_file", id: "1", agent: "alpha", path });
+  const attach = (files: Array<{ path: string; note?: string }>) =>
+    toolsOf(fleetServer("alpha", "worker", supervisor))
+      .find((t) => t.name === "attach_file")
+      ?.handler({ files }, {});
   /** The agent wrote `path` with a tool, as the log records it. */
   const wrote = (path: string) =>
     log.append({
@@ -52,7 +57,7 @@ function setup() {
       text: path,
       toolName: "Write",
     });
-  return { ...dirs, log, supervisor, write, read, wrote };
+  return { ...dirs, log, supervisor, write, read, attach, wrote };
 }
 
 describe("reading a file for the viewer", () => {
@@ -80,7 +85,7 @@ describe("reading a file for the viewer", () => {
     expect(await t.read(plan)).toMatchObject({ kind: "text" });
     const memory = t.write(join(t.claude, "projects/-x-y/memory/feedback.md"));
     await expect(t.read(memory)).rejects.toThrow();
-    t.wrote(memory);
+    await t.attach([{ path: memory }]);
     expect(await t.read(memory)).toMatchObject({ kind: "text" });
   });
 
@@ -111,5 +116,67 @@ describe("reading a file for the viewer", () => {
     expect(await t.read("big.txt")).toEqual({ kind: "too_large", size: 600 * 1024 });
     await expect(t.read("missing.txt")).rejects.toThrow(/does not exist/);
     await expect(t.read(".")).rejects.toThrow(/does not exist/);
+  });
+});
+
+describe("attach_file and report_result files", () => {
+  it("lists files with their notes, newest first, and keeps the note of a re-attached one", async () => {
+    const t = setup();
+    const review = t.write(join(t.claude, "plans/mr5886-review.md"));
+    const diff = t.write(join(t.claude, "plans/mr5886-review.diff"));
+    const first = await t.attach([{ path: review, note: "Review for Jan" }]);
+    expect(first?.content).toEqual([{ type: "text", text: "Attached 1 file." }]);
+    await t.attach([{ path: diff }]);
+    await t.attach([{ path: review }]);
+    expect(t.log.state.agents.alpha?.attached).toEqual([
+      { path: review, note: "Review for Jan" },
+      { path: diff, note: undefined },
+    ]);
+  });
+
+  it("resolves a relative path against the workspace and refuses what cannot be shown", async () => {
+    const t = setup();
+    t.write(join(t.ws, "out.md"));
+    await t.attach([{ path: "out.md" }]);
+    expect(t.log.state.agents.alpha?.attached.map((f) => f.path)).toEqual([join(t.ws, "out.md")]);
+
+    const refused = async (path: string, message: RegExp) => {
+      const answer = await t.attach([{ path }]);
+      expect(answer?.isError).toBe(true);
+      expect(answer?.content[0]).toMatchObject({ text: expect.stringMatching(message) });
+    };
+    await refused(join(t.claude, "plans/nothing.md"), /does not exist/);
+    await refused(t.write(join(t.elsewhere, "x.txt")), /outside what fleet shows/);
+    await refused(join(t.home, "secret"), /never shown/);
+    await refused(t.ws, /not a file/);
+    expect(t.log.state.agents.alpha?.attached).toHaveLength(1);
+  });
+
+  it("report_result attaches its files before the report", async () => {
+    const t = setup();
+    const notes = t.write(join(t.claude, "plans/notes.md"));
+    const tool = toolsOf(fleetServer("alpha", "worker", t.supervisor)).find(
+      (x) => x.name === "report_result",
+    );
+    await tool?.handler(
+      { summary: "Done.", changes: [], open_questions: [], files: [{ path: notes, note: "n" }] },
+      {},
+    );
+    const alpha = t.log.state.agents.alpha;
+    expect(alpha?.attached).toEqual([{ path: notes, note: "n" }]);
+    expect(alpha?.report?.summary).toBe("Done.");
+  });
+
+  it("a report with an unreadable file fails without reporting", async () => {
+    const t = setup();
+    const tool = toolsOf(fleetServer("alpha", "worker", t.supervisor)).find(
+      (x) => x.name === "report_result",
+    );
+    const answer = await tool?.handler(
+      { summary: "Done.", changes: [], open_questions: [], files: [{ path: "/etc/hosts" }] },
+      {},
+    );
+    expect(answer?.isError).toBe(true);
+    expect(t.log.state.agents.alpha?.report).toBeUndefined();
   });
 });

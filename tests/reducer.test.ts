@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FinishedRun, FleetEvent, NewEvent } from "../src/shared/events.ts";
 import {
   type AgentView,
+  ATTACHED_LIMIT,
   columnOf,
   costOn,
   FINISHED_READ_LIMIT,
@@ -227,6 +228,30 @@ describe("session panel", () => {
       write("/ws/c.py", "Read"),
     );
     expect(agent.outputs).toEqual(["/ws/a.py", "/ws/b.py"]);
+  });
+
+  it("keeps the files the agent attached, newest first, a re-attached one on top with its note", () => {
+    const attach = (...paths: string[]): NewEvent => ({
+      kind: "files_attached",
+      agent: "a",
+      files: paths.map((path) => ({ path })),
+    });
+    const agent = run(
+      { kind: "files_attached", agent: "a", files: [{ path: "/p/a.md", note: "Review" }] },
+      attach("/p/b.md"),
+      attach("/p/a.md"),
+    );
+    expect(agent.attached).toEqual([{ path: "/p/a.md", note: "Review" }, { path: "/p/b.md" }]);
+  });
+
+  it("keeps a bounded number of attached files, the oldest going first", () => {
+    const paths = Array.from({ length: ATTACHED_LIMIT + 5 }, (_, i) => `/p/${i}.md`);
+    const agent = run(
+      ...paths.map((path): NewEvent => ({ kind: "files_attached", agent: "a", files: [{ path }] })),
+    );
+    expect(agent.attached).toHaveLength(ATTACHED_LIMIT);
+    expect(agent.attached[0]?.path).toBe(paths.at(-1));
+    expect(agent.attached.some((f) => f.path === "/p/0.md")).toBe(false);
   });
 
   it("keeps what fills the context window", () => {

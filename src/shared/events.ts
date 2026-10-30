@@ -122,6 +122,14 @@ export interface Report {
   walkthrough?: string;
 }
 
+/** A file a worker handed to the user, for review or as a deliverable; the content stays on disk. */
+export interface AttachedFile {
+  /** Absolute path on the agent's host. */
+  path: string;
+  /** One line on what the file is. */
+  note?: string;
+}
+
 export interface OpenPoint {
   id: string;
   text: string;
@@ -359,6 +367,8 @@ export type EventBody =
   | { kind: "agent_opened" }
   | { kind: "report"; report: Report }
   | { kind: "status"; text: string }
+  /** Files the worker attached for the user, with `report_result` or on its own. */
+  | { kind: "files_attached"; files: AttachedFile[] }
   /** A message from one agent (or the user) to another; the event's agent is the sender. */
   | { kind: "message"; to: string; body: string }
   | { kind: "open_points"; docId: string; path: string; points: OpenPoint[] }

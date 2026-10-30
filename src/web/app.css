@@ -2382,7 +2382,8 @@ button.ln:hover {
   padding: 0 5px;
   font-size: 11px;
 }
-.files ul {
+.files ul,
+.attached {
   list-style: none;
   padding: 0;
 }

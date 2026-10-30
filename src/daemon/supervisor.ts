@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { defaultProjectColor } from "../shared/colors.ts";
 import {
   type AgentEvent,
+  type AttachedFile,
   DAEMON,
   directorOf,
   type EffortLevel,
@@ -68,6 +69,7 @@ import {
   agentNotes,
   claudeConfigDir,
   listWorkspaceFiles,
+  NotReadableError,
   OutsideWorkspaceError,
   parseOpenPoints,
   type ReadScope,
@@ -75,6 +77,7 @@ import {
   readViewable,
   readWorkspaceFile,
   resolveInside,
+  resolveReadable,
 } from "./files.ts";
 import { writeForkHandover } from "./forkHandover.ts";
 import { type HolderHost, type Holders, scanHolders } from "./holders.ts";
@@ -1387,6 +1390,23 @@ export class Supervisor implements ToolHost {
     return "Reported. The task is in review; the user's verdict arrives as a message.";
   }
 
+  /** Puts files the worker made for the user into its Files and Report; nothing is copied. */
+  attachFiles(agent: string, files: AttachedFile[]): string {
+    const view = this.agent(agent);
+    if (!view) throw new ToolError(`No agent "${agent}".`);
+    const attached = files.map((file) => ({ ...file, path: resolve(view.cwd, file.path) }));
+    const scope = { ...this.readScope(view), listed: attached.map((f) => f.path) };
+    for (const { path } of attached) {
+      try {
+        if (!statSync(resolveReadable(scope, path)).isFile()) throw new Error("it is not a file");
+      } catch (error) {
+        throw new ToolError(`Cannot attach ${path}: ${attachFailure(error)}`);
+      }
+    }
+    this.append(agent, { kind: "files_attached", files: attached });
+    return `Attached ${attached.length === 1 ? "1 file" : `${attached.length} files`}.`;
+  }
+
   status(agent: string, text: string): void {
     this.append(agent, { kind: "status", text });
   }
@@ -2127,7 +2147,7 @@ export class Supervisor implements ToolHost {
     return {
       cwd: agent.cwd,
       roots: [agent.cwd, ...this.readableRepos(agent)],
-      listed: agent.outputs,
+      listed: [...agent.outputs, ...agent.attached.map((a) => a.path)],
       configDir: claudeConfigDir(),
       denied: [secretFile(home), join(home, "remotes")],
     };
@@ -2277,6 +2297,13 @@ function memoryDir(cwd: string, configDir: string): string {
     // A missing cwd has no memory to protect; the plain path still yields a valid slug.
   }
   return join(configDir, "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"), "memory");
+}
+
+/** Why a path could not be attached, in words for the worker. */
+function attachFailure(error: unknown): string {
+  if (error instanceof NotReadableError) return error.message;
+  if ((error as NodeJS.ErrnoException).code === "ENOENT") return "it does not exist";
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { createSdkMcpServer, type McpServerConfig, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import {
+  type AttachedFile,
   EFFORT_LEVELS,
   type EffortLevel,
   type Report,
@@ -49,6 +50,7 @@ export interface ToolHost {
   review(agent: string, path: string, kind: ReviewKind): Promise<string>;
   openPoints(agent: string, path: string): string;
   report(agent: string, report: Report): string;
+  attachFiles(agent: string, files: AttachedFile[]): string;
   status(agent: string, text: string): void;
   replyThread(agent: string, threadId: string, body: string): string;
   message(from: string, to: string, body: string): string;
@@ -107,6 +109,18 @@ export async function run(body: () => string | Promise<string>): Promise<Result>
 
 const RISKS = z.enum(["network", "outside-workspace", "runtime"]);
 
+/** Files attached per call; more would bury the few that matter. */
+const ATTACH_LIMIT = 20;
+
+const ATTACHED_FILES = z
+  .array(
+    z.object({
+      path: z.string().min(1).describe("Absolute path; it may be outside your workspace"),
+      note: z.string().max(200).optional().describe("One line on what the file is"),
+    }),
+  )
+  .max(ATTACH_LIMIT);
+
 function workerTools(agent: string, host: ToolHost) {
   return [
     tool(
@@ -139,7 +153,7 @@ function workerTools(agent: string, host: ToolHost) {
     ),
     tool(
       "report_result",
-      "Report that the task is done and ready for review. Call it once at the end, and again after each revision.",
+      "Report that the task is done and ready for review. Call it once at the end, and again after each revision. Attach the files the user should open: review files, plans, documents and other deliverables, wherever you wrote them.",
       {
         summary: z.string().describe("What you did and why, in a few sentences"),
         changes: z.array(z.string()).describe("jj change ids of the result"),
@@ -149,17 +163,27 @@ function workerTools(agent: string, host: ToolHost) {
           .string()
           .optional()
           .describe("Markdown walkthrough of the change in review order"),
+        files: ATTACHED_FILES.default([]).describe(
+          "Files for the user to read: review files, plans, other deliverables",
+        ),
       },
       (args) =>
-        run(() =>
-          host.report(agent, {
+        run(() => {
+          if (args.files.length > 0) host.attachFiles(agent, args.files);
+          return host.report(agent, {
             summary: args.summary,
             changes: args.changes,
             tests: args.tests,
             openQuestions: args.open_questions,
             walkthrough: args.walkthrough,
-          }),
-        ),
+          });
+        }),
+    ),
+    tool(
+      "attach_file",
+      "Hand the user files to read before you report: a review file, a plan, a document, a deliverable, wherever you wrote it, including with Bash and outside your workspace. They show in the task's Files and Report, where the user opens them. Files you write with Write or Edit are listed anyway; attach those that matter.",
+      { files: ATTACHED_FILES.min(1) },
+      (args) => run(() => host.attachFiles(agent, args.files)),
     ),
     tool(
       "report_status",

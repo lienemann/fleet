@@ -5,6 +5,7 @@ import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
 import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
+import { FileLink } from "../ui/FileLink.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
@@ -168,7 +169,7 @@ export function Drawer({
         {tab === "activity" && <ActivityView agent={agent} />}
         {tab === "files" && <FilesView agent={agent} request={file} />}
         {tab === "diff" && <DiffView agent={agent} thread={thread} />}
-        {tab === "report" && <ReportView agent={agent} />}
+        {tab === "report" && <ReportView agent={agent} onOpenFile={onOpenFile} />}
         {tab === "messages" && (
           <div className="drawer-scroll">
             {messages.length === 0 && <p className="empty">No messages.</p>}
@@ -182,14 +183,37 @@ export function Drawer({
   );
 }
 
-function ReportView({ agent }: { agent: AgentView }) {
+function ReportView({
+  agent,
+  onOpenFile,
+}: {
+  agent: AgentView;
+  onOpenFile: (path: string) => void;
+}) {
   const report = agent.report;
-  if (!report) return <p className="empty">{agent.name} has not reported a result yet.</p>;
+  if (!report && agent.attached.length === 0)
+    return <p className="empty">{agent.name} has not reported a result yet.</p>;
   return (
     <div className="drawer-scroll report">
-      <h2>Summary</h2>
-      <Markdown text={report.summary} />
-      {report.changes.length > 0 && (
+      {report && (
+        <>
+          <h2>Summary</h2>
+          <Markdown text={report.summary} />
+        </>
+      )}
+      {agent.attached.length > 0 && (
+        <>
+          <h2>Files</h2>
+          <ul className="attached">
+            {agent.attached.map((file) => (
+              <li key={file.path}>
+                <FileLink cwd={agent.cwd} path={file.path} note={file.note} onOpen={onOpenFile} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {report && report.changes.length > 0 && (
         <>
           <h2>Changes</h2>
           <p>
@@ -201,13 +225,13 @@ function ReportView({ agent }: { agent: AgentView }) {
           </p>
         </>
       )}
-      {report.tests && (
+      {report?.tests && (
         <>
           <h2>Tests</h2>
           <p>{report.tests}</p>
         </>
       )}
-      {report.openQuestions.length > 0 && (
+      {report && report.openQuestions.length > 0 && (
         <>
           <h2>Open questions</h2>
           <ul>
@@ -217,7 +241,7 @@ function ReportView({ agent }: { agent: AgentView }) {
           </ul>
         </>
       )}
-      {report.walkthrough && (
+      {report?.walkthrough && (
         <>
           <h2>Walkthrough</h2>
           <Markdown text={report.walkthrough} className="walkthrough" />

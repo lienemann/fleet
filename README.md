@@ -51,7 +51,7 @@ background tint of it, set from the dot in the tile header. Choose the project's
 
 Agents talk to fleet through tools the daemon serves in-process. A worker calls `report_result` when it is done,
 `request_decision` or `request_review` when it needs you, `submit_open_points` for a file of questions,
-`report_status` for the line on its card and `send_message` to reach its director, another agent of its project, or
+`attach_file` for review files and deliverables wherever it wrote them, `report_status` for the line on its card and `send_message` to reach its director, another agent of its project, or
 you. A project's director has `spawn_task`, which starts a worker with a written brief, plus `ledger`,
 `update_task`, `remove_task`, `stop_task` and `link_tasks`; it cannot edit code and writes nothing but its notes
 under `.fleet/<name>/`. It can rename any task, but rewrite the brief or change the workspace only while the task

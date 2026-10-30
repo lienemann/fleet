@@ -1,5 +1,6 @@
 import {
   type Activity,
+  type AttachedFile,
   type ContextCategory,
   DEFAULT_PERMISSION_MODE,
   type DecisionKind,
@@ -172,6 +173,8 @@ export interface AgentView {
   };
   /** Files the session wrote or edited, newest first. */
   outputs: string[];
+  /** Files the worker attached for the user, newest first. */
+  attached: AttachedFile[];
   /** What the current turn changed so far, per file. */
   turnEdits: FileEdit[];
   /** The latest handover to a fresh session, while it runs or if it failed. */
@@ -528,6 +531,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       subagents: [],
       backgroundTasks: [],
       outputs: [],
+      attached: [],
       turnEdits: [],
       handovers: 0,
       edits: [],
@@ -730,6 +734,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ unseen: false });
     case "report":
       return patch({ report: event.report });
+    case "files_attached":
+      return patch({ attached: trackAttached(agent.attached, event.files) });
     case "status":
       return patch({ status: event.text });
     case "note":
@@ -1034,6 +1040,19 @@ function trackOutputs(outputs: string[], event: FleetEvent & { kind: "log" }): s
     return outputs;
   const path = event.text;
   return [path, ...outputs.filter((p) => p !== path)].slice(0, OUTPUT_LIMIT);
+}
+
+/** Attached files kept per agent; the oldest go first. */
+export const ATTACHED_LIMIT = 50;
+
+/** New files go on top; attaching a path again moves it up and keeps its note unless a new one comes. */
+function trackAttached(attached: AttachedFile[], files: AttachedFile[]): AttachedFile[] {
+  const merged = files.map((file) => ({
+    ...file,
+    note: file.note ?? attached.find((a) => a.path === file.path)?.note,
+  }));
+  const paths = new Set(files.map((f) => f.path));
+  return [...merged, ...attached.filter((a) => !paths.has(a.path))].slice(0, ATTACHED_LIMIT);
 }
 
 function trackBackground(agent: AgentView, event: FleetEvent): BackgroundTask[] {
