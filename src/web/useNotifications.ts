@@ -7,7 +7,7 @@ import {
   needsUser,
   pendingDecisions,
 } from "../shared/reducer.ts";
-import { columnLabel, lowDiskText } from "./labels.ts";
+import { columnLabel, firstLine, lowDiskText } from "./labels.ts";
 
 const STORAGE_KEY = "fleet.notifications";
 
@@ -27,6 +27,8 @@ interface Notice {
   tag?: string;
   title: string;
   body: string;
+  /** The Finished item it tells of; the notice is outdated once that is read. */
+  finished?: string;
 }
 
 const readPreference = (): boolean => {
@@ -44,6 +46,11 @@ const writePreference = (on: boolean): void => {
     // Not remembered across reloads; the toggle still works for this page.
   }
 };
+
+/** Whether the user dealt with the item a notice tells of, in this window or another. */
+export const outdated = (notice: Notice, state: FleetState): boolean =>
+  notice.finished !== undefined &&
+  !state.agents[notice.agent ?? ""]?.finished.some((r) => r.id === notice.finished && !r.read);
 
 const diskKey = (volume: LowDisk): string => `${volume.host ?? ""}:${volume.names.join(",")}`;
 
@@ -67,12 +74,12 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
     const decision = pendingDecisions(after).find((d) => d.agent === agent.name);
     // Every new Finished item is news, whether or not the agent was marked new before.
     if (finished && !decision) {
-      const [first = ""] = finished.text.split("\n");
       result.push({
         agent: agent.name,
         tag: `finished-${agent.name}`,
         title: `${agent.name} ${finished.stopped ? "stopped" : "finished"}`,
-        body: first,
+        body: firstLine(finished.text),
+        finished: finished.id,
       });
       continue;
     }
@@ -107,8 +114,11 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
   const known = before.messages.at(-1)?.seq ?? 0;
   for (const message of after.messages) {
     if (message.seq > known && message.to === USER) {
-      const [first = ""] = message.body.split("\n");
-      result.push({ agent: message.from, title: `Message from ${message.from}`, body: first });
+      result.push({
+        agent: message.from,
+        title: `Message from ${message.from}`,
+        body: firstLine(message.body),
+      });
     }
   }
   // A volume that was fine before; one that stays low does not ask again.
@@ -134,6 +144,7 @@ export function useNotifications(
   const [permission, setPermission] = useState(supported ? Notification.permission : "denied");
   const enabled = supported && wanted && permission === "granted";
   const previous = useRef<FleetState | undefined>(undefined);
+  const shown = useRef(new Map<Notification, Notice>());
   const open = useRef(onOpen);
   open.current = onOpen;
 
@@ -142,6 +153,12 @@ export function useNotifications(
     previous.current = state;
     // The first state after loading is history, not news.
     if (!enabled || !before || before.lastSeq === 0) return;
+    // An item read meanwhile, say by another window that is in front, is no news any more.
+    for (const [notification, notice] of shown.current) {
+      if (!outdated(notice, state)) continue;
+      notification.close();
+      shown.current.delete(notification);
+    }
     if (document.visibilityState === "visible" && document.hasFocus()) return;
     for (const notice of notices(before, state)) {
       // One notification per agent: a newer one replaces what it said before.
@@ -150,6 +167,8 @@ export function useNotifications(
         tag: notice.tag ?? notice.agent,
         icon: "/icon-192.png",
       });
+      shown.current.set(notification, notice);
+      notification.onclose = () => shown.current.delete(notification);
       notification.onclick = () => {
         window.focus();
         if (notice.agent) open.current(notice.agent);
