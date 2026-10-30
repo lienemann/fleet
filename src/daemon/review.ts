@@ -149,7 +149,7 @@ export class ReviewService {
     agent: string,
     ids: readonly string[],
     approved: boolean,
-    threads: LineThread[] = [],
+    threads: LineThread[],
   ): Promise<ReviewModel> {
     const loaded = this.require(agent);
     const { store, review, moves } = loaded;
@@ -193,7 +193,8 @@ export class ReviewService {
       const { first, same } = await locateRange(repo, review, path, lines);
       if (!same || first.kind !== "commit") return null;
       return { change: first.commit.changeId, short: first.commit.shortId };
-    } catch {
+    } catch (error) {
+      console.error(`fleet: finding the commit of ${path}:${lines.start} failed:`, error);
       return null;
     }
   }
@@ -207,7 +208,7 @@ export class ReviewService {
     agent: string,
     hunkId: string,
     lines: string[],
-    threads: LineThread[] = [],
+    threads: LineThread[],
   ): Promise<{ model: ReviewModel; edit: ReviewEdit }> {
     const loaded = this.require(agent);
     const { repo, review } = loaded;

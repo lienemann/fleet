@@ -66,7 +66,7 @@ describe("ReviewService", () => {
     );
     const first = service();
     const model = await first.load("alpha", repo);
-    await first.approve("alpha", model.files[0]?.hunks.map((h) => h.id) ?? [], true);
+    await first.approve("alpha", model.files[0]?.hunks.map((h) => h.id) ?? [], true, []);
 
     // The agent revises the second hunk only.
     write(
@@ -90,7 +90,7 @@ describe("ReviewService", () => {
     const model = await reviews.load("alpha", repo);
     const hunk = model.files[0]?.hunks[0];
     expect(hunk).toMatchObject({ auto: "whitespace", approved: true });
-    const reopened = await reviews.approve("alpha", [hunk?.id ?? ""], false);
+    const reopened = await reviews.approve("alpha", [hunk?.id ?? ""], false, []);
     expect(reopened.files[0]?.hunks[0]?.approved).toBe(false);
   });
 
@@ -104,9 +104,12 @@ describe("ReviewService", () => {
     const model = await reviews.load("alpha", repo);
     const hunk = model.files[0]?.hunks[0];
 
-    const { model: after, edit } = await reviews.edit("alpha", hunk?.id ?? "", [
-      "    return 20  # typo",
-    ]);
+    const { model: after, edit } = await reviews.edit(
+      "alpha",
+      hunk?.id ?? "",
+      ["    return 20  # typo"],
+      [],
+    );
     expect(edit).toMatchObject({
       path: "lib.py",
       before: ["    return 20  # tpyo"],
@@ -128,7 +131,7 @@ describe("ReviewService", () => {
     );
     const reviews = service();
     const model = await reviews.load("alpha", repo);
-    await reviews.edit("alpha", model.files[0]?.hunks[0]?.id ?? "", ["    return 21"]);
+    await reviews.edit("alpha", model.files[0]?.hunks[0]?.id ?? "", ["    return 21"], []);
     expect(readFileSync(join(repo, "lib.py"), "utf8")).toContain("return 21");
   });
 
@@ -157,9 +160,12 @@ describe("ReviewService", () => {
     expect(commit.scope).toEqual({ kind: "commit", change: older });
     expect(commit.files[0]?.hunks.map((h) => h.added)).toEqual([["    return 10"]]);
     // Edits stay in the reviewed commit, and the review stays on it.
-    const { model } = await reviews.edit("alpha", commit.files[0]?.hunks[0]?.id ?? "", [
-      "    return 11",
-    ]);
+    const { model } = await reviews.edit(
+      "alpha",
+      commit.files[0]?.hunks[0]?.id ?? "",
+      ["    return 11"],
+      [],
+    );
     expect(model.scope).toEqual({ kind: "commit", change: older });
     expect(jj("file", "show", "-r", "@-", "lib.py")).toContain("return 11");
   });
@@ -189,7 +195,7 @@ describe("ReviewService", () => {
   });
 
   it("asks for a load before anything else", async () => {
-    await expect(service().approve("nobody", [], true)).rejects.toThrow(ReviewError);
+    await expect(service().approve("nobody", [], true, [])).rejects.toThrow(ReviewError);
   });
 });
 
