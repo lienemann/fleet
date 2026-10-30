@@ -276,7 +276,7 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await group.getByPlaceholder(/^Comment for/).fill("Thanks");
   // Go would drop the comment, so only Send is left.
   await expect(group.getByRole("button", { name: "Go" })).toBeDisabled();
-  await group.getByRole("button", { name: "Send", exact: true }).click();
+  await group.getByRole("button", { name: /^Send/ }).click();
   await expect(group).toHaveCount(0);
   const read = page.locator(".read-finished");
   await read.locator("summary").click();
@@ -321,6 +321,76 @@ test("Mark read and Go deal with a finished run without a comment", async ({ pag
   await task.locator(".card-main").click();
   await expect(page.locator(".drawer .log")).toContainText("Go ahead.");
   await task.getByRole("button", { name: "Accept" }).click();
+});
+
+test("a task waiting for a verdict is accepted or sent back from its inbox item", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const finishedTask = async (title: string, workspace: string) => {
+    await newTask(page, title, workspace);
+    await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+    await answerFromInbox(page, title);
+    const group = page.locator(".finished", { hasText: title });
+    await expect(group).toContainText("Finished", { timeout: 15_000 });
+    return group;
+  };
+
+  // The item offers the board's moves: the verdict first and filled, Remove last and apart.
+  const accepted = "Order the replay imports";
+  const group = await finishedTask(accepted, "ws1");
+  const labels = group.locator("footer.actions button");
+  await expect(labels).toHaveText([/^Accept/, /^Request changes/, /^Mark read/, "Go", /^Remove/]);
+  await expect(labels.first()).toHaveClass(/primary/);
+  await expect(labels.last()).toHaveClass(/danger/);
+  await expect(group.getByRole("button", { name: "Diff", exact: true })).toBeVisible();
+  await group.getByRole("button", { name: /^Accept/ }).click();
+  await expect(group).toHaveCount(0);
+  await page.keyboard.press("Alt+1");
+  await expect(card(page, "Accepted", accepted)).toBeVisible();
+
+  // Request changes takes the comment along and the same agent revises.
+  const sentBack = "Rename the replay fixtures";
+  const second = await finishedTask(sentBack, "ws2");
+  await second.getByPlaceholder(/^Comment for/).fill("Keep the old fixture names too.");
+  await second.getByRole("button", { name: /^Request changes/ }).click();
+  await expect(second).toHaveCount(0);
+  await page.keyboard.press("Alt+1");
+  await expect(card(page, "Review", sentBack)).toBeVisible({ timeout: 15_000 });
+  await card(page, "Review", sentBack).locator(".card-main").click();
+  await page.getByRole("button", { name: /^Messages/ }).click();
+  await expect(page.locator(".drawer")).toContainText("Keep the old fixture names too.");
+  await page.getByRole("button", { name: "Live" }).click();
+  await card(page, "Review", sentBack).getByRole("button", { name: "Accept" }).click();
+});
+
+test("a question and a permission are answered from the inbox with the same buttons", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const title = "Trim the replay logs";
+  await newTask(page, title, "ws1");
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("Alt+2");
+  const decisions = page.locator(".inbox .decision", { hasText: title });
+
+  // Approve leads and is filled, Reject closes the row; the options are one row of buttons.
+  const permission = decisions.locator("footer.actions button");
+  await expect(permission.first()).toHaveClass(/primary/);
+  await expect(permission.last()).toHaveClass(/danger/);
+  await permission.first().click();
+  const option = decisions.getByRole("button", {
+    name: "Scale the tolerance with measured jitter",
+  });
+  await expect(decisions.locator(".options .option").first()).toBeVisible();
+  await option.click();
+  await expect(decisions).toHaveCount(0);
+  await expect(page.locator(".finished", { hasText: title })).toContainText("Finished", {
+    timeout: 15_000,
+  });
+  await page.keyboard.press("Alt+1");
+  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
 
 test("a run that ends while the user watches the agent goes straight to read", async ({ page }) => {

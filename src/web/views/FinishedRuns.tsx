@@ -2,8 +2,10 @@ import { type KeyboardEvent, useState } from "react";
 import type { AgentView, FinishedRun } from "../../shared/reducer.ts";
 import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
+import { useCommands } from "../keys/keymap.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
+import { movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
@@ -83,37 +85,108 @@ function FoldedRun({
   );
 }
 
+/** Where in the agent's drawer a link of a finished run leads. */
+type Tab = "diff" | "report";
+
 /**
  * One agent's unread runs, newest first: the newest unfolded, the earlier ones as lines that
- * unfold too. The comment box and the buttons act on all of them.
+ * unfold too. The comment box and the buttons act on all of them. When the agent's task waits
+ * for a verdict, the item is also the task's review: it offers the board's moves.
  */
 export function FinishedGroup({
   agent,
   runs,
+  active,
   onOpen,
+  onOpenTab,
+  onRemove,
   onFocus,
 }: {
   agent: AgentView;
   runs: FinishedRun[];
+  /** The group the inbox's keys act on. */
+  active: boolean;
   onOpen: () => void;
+  onOpenTab: (tab: Tab) => void;
+  onRemove: () => void;
   onFocus: () => void;
 }) {
   const { send } = useFleet();
+  const moves = useTaskMoves();
   // The same draft as the agent's message box: a comment on a run is a message to the agent.
   const [comment, setComment] = useAgentDraft(agent.name, "prompt");
   const [newest, ...earlier] = runs;
-  if (!newest) return null;
   const ids = runs.map((run) => run.id);
   const text = comment.trim();
-  const stopped = newest.stopped !== undefined && agent.activity === "stopped";
+  const read = () => send({ type: "finished_read", agent: agent.name, ids });
+  // A verdict deals with the run, as the buttons do, so the item leaves with the review.
+  const verdict = {
+    accept: () => {
+      moves.accept(agent.name);
+      read();
+    },
+    changes: () => {
+      moves.changes(agent.name, text || undefined);
+      read();
+      setComment("");
+    },
+  };
+  const reviewable = movesOf(agent).includes("accept");
+  const stopped = newest?.stopped !== undefined && agent.activity === "stopped";
   const submit = () => {
-    send(
-      text
-        ? { type: "finished_reply", agent: agent.name, ids, text }
-        : { type: "finished_read", agent: agent.name, ids },
-    );
+    if (text) send({ type: "finished_reply", agent: agent.name, ids, text });
+    else read();
     setComment("");
   };
+  const act = (move: TaskMove) => ({
+    label: TASK_MOVES[move].button,
+    keys: TASK_MOVES[move].keys,
+  });
+
+  // While the group is the one the keys act on, so do the moves' own keys.
+  const inbox = { group: "Inbox", scope: "main" } as const;
+  const movesWhere = (what: string) => `${what} the focused run's task`;
+  useCommands(
+    active && reviewable
+      ? [
+          {
+            ...inbox,
+            id: "inbox.accept",
+            label: movesWhere(TASK_MOVES.accept.label),
+            keys: [TASK_MOVES.accept.keys],
+            run: verdict.accept,
+          },
+          {
+            ...inbox,
+            id: "inbox.changes",
+            label: movesWhere(TASK_MOVES.changes.label),
+            keys: [TASK_MOVES.changes.keys],
+            run: verdict.changes,
+          },
+          {
+            ...inbox,
+            id: "inbox.remove",
+            label: movesWhere(TASK_MOVES.remove.label),
+            keys: [TASK_MOVES.remove.keys],
+            run: onRemove,
+          },
+          {
+            ...inbox,
+            id: "inbox.diff",
+            label: "Open the focused run's diff",
+            run: () => onOpenTab("diff"),
+          },
+          {
+            ...inbox,
+            id: "inbox.report",
+            label: "Open the focused run's report",
+            run: () => onOpenTab("report"),
+          },
+        ]
+      : [],
+  );
+
+  if (!newest) return null;
   const pressed = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -130,6 +203,16 @@ export function FinishedGroup({
         <button type="button" className="link accent" onClick={onOpen}>
           Open
         </button>
+        {reviewable && (
+          <>
+            <button type="button" className="link accent" onClick={() => onOpenTab("diff")}>
+              Diff
+            </button>
+            <button type="button" className="link accent" onClick={() => onOpenTab("report")}>
+              Report
+            </button>
+          </>
+        )}
       </header>
       <RunText run={newest} />
       <textarea
@@ -141,6 +224,16 @@ export function FinishedGroup({
       />
       <ItemActions
         actions={[
+          ...(reviewable
+            ? [
+                { ...act("accept"), tone: "primary" as const, run: verdict.accept },
+                {
+                  ...act("changes"),
+                  title: text ? "Sends your comment with the held threads and edits" : undefined,
+                  run: verdict.changes,
+                },
+              ]
+            : []),
           ...(stopped
             ? [
                 {
@@ -153,7 +246,7 @@ export function FinishedGroup({
           {
             label: text ? "Send" : "Mark read",
             keys: text ? "mod+enter" : undefined,
-            tone: stopped ? undefined : "primary",
+            tone: reviewable || stopped ? undefined : "primary",
             run: submit,
           },
           {
@@ -162,6 +255,7 @@ export function FinishedGroup({
             title: text ? "Send covers what you wrote" : undefined,
             run: () => send({ type: "finished_reply", agent: agent.name, ids, text: GO }),
           },
+          ...(reviewable ? [{ ...act("remove"), tone: "danger" as const, run: onRemove }] : []),
         ]}
       />
       {earlier.map((run) => (

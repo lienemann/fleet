@@ -28,9 +28,13 @@ const REPLY_LINES = 3;
 /** Everything waiting on the user: decisions and permissions, open points, replies and messages. */
 export function Inbox({
   onOpen,
+  onOpenTab,
   onOpenThread,
+  onRemove,
 }: {
   onOpen: (agent: string) => void;
+  onOpenTab: (agent: string, tab: "diff" | "report") => void;
+  onRemove: (agent: string) => void;
   onOpenThread: (agent: string, thread: string) => void;
 }) {
   const { send, state: all } = useFleet();
@@ -134,7 +138,10 @@ export function Inbox({
                   key={agent}
                   agent={view}
                   runs={runs}
+                  active={group?.agent === agent}
                   onOpen={() => onOpen(agent)}
+                  onOpenTab={(tab) => onOpenTab(agent, tab)}
+                  onRemove={() => onRemove(agent)}
                   onFocus={() => setLastGroup(agent)}
                 />
               )

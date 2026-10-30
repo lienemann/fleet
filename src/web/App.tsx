@@ -617,7 +617,17 @@ export function App() {
         <main className="main" data-pane="main" tabIndex={-1}>
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
-          {view === "inbox" && <Inbox onOpen={open} onOpenThread={showThread} />}
+          {view === "inbox" && (
+            <Inbox
+              onOpen={open}
+              onOpenTab={(name, next) => {
+                select(name);
+                goTab(next);
+              }}
+              onOpenThread={showThread}
+              onRemove={remove}
+            />
+          )}
           {view === "grid" && (
             <Grid
               selected={selected}

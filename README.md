@@ -20,7 +20,8 @@ The inbox collects what waits on you: permission prompts and questions with the 
 asking, risk tags (network, writes outside the workspace, runs code), review requests, and Markdown files of open
 points that you answer point by point. When an agent finishes work you started, its closing message arrives as a
 Finished item, with a comment box, Mark read (or Send, when you wrote something) and Go, which tells it to go
-ahead. A run that stops without you, because the machine went offline, a request failed or the session crashed,
+ahead. When its task waits for your verdict, the item also offers Accept, Request changes and Remove, as the board
+does, so you can settle the task from the inbox. A run that stops without you, because the machine went offline, a request failed or the session crashed,
 shows up as Stopped. Runs you started that take less than 15 seconds do not show up, and one you watched in a
 focused window goes straight to Read, which keeps the last 20 per agent. The grid shows the agents live, the way
 the CLI would, with the transcript, subagents, to-do list, permission mode, model, context usage and a prompt that
