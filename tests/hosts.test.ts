@@ -121,6 +121,11 @@ describe("routing", () => {
     ]);
   });
 
+  it("changes a project's color on the local daemon only", () => {
+    const color = { type: "set_project_color", project: "app", color: "#123456" } as const;
+    expect(routeCommand(color, remotes)).toEqual([{ host: LOCAL, message: color }]);
+  });
+
   it("routes calls by agent", () => {
     expect(routeCall({ type: "review_load", agent: "pod1/alpha" }, remotes)).toEqual({
       host: "pod1",
@@ -137,6 +142,7 @@ describe("mergeInfo", () => {
   const project = (name: string, director?: string) => ({
     name,
     path: `/${name}`,
+    color: "#4fd1c5",
     director,
     defaultWorkspace: name,
     wip: {},

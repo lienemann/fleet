@@ -144,7 +144,6 @@ export interface AgentView {
   role: Role;
   title: string;
   prompt?: string;
-  color: string;
   tint: Tint;
   workspace: string;
   cwd: string;
@@ -514,7 +513,6 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       role: event.role,
       title: event.title,
       prompt: event.prompt,
-      color: event.color,
       tint: "soft",
       workspace: event.workspace,
       cwd: event.cwd,
@@ -619,7 +617,6 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         model: event.model ?? agent.model,
         effort: event.effort === undefined ? agent.effort : (event.effort ?? undefined),
         permissionMode: event.permissionMode ?? agent.permissionMode,
-        color: event.color ?? agent.color,
         tint: event.tint ?? agent.tint,
       });
     case "user_prompt": {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HEX_COLOR } from "./colors.ts";
 import type { FleetEvent } from "./events.ts";
 import { EFFORT_LEVELS, PERMISSION_MODES, TINTS, USER_MOVES } from "./events.ts";
 import { type FleetState, QUOTE_LIMIT } from "./reducer.ts";
@@ -94,7 +95,12 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_model"), agent, model: z.string().min(1) }),
   /** null goes back to the model's own default. */
   z.object({ type: z.literal("set_effort"), agent, effort: z.enum(EFFORT_LEVELS).nullable() }),
-  z.object({ type: z.literal("set_color"), agent, color: z.string().regex(/^#[0-9a-f]{6}$/i) }),
+  /** Changes the color a project's tickets wear, and writes it into config.toml. */
+  z.object({
+    type: z.literal("set_project_color"),
+    project: z.string().min(1),
+    color: z.string().regex(HEX_COLOR),
+  }),
   z.object({ type: z.literal("set_tint"), agent, tint: z.enum(TINTS) }),
   /** Continues the task in a fresh session, after the old one wrote a handover file. */
   z.object({ type: z.literal("handover"), agent }),
@@ -335,6 +341,8 @@ export interface Limits {
 /** One jj repo with its director and limits; its workspaces name it as their project. */
 export interface ProjectInfo {
   name: string;
+  /** `#rrggbb`: what the project's tickets and agents wear. */
+  color: string;
   /** The default workspace: the checkout the user works in, and its director's. */
   path: string;
   /** The director's agent name, if it has one. */

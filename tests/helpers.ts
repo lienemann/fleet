@@ -102,7 +102,6 @@ export const worker = (
   agent,
   role: "worker",
   title: `task ${agent}`,
-  color: "#4fd1c5",
   workspace: "ws1",
   cwd: "/ws",
   host: "mac",
@@ -125,6 +124,7 @@ export const testProject = (
 ): Project => ({
   name,
   path: director ?? `/work/${name}`,
+  color: "#4fd1c5",
   director: director !== undefined,
   readOnly,
   wip: { running, review },

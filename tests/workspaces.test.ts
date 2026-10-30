@@ -7,6 +7,7 @@ import { allWorkspaces, loadConfig } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
+import { SWATCHES } from "../src/shared/colors.ts";
 import { echoing, fakeQuery, result, testConfig } from "./helpers.ts";
 
 const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
@@ -169,4 +170,28 @@ it("adding a workspace keeps the file's header, its other settings and allowed_t
     ["ws1", ["Read"]],
     ["ws2", before.projects[0]?.allowedTools],
   ]);
+});
+
+it("changes a project's color, writes it to config.toml and tells the pages", () => {
+  const home = mkdtempSync(join(tmpdir(), "fleet-color-"));
+  const file = join(home, "config.toml");
+  writeFileSync(file, `# Mine.\n[[projects]]\nname = "p"\npath = "${home}"\ndirector = false\n`);
+  const changed = vi.fn();
+  const supervisor = new Supervisor({
+    log: new EventLog(":memory:"),
+    queryFn: fakeQuery(echoing(result())).queryFn,
+    config: loadConfig(home),
+    configFile: file,
+    onWorkspacesChanged: changed,
+  });
+  const colorOf = () => supervisor.daemonInfo().projects[0]?.color;
+  expect(colorOf()).toBe(SWATCHES[0]);
+
+  supervisor.handle({ type: "set_project_color", project: "p", color: "#123abc" });
+  supervisor.handle({ type: "set_project_color", project: "nobody", color: "#000000" });
+
+  expect(colorOf()).toBe("#123abc");
+  expect(changed).toHaveBeenCalledOnce();
+  expect(readFileSync(file, "utf8")).toContain("# Mine.");
+  expect(loadConfig(home).projects[0]?.color).toBe("#123abc");
 });

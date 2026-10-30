@@ -4,6 +4,7 @@ import { basename, join, resolve } from "node:path";
 import { patch } from "@decimalturn/toml-patch";
 import { parse, stringify } from "smol-toml";
 import { z } from "zod";
+import { defaultProjectColor, HEX_COLOR } from "../shared/colors.ts";
 import type { Limits } from "../shared/protocol.ts";
 
 export type { Limits };
@@ -30,6 +31,8 @@ const ProjectConfig = z.object({
   name: z.string().regex(NAME),
   /** The default workspace: the repo checkout the user works in, and its director's. */
   path: z.string().min(1),
+  /** What the project's tickets wear in the UI; fleet picks one when the project has none. */
+  color: z.string().regex(HEX_COLOR).optional(),
   director: z.boolean().default(true),
   /** Repos the project's agents read without asking, but do not change. */
   read_only: z.array(z.string()).default([]),
@@ -95,6 +98,8 @@ export interface Project {
   name: string;
   /** The default workspace: the repo checkout the user works in, and its director's. */
   path: string;
+  /** `#rrggbb`: what its cards, tiles and agents wear. */
+  color: string;
   director: boolean;
   /** Repos its agents read without asking, but do not change. */
   readOnly: string[];
@@ -199,7 +204,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     path: fallbackCwd,
     wip: DEFAULT_LIMITS,
   });
-  const projects = (parsed.projects ?? [only]).map((p) => {
+  const configured = (parsed.projects ?? [only]).map((p) => {
     const allowedTools = p.allowed_tools ?? parsed.allowed_tools;
     const path = expandHome(p.path);
     const workspaces: Workspace[] = p.workspaces.map((ws) => ({
@@ -213,6 +218,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     return {
       name: p.name,
       path,
+      color: p.color,
       director: p.director,
       readOnly: p.read_only.map(expandHome),
       wip: p.wip,
@@ -220,8 +226,9 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
       workspaces,
     };
   });
+  const projects = withColors(configured);
   checkNames(projects);
-  return {
+  const config: Config = {
     port: parsed.port,
     host: parsed.host ?? hostname().replace(/\.local$/, ""),
     allowedOrigins: parsed.allowed_origins,
@@ -238,6 +245,20 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     auth: parsed.auth,
     history: parsed.history.enabled ? { python: parsed.history.python } : undefined,
   };
+  // The pick is written down, or it would shift when another project comes or goes.
+  if (parsed.projects && configured.some((p) => p.color === undefined)) writeConfig(file, config);
+  return config;
+}
+
+/** The projects with a color each: the ones set, and the next default for each that has none. */
+function withColors(projects: Array<Omit<Project, "color"> & { color?: string }>): Project[] {
+  const taken = projects.flatMap((p) => (p.color ? [p.color] : []));
+  return projects.map((p) => {
+    if (p.color) return { ...p, color: p.color };
+    const color = defaultProjectColor(taken);
+    taken.push(color);
+    return { ...p, color };
+  });
 }
 
 /** Workspace names, default ones included, must not repeat across projects. */
@@ -292,6 +313,7 @@ export function writeConfig(file: string, config: Pick<Config, "projects" | "wip
       const {
         name: _,
         path,
+        color: _color,
         director: _on,
         read_only,
         wip: _wip,
@@ -301,6 +323,7 @@ export function writeConfig(file: string, config: Pick<Config, "projects" | "wip
       return {
         name: project.name,
         path: spelling(path, project.path),
+        color: project.color,
         director: project.director ? undefined : false,
         read_only:
           project.readOnly.length > 0

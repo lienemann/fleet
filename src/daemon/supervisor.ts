@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
+import { defaultProjectColor } from "../shared/colors.ts";
 import {
   type AgentEvent,
   DAEMON,
@@ -295,6 +295,7 @@ export class Supervisor implements ToolHost {
       })),
       projects: projects.map((project) => ({
         name: project.name,
+        color: project.color,
         path: project.path,
         director: project.director ? this.directorName(project) : undefined,
         defaultWorkspace: defaultWorkspace(project),
@@ -335,7 +336,6 @@ export class Supervisor implements ToolHost {
       kind: "agent_created",
       role: "director",
       title: "Director",
-      color: DIRECTOR_COLOR,
       workspace: defaultWorkspace(project),
       cwd: project.path,
       host: this.config.host,
@@ -380,7 +380,6 @@ export class Supervisor implements ToolHost {
         kind: "agent_created",
         role: "fleet-director",
         title: "Fleet director",
-        color: DIRECTOR_COLOR,
         workspace: FLEET_DIRECTOR,
         cwd: this.fleetDir,
         host: this.config.host,
@@ -523,10 +522,14 @@ export class Supervisor implements ToolHost {
       case "set_effort":
         this.background(this.session(message.agent)?.setEffort(message.effort));
         return;
-      case "set_color":
-        if (this.agent(message.agent))
-          this.append(message.agent, { kind: "settings", color: message.color });
+      case "set_project_color": {
+        const project = this.config.projects.find((p) => p.name === message.project);
+        if (project && project.color !== message.color) {
+          project.color = message.color;
+          this.configChanged([]);
+        }
         return;
+      }
       case "handover":
         this.background(this.handover(message.agent));
         return;
@@ -749,6 +752,7 @@ export class Supervisor implements ToolHost {
     const project: Project = {
       name: name ?? projectName(repo),
       path: repo,
+      color: defaultProjectColor(this.config.projects.map((p) => p.color)),
       director: true,
       readOnly: [],
       wip: {},
@@ -877,7 +881,6 @@ export class Supervisor implements ToolHost {
       kind: "agent_created",
       role: "worker",
       title,
-      color: this.freshColor(),
       workspace,
       cwd: dir,
       host: this.config.host,
@@ -1155,13 +1158,11 @@ export class Supervisor implements ToolHost {
     const ws = this.workspace(workspace);
     if (!ws) return undefined;
     const name = this.freshName();
-    const color = this.freshColor();
     this.append(name, {
       kind: "agent_created",
       role: "worker",
       title,
       prompt,
-      color,
       workspace: ws.name,
       cwd: ws.path,
       host: this.config.host,
@@ -2175,16 +2176,6 @@ export class Supervisor implements ToolHost {
 
   private workspace(name: string): Workspace | undefined {
     return this.workspaces.find((ws) => ws.name === name);
-  }
-
-  /** The first swatch no agent has yet. */
-  private freshColor(): string {
-    const used = new Set(this.agents.map((a) => a.color));
-    return (
-      SWATCHES.find((c) => !used.has(c)) ??
-      SWATCHES[this.agents.length % SWATCHES.length] ??
-      SWATCHES[0]
-    );
   }
 
   private freshName(): string {

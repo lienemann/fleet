@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { allWorkspaces, loadConfig, projectOf, writeConfig } from "../src/daemon/config.ts";
+import { SWATCHES } from "../src/shared/colors.ts";
 
 const home = () => mkdtempSync(join(tmpdir(), "fleet-home-"));
 
@@ -197,4 +198,52 @@ it("creates config.toml with a header when there is none", () => {
   writeConfig(file, loadConfig(dir, "/work/here"));
   expect(readFileSync(file, "utf8")).toMatch(/^# Written by fleet/);
   expect(loadConfig(dir).projects.map((p) => p.name)).toEqual(["here"]);
+});
+
+const twoProjects = (colors: { a?: string; b?: string } = {}) => `
+[[projects]]
+name = "a" # first
+path = "/r/a"
+${colors.a ? `color = "${colors.a}"` : ""}
+
+[[projects]]
+name = "b"
+path = "/r/b"
+${colors.b ? `color = "${colors.b}"` : ""}
+`;
+
+it("keeps a project's color and gives the others the first palette colors nobody has", () => {
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), twoProjects({ b: SWATCHES[0] }));
+  expect(loadConfig(dir).projects.map((p) => p.color)).toEqual([SWATCHES[1], SWATCHES[0]]);
+});
+
+it("writes the colors it picked, so they stay when another project goes", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  writeFileSync(file, twoProjects());
+  const config = loadConfig(dir);
+  expect(readFileSync(file, "utf8")).toContain("# first");
+  config.projects.shift();
+  writeConfig(file, config);
+  expect(loadConfig(dir).projects.map((p) => p.color)).toEqual([SWATCHES[1]]);
+});
+
+it("writes a project's new color in place", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  writeFileSync(file, twoProjects({ a: SWATCHES[0], b: SWATCHES[1] }));
+  const config = loadConfig(dir);
+  const [a] = config.projects;
+  if (!a) throw new Error("no project");
+  a.color = "#123456";
+  writeConfig(file, config);
+  expect(readFileSync(file, "utf8")).toContain("# first");
+  expect(loadConfig(dir).projects.map((p) => p.color)).toEqual(["#123456", SWATCHES[1]]);
+});
+
+it("refuses a color that is not #rrggbb", () => {
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), twoProjects({ a: "teal" }));
+  expect(() => loadConfig(dir)).toThrow();
 });

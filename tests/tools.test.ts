@@ -15,6 +15,7 @@ import { EventLog } from "../src/daemon/eventLog.ts";
 import { parseOpenPoints, resolveInside } from "../src/daemon/files.ts";
 import { directorPolicy, Supervisor } from "../src/daemon/supervisor.ts";
 import { fleetServer, ToolError, toolsOf } from "../src/daemon/tools.ts";
+import { SWATCHES } from "../src/shared/colors.ts";
 import { FLEET_DIRECTOR } from "../src/shared/events.ts";
 import { pendingDecisions } from "../src/shared/reducer.ts";
 import {
@@ -852,6 +853,8 @@ describe("fleet director", () => {
 
     supervisor.addWorkspace("d1", join(root, "docs-d1"), false, "docs-repo");
     expect(loadConfig(home).projects[2]?.workspaces.map((w) => w.name)).toEqual(["d1"]);
+    // The two projects before it share the test palette color, so the new one gets the next.
+    expect(loadConfig(home).projects[2]?.color).toBe(SWATCHES[1]);
   });
 
   it("adds a project at the workspace given when its repo has no default workspace", () => {
@@ -901,6 +904,7 @@ describe("fleet director", () => {
     expect(info.projects).toEqual([
       {
         name: "test",
+        color: "#4fd1c5",
         path: join(root, "repo"),
         director: "director-test",
         defaultWorkspace: "test",
@@ -908,6 +912,7 @@ describe("fleet director", () => {
       },
       {
         name: "site",
+        color: "#4fd1c5",
         path: join(root, "site"),
         director: "director-site",
         defaultWorkspace: "site",

@@ -22,7 +22,7 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
 export const USER_MOVES = ["running", "review", "changes_requested", "accepted"] as const;
 export type UserMove = (typeof USER_MOVES)[number];
 
-/** How strongly an agent's color tints its tile and card. */
+/** How strongly its project's color tints an agent's tile and card. */
 export const TINTS = ["none", "soft", "medium", "strong"] as const;
 export type Tint = (typeof TINTS)[number];
 
@@ -198,7 +198,6 @@ export type EventBody =
       kind: "agent_created";
       role: Role;
       title: string;
-      color: string;
       workspace: string;
       cwd: string;
       host: string;
@@ -251,7 +250,6 @@ export type EventBody =
       /** null: the model's own default. */
       effort?: EffortLevel | null;
       permissionMode?: PermissionMode;
-      color?: string;
       tint?: Tint;
     }
   /**

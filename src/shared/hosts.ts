@@ -128,6 +128,7 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       return [LOCAL, ...remotes].map((host) => ({ host, message }));
     case "subscribe":
     case "set_lid_mode":
+    case "set_project_color":
     case "restart":
     case "add_workspace":
       return [{ host: LOCAL, message }];
