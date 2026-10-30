@@ -764,6 +764,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "thread_opened": {
       const { thread, message } = event;
+      if (agent.threads.some((t) => t.id === thread.id)) return state;
       const fresh: LineThread = {
         ...thread,
         messages: [cap(message)],
@@ -978,10 +979,14 @@ const cap = (message: ThreadMessage): ThreadMessage =>
     ? { ...message, body: message.body.slice(0, TEXT_LIMIT) }
     : message;
 
-/** Leaves space for one more thread: drops the oldest resolved one, else the oldest. */
+/**
+ * Leaves space for one more thread: drops the oldest resolved one, else the oldest. A thread with
+ * messages still held for the next change request goes last.
+ */
 function makeRoom(threads: LineThread[]): LineThread[] {
   if (threads.length < THREAD_LIMIT) return threads;
-  const drop = threads.find((t) => t.resolved) ?? threads[0];
+  const settled = threads.filter((t) => !t.messages.some((m) => m.held));
+  const drop = settled.find((t) => t.resolved) ?? settled[0] ?? threads[0];
   return threads.filter((t) => t !== drop);
 }
 

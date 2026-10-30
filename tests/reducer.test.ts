@@ -319,13 +319,13 @@ describe("line threads", () => {
   const read: NewEvent = { kind: "thread_read", agent: "a", threadId: "t1" };
 
   it("opens a thread, adds replies and marks it unread for the user", () => {
-    const events_ = [worker("a"), opened(), say(message("m2", "agent"))] as NewEvent[];
-    const state = reduceAll(events(...events_));
+    const steps = [worker("a"), opened(), say(message("m2", "agent"))] as NewEvent[];
+    const state = reduceAll(events(...steps));
     const thread = state.agents.a?.threads[0];
     expect(thread?.messages).toHaveLength(2);
     expect(thread?.unread).toBe(true);
     expect(unreadThreads(state)).toEqual([{ agent: "a", thread }]);
-    const after = reduceAll(events(...events_, read));
+    const after = reduceAll(events(...steps, read));
     expect(after.agents.a?.threads[0]?.unread).toBe(false);
     expect(unreadThreads(after)).toEqual([]);
   });
@@ -432,6 +432,12 @@ describe("line threads", () => {
     expect(two.threads[0]?.messages.map((m) => m.id)).toEqual(["m2"]);
   });
 
+  it("ignores a thread opened twice under one id", () => {
+    const agent = run(opened(), opened("t1", message("m9", "user")));
+    expect(agent.threads).toHaveLength(1);
+    expect(agent.threads[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
+  });
+
   it("stays bounded", () => {
     const resolve: NewEvent = {
       kind: "thread_resolved",
@@ -446,6 +452,14 @@ describe("line threads", () => {
     // Without a resolved one, the oldest goes.
     const unresolved = run(...many, opened("extra"));
     expect(unresolved.threads[0]?.id).toBe("t1");
+    // A thread with a held message outlasts older ones without.
+    const heldFirst = run(
+      opened("t0", message("m0", "user", { held: true })),
+      ...many.slice(1),
+      opened("extra"),
+    );
+    expect(heldFirst.threads.map((t) => t.id)).toContain("t0");
+    expect(heldFirst.threads.map((t) => t.id)).not.toContain("t1");
 
     const chatter = Array.from({ length: THREAD_MESSAGES_LIMIT }, (_, i) =>
       say(message(`r${i}`, "user")),
