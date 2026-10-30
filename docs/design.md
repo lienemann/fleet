@@ -140,6 +140,8 @@ When the agent's task waits for my verdict, in Review or in Changes requested af
 
 **One way to answer.** Every inbox item (permission prompt, question, review request, open points, reply, Finished run, a task's review) has the same row of buttons: the action I most likely want first and filled, the others after it in a fixed order, and what I can't take back (Reject, Dismiss, Drop) last, behind a gap. A button carries the key of its command, so the key and the button always do the same thing. Where something has a link, it is in the item's header: Open, and for a task's review Diff and Report. The options of a question, and the quick answers Yes, No and Defer of an open point, are the same row of option buttons, with a field below them for an answer of my own; a single question with a single choice is answered by its button, anything else is picked first and sent with Answer.
 
+The state keeps 4,000 characters of a text, so a longer closing message is cut there. The item says so and offers **Show all**, which fetches the whole text from the event log; the session's log lines work the same way.
+
 Messages agents send me sit in the same group as the agent's Finished items, with the same comment box and buttons, and move to Read the same way. Only these buttons move items to Read. Opening the agent, typing in its tile or answering its decisions leaves them where they are, so nothing I only glanced at disappears. Read keeps the last 20 Finished items per agent, folded at the bottom of the inbox. A new item raises a notification and marks the agent new; the session log keeps everything regardless.
 
 ## Event model and storage

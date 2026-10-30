@@ -7,6 +7,7 @@ import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
+import { CutText } from "../ui/CutText.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { useNow } from "../useNow.ts";
@@ -35,13 +36,16 @@ function Span({ run }: { run: FinishedRun }) {
   );
 }
 
-/** A run's text; one that was cut says so, as the log does. */
-function RunText({ run }: { run: FinishedRun }) {
+/** A run's text; one that was cut says so and can show the rest. */
+function RunText({ run, agent }: { run: FinishedRun; agent: string }) {
   return (
-    <>
-      <Markdown text={run.text} />
-      {run.truncated && <p className="dim">… cut off at 4,000 characters.</p>}
-    </>
+    <CutText
+      agent={agent}
+      seq={run.textSeq}
+      text={run.text}
+      cut={run.truncated ?? false}
+      render={(text) => <Markdown text={text} />}
+    />
   );
 }
 
@@ -57,10 +61,13 @@ function AgentName({ agent }: { agent: AgentView }) {
 /** One run as a line that unfolds to its text; `agent` is named where the line stands alone. */
 function FoldedRun({
   run,
+  owner,
   agent,
   onOpen,
 }: {
   run: FinishedRun;
+  /** Whose run it is, for fetching its whole text. */
+  owner: string;
   agent?: AgentView;
   onOpen?: () => void;
 }) {
@@ -80,7 +87,7 @@ function FoldedRun({
           </button>
         )}
       </div>
-      {open && <RunText run={run} />}
+      {open && <RunText run={run} agent={owner} />}
     </div>
   );
 }
@@ -214,7 +221,7 @@ export function FinishedGroup({
           </>
         )}
       </header>
-      <RunText run={newest} />
+      <RunText run={newest} agent={agent.name} />
       <textarea
         rows={2}
         value={comment}
@@ -259,7 +266,7 @@ export function FinishedGroup({
         ]}
       />
       {earlier.map((run) => (
-        <FoldedRun key={run.id} run={run} />
+        <FoldedRun key={run.id} run={run} owner={agent.name} />
       ))}
     </article>
   );
@@ -276,7 +283,13 @@ export function ReadRuns({ onOpen }: { onOpen: (agent: string) => void }) {
     <details className="read-finished">
       <summary>Read · {read.length}</summary>
       {read.map(({ agent, run }) => (
-        <FoldedRun key={run.id} run={run} agent={agent} onOpen={() => onOpen(agent.name)} />
+        <FoldedRun
+          key={run.id}
+          run={run}
+          owner={agent.name}
+          agent={agent}
+          onOpen={() => onOpen(agent.name)}
+        />
       ))}
     </details>
   );

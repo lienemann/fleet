@@ -363,12 +363,20 @@ const REVIEW_FILES: Scenario = {
     "# Review notes\n\nStart with the new `tolerance`; the run count is only a default.\n\n```python\nreturn max(1e-3, 4 * jitter())\n```\n",
 };
 
+/** A closing message longer than the state keeps of a text, ending in a line that tells the cut from the whole. */
+const LONG_REPORT: Scenario = {
+  ...FLAKY_TEST,
+  closing: `${Array.from({ length: 120 }, (_, i) => `Timing ${i + 1}: the replay stayed within the jitter bound.`).join("\n\n")}\n\nThat is every timing.`,
+};
+
 const scenarioOf = (prompt: string): Scenario =>
   prompt.includes("Batch the event log writes")
     ? BATCHED_WRITES
     : prompt.includes("replay timings")
       ? REVIEW_FILES
-      : FLAKY_TEST;
+      : prompt.includes("long report")
+        ? LONG_REPORT
+        : FLAKY_TEST;
 
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string, scenario: Scenario): Step[] {

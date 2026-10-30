@@ -133,6 +133,8 @@ export interface Stretch {
   text?: string;
   /** `text` was cut to TEXT_LIMIT. */
   truncated?: boolean;
+  /** The log line `text` came from. */
+  textSeq?: number;
   endedByUser: boolean;
   /** The unread item this stretch continues after the agent woke itself. */
   continues?: string;
@@ -892,7 +894,7 @@ function trimFinished(items: FinishedRun[]): FinishedRun[] {
 
 /** The stretch without the unread item it carried on from: its work and text start from nothing. */
 function withoutCarriedOver(stretch: Stretch, item: FinishedRun): Stretch {
-  const { continues: _item, text: _text, truncated: _cut, ...rest } = stretch;
+  const { continues: _item, text: _text, truncated: _cut, textSeq: _seq, ...rest } = stretch;
   return { ...rest, workMs: Math.max(0, stretch.workMs - item.workMs) };
 }
 
@@ -940,6 +942,7 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
         continues: unread.id,
         text: unread.text,
         ...(unread.truncated && { truncated: true }),
+        ...(unread.textSeq !== undefined && { textSeq: unread.textSeq }),
       }),
     };
   }
@@ -950,6 +953,7 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
     stretch = {
       ...rest,
       text: event.text.slice(0, TEXT_LIMIT),
+      textSeq: event.seq,
       ...(event.text.length > TEXT_LIMIT && { truncated: true }),
     };
   }

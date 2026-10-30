@@ -98,6 +98,11 @@ export class EventLog {
     }));
   }
 
+  /** One event with all of its payload, or undefined when there is none with that seq. */
+  event(seq: number): FleetEvent | undefined {
+    return this.since(seq - 1, 1).find((e) => e.seq === seq);
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

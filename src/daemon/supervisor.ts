@@ -655,6 +655,10 @@ export class Supervisor implements ToolHost {
         return agentNotes(agent.cwd, agent.name);
       case "task_output":
         return this.taskOutput(agent, call.taskId, call.all);
+      case "log_text": {
+        const line = this.log.event(call.seq);
+        return line?.kind === "log" && line.agent === agent.name ? line.text : null;
+      }
       case "side_question": {
         const session = this.sessions.get(agent.name);
         if (!session?.isRunning) throw new Error(`Start ${agent.name} to ask about its session.`);
@@ -2294,7 +2298,7 @@ export class Supervisor implements ToolHost {
         endedAt: Date.now(),
         workMs: stretch.workMs,
         text: stretch.text ?? "",
-        ...(stretch.truncated && { truncated: true }),
+        ...(stretch.truncated && { truncated: true, textSeq: stretch.textSeq }),
         stopped,
         read: false,
       },

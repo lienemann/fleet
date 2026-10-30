@@ -70,6 +70,21 @@ describe("Finished runs", () => {
     });
   });
 
+  it("keeps the cut-off closing text fetchable from the log", async () => {
+    const whole = `${"Long report. ".repeat(500)}The end.`;
+    const { supervisor, alpha } = setup(echoing(assistantText(whole), result()));
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => alpha()?.finished.length === 1);
+    const [item] = alpha()?.finished ?? [];
+    expect(item).toMatchObject({ truncated: true, textSeq: expect.any(Number) });
+    expect(item?.text.length).toBeLessThan(whole.length);
+
+    const fetch = (agent: string, seq: number) =>
+      supervisor.call({ type: "log_text", id: "1", agent, seq });
+    await expect(fetch("alpha", item?.textSeq ?? 0)).resolves.toBe(whole);
+    await expect(fetch("alpha", 99_999)).resolves.toBeNull();
+  });
+
   it("leaves out short runs and runs another agent started", async () => {
     const short = setup(echoing(assistantText("Quick."), result()), 15_000);
     short.supervisor.createTask("Fix it", "Do it.", "ws1");

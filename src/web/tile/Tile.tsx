@@ -119,6 +119,7 @@ export function Tile({
         <Queued agent={agent} />
       ) : (
         <Log
+          agent={agent.name}
           lines={agent.log}
           subagents={agent.subagents}
           filter={filter}

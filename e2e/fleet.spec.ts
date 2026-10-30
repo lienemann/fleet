@@ -393,6 +393,24 @@ test("a question and a permission are answered from the inbox with the same butt
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
 
+test("a closing message cut to the state's limit shows the rest on request", async ({ page }) => {
+  await page.goto("/");
+  const title = "Write the long report";
+  await newTask(page, title, "ws1");
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+  await answerFromInbox(page, title);
+  const group = page.locator(".finished", { hasText: title });
+  await expect(group).toContainText("Finished", { timeout: 15_000 });
+  await expect(group).toContainText("cut off at 4,000 characters");
+  await expect(group).not.toContainText("That is every timing.");
+  await group.getByRole("button", { name: "Show all" }).click();
+  await expect(group).toContainText("That is every timing.");
+  await expect(group).not.toContainText("cut off at");
+  await group.getByRole("button", { name: "Mark read" }).click();
+  await page.keyboard.press("Alt+1");
+  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
 test("a run that ends while the user watches the agent goes straight to read", async ({ page }) => {
   await page.goto("/");
   const title = "Polish the site copy";

@@ -230,6 +230,8 @@ export const CallSchema = z.discriminatedUnion("type", [
     taskId: z.string().min(1),
     all: z.boolean().optional(),
   }),
+  /** The whole text of an agent's log line, which the state keeps cut to TEXT_LIMIT. */
+  z.object({ type: z.literal("log_text"), id, agent, seq: z.number().int().min(1) }),
   /** A question about the session that adds nothing to it, like /btw in the CLI. */
   z.object({
     type: z.literal("side_question"),
@@ -288,6 +290,8 @@ export interface CallResults {
   inspect_directory: DirectoryInfo;
   notes: Array<{ path: string; modified: number; size: number }>;
   task_output: TaskOutput;
+  /** null when the agent has no such log line. */
+  log_text: string | null;
   /** null when Claude gave no answer. */
   side_question: string | null;
   review_load: ReviewModel;

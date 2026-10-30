@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { FileEdit } from "../../shared/events.ts";
 import type { LogLine, Subagent } from "../../shared/reducer.ts";
+import { CutText } from "../ui/CutText.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 
 export type LogFilter = "all" | "main" | "subagents";
@@ -129,14 +130,28 @@ const Counts = ({ added, removed }: { added: number; removed: number }) => (
   </span>
 );
 
+/** How a line draws its text: tool calls their own way, the agent's words as Markdown. */
+const body =
+  (line: LogLine) =>
+  (text: string): ReactNode =>
+    line.role === "tool_use" ? (
+      <ToolCall line={line} />
+    ) : line.role === "assistant" || kindOf(line).kind === "message" ? (
+      <Markdown text={text} className="text" />
+    ) : (
+      <span className="text">{text}</span>
+    );
+
 /** The transcript as the CLI shows it, anchored at the bottom unless the user scrolled up to read. */
 export function Log({
+  agent,
   lines,
   subagents,
   filter,
   onOpenThread,
   diff,
 }: {
+  agent: string;
   lines: LogLine[];
   subagents: Subagent[];
   filter: LogFilter;
@@ -178,14 +193,11 @@ export function Log({
             {sub && (
               <span className="sub-label">[sub#{subNumber.get(line.parent ?? "") ?? "?"}]</span>
             )}
-            {line.role === "tool_use" ? (
-              <ToolCall line={line} />
-            ) : line.role === "assistant" || kind === "message" ? (
-              <Markdown text={line.text} className="text" />
+            {line.truncated ? (
+              <CutText agent={agent} seq={line.seq} text={line.text} cut render={body(line)} />
             ) : (
-              <span className="text">{line.text}</span>
+              body(line)(line.text)
             )}
-            {line.truncated && <span className="truncated"> …</span>}
             {thread && onOpenThread && (
               <button type="button" className="link dim" onClick={() => onOpenThread(thread)}>
                 Open in diff

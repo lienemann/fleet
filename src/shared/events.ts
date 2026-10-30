@@ -45,6 +45,8 @@ export interface FinishedRun {
   text: string;
   /** The text was cut. */
   truncated?: boolean;
+  /** The log line the text came from, set when it was cut, so the whole text can be fetched. */
+  textSeq?: number;
   /**
    * Set when the run ended without the user: "offline", the SDK's error subtype, "crashed" or
    * "stopped by <agent>" when another agent stopped it.
