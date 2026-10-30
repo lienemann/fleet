@@ -43,9 +43,13 @@ const KeymapContext = createContext<Keymap | undefined>(undefined);
 const CHORD_TIMEOUT_MS = 1500;
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
+/** Option turns letters into other characters on the Mac, so with Alt held the physical key counts. */
+const physicalKey = (event: KeyboardEvent): string =>
+  /^(?:Key|Digit)(.)$/.exec(event.code)?.[1]?.toLowerCase() ?? event.key.toLowerCase();
+
 /** Normalises a key event to "mod+shift+k" form; shift only shows for letters and named keys. */
 export function keyName(event: KeyboardEvent): string {
-  const key = event.key.toLowerCase();
+  const key = event.altKey ? physicalKey(event) : event.key.toLowerCase();
   const mods: string[] = [];
   if (isMac ? event.metaKey : event.ctrlKey) mods.push("mod");
   if (event.altKey) mods.push("alt");
