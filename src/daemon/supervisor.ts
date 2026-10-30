@@ -1076,7 +1076,6 @@ export class Supervisor implements ToolHost {
     session?.start();
   }
 
-  /** Keeps a prompt until fleet runs the detached session again. */
   /**
    * After projects, workspaces or limits changed: the fleet director and the directors of
    * `projects` learn how things are now with their next prompt. A session not started yet gets
@@ -1098,6 +1097,7 @@ export class Supervisor implements ToolHost {
     }
   }
 
+  /** Keeps a prompt until fleet runs the detached session again. */
   private hold(name: string, text: string, by: PromptOrigin): void {
     this.append(name, { kind: "held", texts: [...(this.agent(name)?.held ?? []), { text, by }] });
   }

@@ -42,7 +42,10 @@ export interface FinishedRun {
   workMs: number;
   /** Markdown; cut to TEXT_LIMIT. */
   text: string;
-  /** Set when the run ended without the user: "offline", the SDK's error subtype, or "crashed". */
+  /**
+   * Set when the run ended without the user: "offline", the SDK's error subtype, "crashed" or
+   * "stopped by <agent>" when another agent stopped it.
+   */
   stopped?: string;
   read: boolean;
 }

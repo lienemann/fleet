@@ -897,6 +897,7 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
     const { countingSince, ...rest } = stretch;
     stretch = { ...rest, workMs: stretch.workMs + event.ts - countingSince };
   }
+  if (stretch === agent.stretch && lastBy === agent.lastBy) return after;
   return { ...after, agents: { ...after.agents, [event.agent]: { ...agent, stretch, lastBy } } };
 }
 
