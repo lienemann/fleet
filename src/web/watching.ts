@@ -16,20 +16,22 @@ export function watching(
 /**
  * The unread Finished runs to read at once: those that appeared since `known` (the unread ids
  * of the state before) for an agent the user watches. Without `known` the page has just
- * loaded, and what waits is history.
+ * loaded, and what waits is history. So is a run that ended before `since`, when the page
+ * last connected: the user did not see it end.
  */
 export function toMarkRead(
   known: ReadonlySet<string> | undefined,
   unread: Array<{ agent: string; runs: FinishedRun[] }>,
   open: { agent?: string; enlarged?: string },
   focused: boolean,
+  since = 0,
 ): Array<{ agent: string; ids: string[] }> {
   if (!known) return [];
   return unread
     .filter(({ agent }) => watching(open, focused, agent))
     .map(({ agent, runs }) => ({
       agent,
-      ids: runs.filter((r) => !known.has(r.id)).map((r) => r.id),
+      ids: runs.filter((r) => !known.has(r.id) && r.endedAt >= since).map((r) => r.id),
     }))
     .filter(({ ids }) => ids.length > 0);
 }

@@ -35,6 +35,14 @@ describe("toMarkRead", () => {
     expect(toMarkRead(new Set(), unread, { agent: "gamma" }, true)).toEqual([]);
   });
 
+  it("leaves runs that ended before the page reconnected unread", () => {
+    const ended = (id: string, endedAt: number): FinishedRun => ({ ...run(id), endedAt });
+    const catchUp = [{ agent: "alpha", runs: [ended("a2", 90), ended("a1", 40)] }];
+    expect(toMarkRead(new Set(), catchUp, open, true, 50)).toEqual([
+      { agent: "alpha", ids: ["a2"] },
+    ]);
+  });
+
   it("never reads what was there when the page loaded", () => {
     expect(toMarkRead(undefined, unread, open, true)).toEqual([]);
   });

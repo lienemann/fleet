@@ -122,6 +122,10 @@ export function App() {
   const readWhileWatching = info?.readWhileWatching ?? false;
   const focused = useWindowFocus();
   const known = useRef<Set<string> | undefined>(undefined);
+  const connectedAt = useRef(0);
+  useEffect(() => {
+    if (connected) connectedAt.current = Date.now();
+  }, [connected]);
   useEffect(() => {
     // What was unread when the page loaded is history, not news.
     if (state.lastSeq === 0) return;
@@ -133,7 +137,7 @@ export function App() {
       enlarged: view === "grid" ? enlarged : undefined,
     };
     if (!readWhileWatching) return;
-    for (const { agent, ids } of toMarkRead(seen, unread, open, focused)) {
+    for (const { agent, ids } of toMarkRead(seen, unread, open, focused, connectedAt.current)) {
       send({ type: "finished_read", agent, ids });
     }
   }, [state, view, selected, enlarged, focused, readWhileWatching, send]);
