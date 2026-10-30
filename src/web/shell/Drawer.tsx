@@ -1,6 +1,7 @@
 import { type AgentView, columnOf } from "../../shared/reducer.ts";
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
+import { keyLabel } from "../keys/keymap.tsx";
 import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
@@ -8,6 +9,7 @@ import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 import { useNow } from "../useNow.ts";
+import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
 import { ActivityView } from "./ActivityView.tsx";
 import { FilesView } from "./FilesView.tsx";
 import { SessionView } from "./SessionView.tsx";
@@ -32,10 +34,28 @@ interface Props {
   onOpenInGrid: () => void;
   onOpenThread: (thread: string) => void;
   onClose: () => void;
+  /** Folded away to a strip; the drawer stays mounted, so its draft and scroll stay. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  /** Covering the whole window instead of sitting beside the view. */
+  full: boolean;
+  onToggleFull: () => void;
 }
 
 /** The selected task beside the board and inbox. */
-export function Drawer({ agent, tab, thread, onTab, onOpenInGrid, onOpenThread, onClose }: Props) {
+export function Drawer({
+  agent,
+  tab,
+  thread,
+  onTab,
+  onOpenInGrid,
+  onOpenThread,
+  onClose,
+  collapsed,
+  onToggleCollapsed,
+  full,
+  onToggleFull,
+}: Props) {
   const { state, color } = useFleet();
   const now = useNow();
   const column = columnOf(agent);
@@ -63,10 +83,20 @@ export function Drawer({ agent, tab, thread, onTab, onOpenInGrid, onOpenThread, 
 
   return (
     <aside
-      className={`drawer ${tab === "diff" ? "wide" : ""}`}
+      className={`drawer ${tab === "diff" ? "wide" : ""} ${full ? "full" : ""} ${collapsed && !full ? "collapsed" : ""}`}
       style={agentStyle(agent, color)}
       aria-label="Selected task"
     >
+      <button
+        type="button"
+        className="icon-button drawer-strip"
+        aria-label="Show the drawer"
+        title={`Show the drawer (${keyLabel(SIDEBAR_KEYS.drawer)})`}
+        onClick={onToggleCollapsed}
+      >
+        <Icon name="sidebarRight" />
+        <span className="dot" />
+      </button>
       <header className="drawer-head">
         <div className="drawer-line">
           <span className="dot" />
@@ -80,6 +110,25 @@ export function Drawer({ agent, tab, thread, onTab, onOpenInGrid, onOpenThread, 
           <span className="spacer" />
           <button type="button" className="link accent" onClick={onOpenInGrid}>
             Open in grid
+          </button>
+          <button
+            type="button"
+            className="close"
+            aria-label={full ? "Shrink the drawer" : "Expand the drawer to the full window"}
+            aria-pressed={full}
+            title={`${full ? "Shrink the drawer" : "Expand the drawer to the full window"} (${keyLabel(SIDEBAR_KEYS.full)})`}
+            onClick={onToggleFull}
+          >
+            <Icon name={full ? "shrink" : "enlarge"} />
+          </button>
+          <button
+            type="button"
+            className="close"
+            aria-label="Collapse the drawer"
+            title={`Collapse the drawer (${keyLabel(SIDEBAR_KEYS.drawer)})`}
+            onClick={onToggleCollapsed}
+          >
+            <Icon name="sidebarRight" />
           </button>
           <button type="button" className="close" onClick={onClose} aria-label="Close">
             <Icon name="close" />

@@ -2965,3 +2965,57 @@ button.ln:hover {
   display: flex;
   gap: 6px;
 }
+
+/* Collapsed sidebars leave a strip with the button that brings them back. */
+.rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rail .icon-button,
+.drawer-strip {
+  border: 0;
+}
+.rail.collapsed {
+  align-items: center;
+  padding-inline: 0;
+  overflow: hidden;
+}
+.rail.collapsed > :not(.rail-head),
+.rail.collapsed .rail-label,
+.rail.collapsed .rail-actions > :not(.icon-button) {
+  display: none;
+}
+.drawer-strip {
+  display: none;
+}
+.drawer.collapsed {
+  align-items: center;
+  width: var(--drawer-width);
+  padding-top: 12px;
+}
+.drawer.collapsed > :not(.drawer-strip) {
+  display: none;
+}
+.drawer.collapsed .drawer-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.drawer-strip .dot {
+  background: var(--agent);
+}
+/* A collapsed diff drawer goes back into the row; it lies over the view only while it is open. */
+.drawer.wide.collapsed {
+  position: static;
+  box-shadow: none;
+}
+/* Expanded to the full window: the drawer covers the board and the rail, and stays mounted. */
+.drawer.full {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  width: auto;
+  border-left: 0;
+  box-shadow: none;
+}

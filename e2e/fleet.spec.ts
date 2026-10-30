@@ -923,3 +923,59 @@ test("the rail and the drawer resize by their inner edge, remember it, and reset
     .poll(async () => Math.round((await drawer.boundingBox())?.width ?? 0))
     .toBe(before + 16);
 });
+
+test("the sidebars collapse to a strip and come back at their old width", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("2");
+  const rail = page.locator(".rail");
+  const width = async () => Math.round((await rail.boundingBox())?.width ?? 0);
+  const before = await width();
+
+  await rail.getByRole("button", { name: "Collapse the rail" }).click();
+  await expect.poll(width).toBeLessThan(60);
+  await page.reload();
+  await expect.poll(width).toBeLessThan(60);
+
+  await page.keyboard.press("Alt+r");
+  await expect.poll(width).toBe(before);
+
+  // The drawer folds the same way, keeping its draft, and selecting an agent brings it back.
+  await rail.locator(".rail-item").first().click();
+  const drawer = page.getByRole("complementary", { name: "Selected task" });
+  const drawerWidth = async () => Math.round((await drawer.boundingBox())?.width ?? 0);
+  const open = await drawerWidth();
+  const prompt = drawer.locator("[data-prompt]");
+  await prompt.fill("half a thought");
+  await page.keyboard.press("Escape"); // leaves the field
+  await page.keyboard.press("Alt+d");
+  await expect.poll(drawerWidth).toBeLessThan(60);
+  await page.keyboard.press("Alt+d");
+  await expect.poll(drawerWidth).toBe(open);
+  await expect(prompt).toHaveValue("half a thought");
+  await drawer.getByRole("button", { name: "Collapse the drawer" }).click();
+  await expect.poll(drawerWidth).toBeLessThan(60);
+  await rail.locator(".rail-item").first().click();
+  await expect.poll(drawerWidth).toBe(open);
+});
+
+test("the drawer fills the window and shrinks back without losing its draft", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("2");
+  await page.locator(".rail .rail-item").first().click();
+  const drawer = page.getByRole("complementary", { name: "Selected task" });
+  const box = async () => (await drawer.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+  const body = page.locator(".body");
+  const normal = (await box()).width;
+  const prompt = drawer.locator("[data-prompt]");
+  await prompt.fill("still here");
+
+  await drawer.getByRole("button", { name: "Expand the drawer to the full window" }).click();
+  const area = (await body.boundingBox())?.width ?? 0;
+  await expect.poll(async () => (await box()).width).toBe(area);
+  await expect(prompt).toHaveValue("still here");
+
+  await page.keyboard.press("Escape"); // leaves the field
+  await page.keyboard.press("Alt+f");
+  await expect.poll(async () => (await box()).width).toBe(normal);
+  await expect(prompt).toHaveValue("still here");
+});

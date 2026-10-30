@@ -31,7 +31,7 @@ import { ResizeHandle } from "./ui/ResizeHandle.tsx";
 import { ViewHead } from "./ui/ViewHead.tsx";
 import { FONT_LABELS, FONTS, useFont } from "./useFont.ts";
 import { useNotifications } from "./useNotifications.ts";
-import { DRAWER, RAIL, useSidebarWidth } from "./useSidebarWidth.ts";
+import { DRAWER, RAIL, SIDEBAR_KEYS, useSidebarWidth } from "./useSidebarWidth.ts";
 import { useTilesPerRow } from "./useTilesPerRow.ts";
 import { Board } from "./views/Board.tsx";
 import { Flow } from "./views/Flow.tsx";
@@ -69,6 +69,7 @@ export function App() {
   const select = (name: string): void => {
     setSelected(name);
     setThread(undefined);
+    drawer.expand();
   };
   const closeDrawer = (): void => {
     setSelected(undefined);
@@ -82,6 +83,7 @@ export function App() {
   /** Opens the agent in the drawer and puts the cursor into its prompt, once the drawer shows it. */
   const message = (name: string): void => {
     setSelected(name);
+    drawer.expand();
     goTab("live");
     requestAnimationFrame(() => focus(`[data-prompt="${name}"]`));
   };
@@ -89,11 +91,23 @@ export function App() {
   const tiles = useTilesPerRow();
   const showsDrawer = agent !== undefined && view !== "grid";
   const rail = useSidebarWidth(RAIL, showsDrawer ? DRAWER.min : 0);
-  const drawer = useSidebarWidth(DRAWER, rail.width);
+  const drawer = useSidebarWidth(DRAWER, rail.size);
+  // Over the whole window instead of beside the view; only while a drawer shows.
+  const [full, setFull] = useState(false);
+  const fullWindow = full && showsDrawer;
+  useEffect(() => {
+    if (!showsDrawer) setFull(false);
+  }, [showsDrawer]);
+  const toggleFull = (): void => setFull((was) => !was);
+  const toggleDrawer = (): void => {
+    setFull(false);
+    drawer.toggle();
+  };
   const notifications = useNotifications(state, select);
   /** Opens the agent's diff at one of its line threads. */
   const showThread = (name: string, id: string): void => {
     setSelected(name);
+    drawer.expand();
     setTab("diff");
     setThread({ id });
   };
@@ -208,6 +222,27 @@ export function App() {
       run: () => send({ type: "mark_all_seen" }),
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    {
+      id: "rail.collapse",
+      label: rail.collapsed ? "Show the rail" : "Collapse the rail",
+      group: "Fleet",
+      keys: [SIDEBAR_KEYS.rail],
+      run: rail.toggle,
+    },
+    {
+      id: "drawer.collapse",
+      label: drawer.collapsed ? "Show the drawer" : "Collapse the drawer",
+      group: "Fleet",
+      keys: [SIDEBAR_KEYS.drawer],
+      run: () => showsDrawer && toggleDrawer(),
+    },
+    {
+      id: "drawer.full",
+      label: fullWindow ? "Shrink the drawer" : "Expand the drawer to the full window",
+      group: "Fleet",
+      keys: [SIDEBAR_KEYS.full],
+      run: () => showsDrawer && toggleFull(),
+    },
     {
       id: "sidebars.reset",
       label: "Reset the sidebar widths",
@@ -537,8 +572,8 @@ export function App() {
         className="body"
         style={
           {
-            "--rail-width": `${rail.width}px`,
-            "--drawer-width": `${drawer.width}px`,
+            "--rail-width": `${rail.size}px`,
+            "--drawer-width": `${drawer.size}px`,
           } as CSSProperties
         }
       >
@@ -549,8 +584,10 @@ export function App() {
           onImport={() => show("import")}
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
+          collapsed={rail.collapsed}
+          onToggleCollapsed={rail.toggle}
         />
-        <ResizeHandle label="Resize the rail" sidebar={rail} grows="right" />
+        {!rail.collapsed && <ResizeHandle label="Resize the rail" sidebar={rail} grows="right" />}
         <main className="main">
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
@@ -568,7 +605,7 @@ export function App() {
           {view === "timeline" && <Timeline onOpen={select} />}
           {view === "history" && <History />}
         </main>
-        {agent && view !== "grid" && tab !== "diff" && (
+        {agent && view !== "grid" && tab !== "diff" && !drawer.collapsed && !fullWindow && (
           <ResizeHandle label="Resize the drawer" sidebar={drawer} grows="left" />
         )}
         {agent && view !== "grid" && (
@@ -580,6 +617,10 @@ export function App() {
             onOpenThread={(id) => showThread(agent.name, id)}
             onOpenInGrid={() => open(agent.name)}
             onClose={closeDrawer}
+            collapsed={drawer.collapsed}
+            onToggleCollapsed={toggleDrawer}
+            full={fullWindow}
+            onToggleFull={toggleFull}
           />
         )}
       </div>

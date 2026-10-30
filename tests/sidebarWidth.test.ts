@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clampWidth, DRAWER, RAIL, widthBounds } from "../src/web/useSidebarWidth.ts";
+import {
+  clampWidth,
+  DRAWER,
+  occupied,
+  RAIL,
+  STRIP,
+  widthBounds,
+} from "../src/web/useSidebarWidth.ts";
 
 describe("sidebar widths", () => {
   it("keeps a width inside its bounds, in whole pixels", () => {
@@ -21,5 +28,12 @@ describe("sidebar widths", () => {
     expect(DRAWER.fallback(1200)).toBe(396);
     expect(DRAWER.fallback(3000)).toBe(470);
     expect(RAIL.fallback(1200)).toBe(250);
+  });
+
+  it("takes only a strip while collapsed, and gives the room to the other sidebar", () => {
+    expect(occupied(300, false)).toBe(300);
+    expect(occupied(300, true)).toBe(STRIP);
+    // 1000 - 36 (strip) - 480 (main), where an open 250 px rail left only the minimum.
+    expect(widthBounds(DRAWER, 1000, occupied(250, true)).max).toBe(484);
   });
 });

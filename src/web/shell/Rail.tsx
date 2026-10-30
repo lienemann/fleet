@@ -10,10 +10,12 @@ import {
   workspaceUse,
 } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { type Command, useCommands } from "../keys/keymap.tsx";
+import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
 import { useProjects } from "../projects.tsx";
+import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
+import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
 
 const clock = (ts: number): string =>
   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -25,6 +27,8 @@ interface Props {
   onImport: () => void;
   onAddWorkspace: (project?: string) => void;
   onAddProject: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 const FOLDED_KEY = "fleet.rail.folded";
@@ -63,6 +67,8 @@ export function Rail({
   onImport,
   onAddWorkspace,
   onAddProject,
+  collapsed,
+  onToggleCollapsed,
 }: Props) {
   const { state, info } = useFleet();
   const projects = useProjects();
@@ -87,17 +93,29 @@ export function Rail({
   );
 
   return (
-    <aside className="rail">
+    <aside className={`rail ${collapsed ? "collapsed" : ""}`} aria-label="Agents">
       <h2 className="rail-head">
-        Agents
-        <button
-          type="button"
-          className="link"
-          title="Import Claude Code sessions (i)"
-          onClick={onImport}
-        >
-          + Add
-        </button>
+        <span className="rail-label">Agents</span>
+        <span className="rail-actions">
+          <button
+            type="button"
+            className="link"
+            title="Import Claude Code sessions (i)"
+            onClick={onImport}
+          >
+            + Add
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={collapsed ? "Show the rail" : "Collapse the rail"}
+            aria-expanded={!collapsed}
+            title={`${collapsed ? "Show" : "Collapse"} the rail (${keyLabel(SIDEBAR_KEYS.rail)})`}
+            onClick={onToggleCollapsed}
+          >
+            <Icon name="sidebarLeft" />
+          </button>
+        </span>
       </h2>
       {agents.length === 0 && <p className="empty">None yet.</p>}
       {grouped ? (
