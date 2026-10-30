@@ -11,7 +11,7 @@ import {
 } from "../shared/reducer.ts";
 import { useFleet } from "./fleet.tsx";
 import { ChordHint } from "./keys/ChordHint.tsx";
-import { type Command, useCommands } from "./keys/keymap.tsx";
+import { type Command, focusPane, focusPaneNamed, PANES, useCommands } from "./keys/keymap.tsx";
 import { Palette } from "./keys/Palette.tsx";
 import { Shortcuts } from "./keys/Shortcuts.tsx";
 import { lowDiskText } from "./labels.ts";
@@ -162,7 +162,7 @@ export function App() {
         id: `view.${v.id}`,
         label: v.label,
         group: "Go to",
-        keys: [`g ${v.mnemonic}`, v.key],
+        keys: [`alt+g ${v.mnemonic}`, `alt+${v.key}`],
         run: () => setView(v.id),
       }),
     ),
@@ -170,7 +170,7 @@ export function App() {
       id: "go.director",
       label: "Director of the shown project, or the first",
       group: "Go to",
-      keys: ["g d"],
+      keys: ["alt+g d"],
       run: () => {
         const shown = projects.find((p) => p.name === filter.project) ?? projects[0];
         if (shown?.director) select(shown.director);
@@ -180,7 +180,7 @@ export function App() {
       id: "task.new",
       label: "New task",
       group: "Fleet",
-      keys: ["n"],
+      keys: ["alt+n"],
       run: () => show("new-task"),
     },
     {
@@ -204,24 +204,47 @@ export function App() {
       id: "task.import",
       label: "Import Claude Code sessions",
       group: "Fleet",
-      keys: ["i"],
+      keys: ["alt+i"],
       run: () => show("import"),
     },
     {
       id: "director.message",
       label: "Write in the dock, to a director",
       group: "Fleet",
-      keys: ["d"],
+      keys: ["alt+d"],
       run: () => focus("[data-dock]"),
     },
     {
       id: "seen.all",
       label: "Mark all seen",
       group: "Fleet",
-      keys: ["u"],
+      keys: ["alt+u"],
       run: () => send({ type: "mark_all_seen" }),
     },
     { id: "theme", label: "Switch light and dark theme", group: "Fleet", run: toggleTheme },
+    ...PANES.map(
+      (pane, i): Command => ({
+        id: `pane.${pane}`,
+        label: `Focus the ${pane === "main" ? "view" : pane}`,
+        group: "Panes",
+        keys: [`alt+${i + 7}`],
+        run: () => focusPaneNamed(pane),
+      }),
+    ),
+    {
+      id: "pane.next",
+      label: "Move the focus to the next pane",
+      group: "Panes",
+      keys: ["alt+arrowright"],
+      run: () => focusPane(1),
+    },
+    {
+      id: "pane.previous",
+      label: "Move the focus to the previous pane",
+      group: "Panes",
+      keys: ["alt+arrowleft"],
+      run: () => focusPane(-1),
+    },
     {
       id: "rail.collapse",
       label: rail.collapsed ? "Show the rail" : "Collapse the rail",
@@ -256,7 +279,7 @@ export function App() {
       id: "font.next",
       label: "Next text font",
       group: "Fleet",
-      keys: ["shift+f"],
+      keys: ["alt+shift+f"],
       paletteHidden: true,
       run: cycleFont,
     },
@@ -284,7 +307,7 @@ export function App() {
               ? "Turn desktop notifications off"
               : "Turn desktop notifications on",
             group: "Fleet",
-            keys: ["shift+n"],
+            keys: ["alt+shift+n"],
             run: notifications.toggle,
           },
         ]
@@ -295,7 +318,7 @@ export function App() {
         ? "Leave lid-closed mode"
         : "Lid-closed mode: keep running with the lid shut",
       group: "Fleet",
-      keys: ["shift+l"],
+      keys: ["alt+shift+l"],
       run: () => send({ type: "set_lid_mode", on: !state.power.lidMode }),
     },
     {
@@ -374,14 +397,14 @@ export function App() {
         id: "agent.open",
         label: "Open in the grid",
         group: "Selected agent",
-        keys: ["o", "enter"],
+        keys: ["alt+o", "enter"],
         run: () => open(name),
       },
       {
         id: "agent.prompt",
         label: "Write to the agent",
         group: "Selected agent",
-        keys: ["p"],
+        keys: ["alt+p"],
         run: () => focus(`[data-prompt="${name}"]`),
       },
       {
@@ -401,7 +424,7 @@ export function App() {
               ? "Start the queued task now"
               : "Start the session",
         group: "Selected agent",
-        keys: ["s"],
+        keys: ["alt+s"],
         run: () =>
           current?.activity === "detached"
             ? attachAgent(current, send)
@@ -411,7 +434,7 @@ export function App() {
         id: "agent.handover",
         label: "Hand over to a fresh session",
         group: "Selected agent",
-        keys: ["shift+h"],
+        keys: ["alt+shift+h"],
         run: () => current && canHandOver(current) && send({ type: "handover", agent: name }),
       },
       {
@@ -430,84 +453,84 @@ export function App() {
         id: "agent.mode",
         label: "Next permission mode",
         group: "Selected agent",
-        keys: ["shift+m"],
+        keys: ["alt+shift+m"],
         run: () => nextMode && send({ type: "set_mode", agent: name, mode: nextMode }),
       },
       {
         id: "agent.approve",
         label: "Approve its permission request",
         group: "Selected agent",
-        keys: ["a"],
+        keys: ["alt+a"],
         run: answer("allow"),
       },
       {
         id: "agent.always",
         label: "Always allow its request",
         group: "Selected agent",
-        keys: ["shift+a"],
+        keys: ["alt+shift+a"],
         run: answer("allow", true),
       },
       {
         id: "agent.reject",
         label: "Reject its permission request",
         group: "Selected agent",
-        keys: ["r"],
+        keys: ["alt+r"],
         run: answer("deny"),
       },
       {
         id: "move.review",
         label: "Move to review",
         group: "Move the selected task",
-        keys: ["m r"],
+        keys: ["alt+m r"],
         run: move("review"),
       },
       {
         id: "move.changes",
         label: "Request changes",
         group: "Move the selected task",
-        keys: ["m c"],
+        keys: ["alt+m c"],
         run: () => send({ type: "request_changes", agent: name }),
       },
       {
         id: "move.accept",
         label: "Accept",
         group: "Move the selected task",
-        keys: ["m a"],
+        keys: ["alt+m a"],
         run: move("accepted"),
       },
       {
         id: "move.reopen",
         label: "Reopen",
         group: "Move the selected task",
-        keys: ["m o"],
+        keys: ["alt+m o"],
         run: move("running"),
       },
       {
         id: "agent.remove",
         label: "Remove from fleet",
         group: "Move the selected task",
-        keys: ["m x"],
+        keys: ["alt+m x"],
         run: () => remove(name),
       },
       {
         id: "drawer.next",
         label: "Next drawer tab",
         group: "Drawer",
-        keys: ["t"],
+        keys: ["alt+t"],
         run: nextTab(1),
       },
       {
         id: "drawer.previous",
         label: "Previous drawer tab",
         group: "Drawer",
-        keys: ["shift+t"],
+        keys: ["alt+shift+t"],
         run: nextTab(-1),
       },
       {
         id: "drawer.close",
         label: "Close the drawer",
         group: "Drawer",
-        keys: ["x"],
+        keys: ["alt+x"],
         run: closeDrawer,
       },
     ];
@@ -588,7 +611,7 @@ export function App() {
           onToggleCollapsed={rail.toggle}
         />
         {!rail.collapsed && <ResizeHandle label="Resize the rail" sidebar={rail} grows="right" />}
-        <main className="main">
+        <main className="main" data-pane="main" tabIndex={-1}>
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && <Board selected={selected} onSelect={select} onMessage={message} />}
           {view === "inbox" && <Inbox onOpen={open} onOpenThread={showThread} />}
@@ -665,7 +688,7 @@ function projectCommands(
       id: "project.next",
       label: "Show the next project",
       group: "Projects",
-      keys: ["f"],
+      keys: ["alt+f"],
       paletteHidden: true,
       run: () => show(next),
     },

@@ -93,14 +93,19 @@ export function Rail({
   );
 
   return (
-    <aside className={`rail ${collapsed ? "collapsed" : ""}`} aria-label="Agents">
+    <aside
+      className={`rail ${collapsed ? "collapsed" : ""}`}
+      aria-label="Agents"
+      data-pane="rail"
+      tabIndex={-1}
+    >
       <h2 className="rail-head">
         <span className="rail-label">Agents</span>
         <span className="rail-actions">
           <button
             type="button"
             className="link"
-            title="Import Claude Code sessions (i)"
+            title={`Import Claude Code sessions (${keyLabel("alt+i")})`}
             onClick={onImport}
           >
             + Add

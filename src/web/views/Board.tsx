@@ -12,6 +12,7 @@ import {
 } from "../../shared/reducer.ts";
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
+import { keyLabel } from "../keys/keymap.tsx";
 import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
@@ -201,7 +202,7 @@ function Card({
           <button
             type="button"
             className="small"
-            title="Write to this agent (p)"
+            title={`Write to this agent (${keyLabel("alt+p")})`}
             onClick={() => onMessage(agent.name)}
           >
             Message

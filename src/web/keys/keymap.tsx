@@ -25,10 +25,17 @@ export interface Command {
   paletteHidden?: boolean;
   /** Also fires while typing in a field. */
   global?: boolean;
-  /** Higher wins when two commands share a key; views use 1 to override the shell. */
-  priority?: number;
+  /**
+   * The pane the command belongs to. It only fires while the focus is inside that pane, and
+   * then wins over a command with the same keys that has no pane.
+   */
+  scope?: Pane;
   run: () => void;
 }
+
+/** The regions of the UI that own keys: the view in the middle, the drawer, the rail. */
+export const PANES = ["rail", "main", "drawer"] as const;
+export type Pane = (typeof PANES)[number];
 
 interface Keymap {
   commands: Command[];
@@ -41,11 +48,54 @@ interface Keymap {
 const KeymapContext = createContext<Keymap | undefined>(undefined);
 
 const CHORD_TIMEOUT_MS = 1500;
+
+/** The only plain keys that are letters or signs: they walk lists, and never start anything. */
+const LIST_KEYS = new Set(["j", "k", "[", "]"]);
+
+/**
+ * Whether a key sequence may be registered. Keys typed while the focus is somewhere unexpected
+ * must never start anything, so a letter, digit or sign takes Option (or Cmd), except the keys
+ * that only walk lists. Later strokes of a chord are plain, as the first one was deliberate.
+ */
+export function isSafeKey(sequence: string): boolean {
+  const parts = (sequence.split(" ")[0] ?? "").split("+");
+  const key = parts.at(-1) ?? "";
+  return (
+    parts.includes("alt") ||
+    parts.includes("mod") ||
+    key.length > 1 ||
+    LIST_KEYS.has(key) ||
+    key === "?"
+  );
+}
+
+/** The pane that holds the focus, if any. */
+const focusedPane = (): Pane | undefined => {
+  const pane = document.activeElement?.closest<HTMLElement>("[data-pane]")?.dataset.pane;
+  return PANES.find((p) => p === pane);
+};
+
+/** Puts the focus into a pane, if it is on screen. */
+export function focusPaneNamed(pane: Pane): void {
+  document.querySelector<HTMLElement>(`[data-pane="${pane}"]`)?.focus();
+}
+
+/** Moves the focus to the next or previous pane that is on screen. */
+export function focusPane(step: 1 | -1): void {
+  const panes = [...document.querySelectorAll<HTMLElement>("[data-pane]")];
+  if (panes.length === 0) return;
+  const current = panes.findIndex((p) => p.contains(document.activeElement));
+  const next = panes[(current + step + panes.length) % panes.length];
+  next?.focus();
+}
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** Option turns letters into other characters on the Mac, so with Alt held the physical key counts. */
 const physicalKey = (event: KeyboardEvent): string =>
-  /^(?:Key|Digit)(.)$/.exec(event.code)?.[1]?.toLowerCase() ?? event.key.toLowerCase();
+  /^(?:Key|Digit)(.)$/.exec(event.code)?.[1]?.toLowerCase() ??
+  SIGNS[event.code] ??
+  event.key.toLowerCase();
+const SIGNS: Record<string, string> = { Equal: "=", Minus: "-" };
 
 /** Normalises a key event to "mod+shift+k" form; shift only shows for letters and named keys. */
 export function keyName(event: KeyboardEvent): string {
@@ -68,6 +118,8 @@ export function keyLabel(sequence: string): string {
         .replace("shift+", "⇧")
         .replace("alt+", isMac ? "⌥" : "Alt+")
         .replace("escape", "Esc")
+        .replace("arrowleft", "←")
+        .replace("arrowright", "→")
         .replace("enter", "↵")
         .replace(
           /(^|[⌘⇧⌥+])([a-z])$/,
@@ -123,13 +175,28 @@ export function KeymapProvider({ children }: { children: ReactNode }) {
       if (document.querySelector("dialog[open]")) return;
       const typing = typingIn(event.target);
       const stroke = keyName(event);
-      const sequence = pendingRef.current ? `${pendingRef.current} ${stroke}` : stroke;
-      const candidates = latest.current.filter((c) => !typing || c.global);
+      // Option may still be down for the second stroke of a chord.
+      const sequences = pendingRef.current
+        ? [
+            `${pendingRef.current} ${stroke}`,
+            `${pendingRef.current} ${stroke.replace(/^alt\+/, "")}`,
+          ]
+        : [stroke];
+      const sequence = sequences[0] ?? stroke;
+      // A plain key works only from inside a pane, not while the focus is on the page. Option keys
+      // belong to the main view then, so a key pressed right after loading still reaches it.
+      const plain = !pendingRef.current && !/^(?:mod|alt)\+/.test(stroke) && stroke !== "?";
+      const pane = focusedPane();
+      const candidates = latest.current.filter(
+        (c) =>
+          (!typing || c.global) && (!c.scope || c.scope === (pane ?? "main")) && !(plain && !pane),
+      );
 
+      // A command of the focused pane beats one without a pane; otherwise the later one wins.
       const match = candidates
-        .filter((c) => c.keys?.includes(sequence))
+        .filter((c) => c.keys?.some((k) => sequences.includes(k)))
         .reduce<Command | undefined>(
-          (best, c) => ((c.priority ?? 0) >= (best?.priority ?? 0) ? c : best),
+          (best, c) => (Number(!!c.scope) >= Number(!!best?.scope) ? c : best),
           undefined,
         );
       const isPrefix = candidates.some((c) => c.keys?.some((k) => k.startsWith(`${sequence} `)));
@@ -180,6 +247,8 @@ export function useKeymap(): Keymap {
 export function useCommands(commands: Command[]): void {
   const owner = useId();
   const { register, unregister } = useKeymap();
+  for (const key of commands.flatMap((c) => c.keys ?? []))
+    if (!isSafeKey(key)) throw new Error(`The key "${key}" needs Option, or Cmd`);
   const signature = commands.map((c) => `${c.id}:${c.label}:${c.keys?.join(",")}`).join("|");
   const latest = useRef(commands);
   latest.current = commands;

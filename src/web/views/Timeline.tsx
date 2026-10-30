@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { type AgentView, agentList, type Lane, type Segment } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { useCommands } from "../keys/keymap.tsx";
+import { keyLabel, useCommands } from "../keys/keymap.tsx";
 import { duration } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { useNow } from "../useNow.ts";
@@ -55,8 +55,8 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
       id: "timeline.window",
       label: "Switch the timeline window (15 min, 2 h)",
       group: "Timeline",
-      keys: ["w"],
-      priority: 1,
+      keys: ["alt+w"],
+      scope: "main",
       run: () => setWindowIndex((i) => (i + 1) % WINDOWS.length),
     },
   ]);
@@ -85,7 +85,7 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
           ))}
         </fieldset>
         <span className="dim">
-          <kbd>w</kbd> switches
+          <kbd>{keyLabel("alt+w")}</kbd> switches
         </span>
       </header>
       <div className="lanes">

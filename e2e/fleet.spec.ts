@@ -17,7 +17,7 @@ const card = (page: Page, columnName: string, title: string) =>
   column(page, columnName).locator(".card", { hasText: title });
 
 async function newTask(page: Page, title: string, workspace = "ws1", project = "daemon") {
-  await page.keyboard.press("n");
+  await page.keyboard.press("Alt+n");
   const dialog = page.getByRole("dialog", { name: "New task" });
   await dialog.getByLabel("Title").fill(title);
   await dialog.getByLabel("Project").selectOption(project);
@@ -37,11 +37,11 @@ test("a task asks for permission and a decision, hands in open points, and is re
   });
   await shot(page, "board");
 
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const permission = page.locator(".decision", { hasText: "uv run pytest -x" });
   await expect(permission).toContainText("runs code");
   await expect(permission).toContainText("run the tests once");
-  await page.keyboard.press("a");
+  await page.keyboard.press("Alt+a");
 
   const decision = page.locator(".decision", { hasText: "How should I fix the flaky assertion?" });
   await expect(decision).toContainText("CI runners jitter more");
@@ -62,7 +62,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   }
   await expect(points).toHaveCount(0);
 
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   const reviewed = card(page, "Review", "Fix the flaky replay test");
   await expect(reviewed).toBeVisible({ timeout: 10_000 });
   await reviewed.locator(".card-main").click();
@@ -102,7 +102,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await page.getByRole("button", { name: /^Inline/ }).click();
   await expect(diff.locator(".rows.split")).toHaveCount(0);
   await page.locator(".diff-bar").click();
-  await page.keyboard.press("a");
+  await page.keyboard.press("Alt+y");
   await expect(diff.locator(".progress")).toContainText("1/");
   await shot(page, "diff");
 
@@ -154,7 +154,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await thread.getByRole("textbox").fill("Is 50 enough on a slow runner?");
   await thread.getByRole("button", { name: "Send", exact: true }).click();
   await page.getByRole("button", { name: "Live" }).click();
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const replies = page.locator("section", { has: page.getByRole("heading", { name: "Replies" }) });
   await expect(replies).toContainText("alpha", { timeout: 10_000 });
   await expect(replies).toContainText("lib.py:");
@@ -180,7 +180,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
     diff.locator(".thread", { hasText: "Is 50 enough on a slow runner?" }),
   ).toBeVisible();
   // Seen in the diff, the item is gone; the session's thread line leads back there.
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   await expect(replies).toHaveCount(0);
   await page.getByRole("button", { name: "Live" }).click();
   await page.getByRole("button", { name: "Open in diff" }).last().click();
@@ -197,11 +197,11 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await thread.getByRole("textbox").fill("And on a fast runner?");
   await thread.getByRole("button", { name: "Send", exact: true }).click();
   await page.getByRole("button", { name: "Live" }).click();
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   await expect(replies).toContainText("alpha", { timeout: 10_000 });
   await replies.getByRole("button", { name: "Mark read" }).click();
   await expect(replies).toHaveCount(0);
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   await page.getByRole("button", { name: /^Diff/ }).click();
 
   // A reply can wait for Request changes as well.
@@ -248,7 +248,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
 
 /** Approves the demo worker's permission and answers its question, both from the inbox. */
 async function answerFromInbox(page: Page, title: string) {
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const decisions = page.locator(".inbox .decision", { hasText: title });
   await decisions.getByRole("button", { name: /^Approve/ }).click();
   await decisions.getByRole("button", { name: "Scale the tolerance with measured jitter" }).click();
@@ -283,7 +283,7 @@ test("a finished run waits in the inbox until the user comments on it", async ({
     .getByRole("button", { name: "Open", exact: true })
     .click();
   await expect(page.locator(".tile .log")).toContainText("Thanks");
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
 
@@ -304,14 +304,14 @@ test("Mark read and Go deal with a finished run without a comment", async ({ pag
   await expect(marked).toHaveCount(0);
   await read.locator("summary").click();
   await expect(read).toContainText("Sort the imports");
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   await card(page, "Review", "Sort the imports").getByRole("button", { name: "Accept" }).click();
 
   // Go answers for the user, so the agent gets a prompt and the group is read.
   const go = await finishedTask("Rename the helpers", "ws2");
   await go.getByRole("button", { name: "Go", exact: true }).click();
   await expect(go).toHaveCount(0);
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   const task = card(page, "Review", "Rename the helpers");
   await task.locator(".card-main").click();
   await expect(page.locator(".drawer .log")).toContainText("Go ahead.");
@@ -330,7 +330,7 @@ test("a run that ends while the user watches the agent goes straight to read", a
   const read = page.locator(".read-finished");
   await expect(read).toContainText(title, { timeout: 15_000 });
   await expect(page.locator(".finished", { hasText: title })).toHaveCount(0);
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
 
@@ -363,7 +363,7 @@ test("lid-closed mode shows a banner while it is on, and turns off from there", 
   await page.goto("/");
   // "First in ws2" still waits for a permission, so an agent works and the mode stays on.
   await expect(page.locator(".card", { hasText: "First in ws2" })).toBeVisible();
-  await page.keyboard.press("Shift+L");
+  await page.keyboard.press("Alt+Shift+L");
   const banner = page.getByRole("status").filter({ hasText: "Sleep disabled" });
   await expect(banner).toContainText("pmset disablesleep 1");
   await expect(page.getByRole("button", { name: "Lid-closed mode on" })).toBeVisible();
@@ -389,7 +389,7 @@ test("the dock talks to the fleet director and switches to a project's director"
   await expect(dock.getByPlaceholder(/Message the director of site/)).toBeVisible();
   await dock.getByRole("button", { name: "director-site" }).click();
   await expect(page.locator(".drawer")).toContainText("director-site");
-  await page.keyboard.press("x");
+  await page.keyboard.press("Alt+x");
 });
 
 test("the director spawns a worker per line and reports to the user", async ({ page }) => {
@@ -421,7 +421,7 @@ test("the director spawns a worker per line and reports to the user", async ({ p
     .poll(() => packet.evaluate((dot) => dot.getAnimations().length), { timeout: 8_000 })
     .toBe(0);
 
-  await page.getByRole("button", { name: "Flow 5" }).click();
+  await page.getByRole("button", { name: /^Flow/ }).click();
   // Across projects, the fleet director sits in the middle, with each project's director around it.
   const node = (name: string) =>
     page.locator(".flow-graph .node", { hasText: new RegExp(`^${name}`) });
@@ -455,12 +455,12 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
 
   // f goes through the projects; a project's own limit counts then.
   const filter = page.getByLabel("Show project");
-  await page.keyboard.press("f");
+  await page.keyboard.press("Alt+f");
   await expect(filter).toHaveValue("daemon");
   await expect(homepage).toBeHidden();
   await expect(page.locator(".card", { hasText: "Fix the flaky replay test" })).toBeVisible();
   await expect(column(page, "Running").locator(".wip")).toContainText("/4");
-  await page.keyboard.press("f");
+  await page.keyboard.press("Alt+f");
   await expect(filter).toHaveValue("site");
   await expect(homepage).toBeVisible();
   await expect(page.locator(".card", { hasText: "Fix the flaky replay test" })).toBeHidden();
@@ -536,12 +536,12 @@ test("everything works from the keyboard", async ({ page }) => {
   // A shortcut after a click leaves no focus frame on the clicked button.
   const board = page.getByRole("button", { name: /^Board/ });
   await board.click();
-  await page.keyboard.press("3");
+  await page.keyboard.press("Alt+3");
   await expect(board).not.toBeFocused();
-  await page.keyboard.press("1");
+  await page.keyboard.press("Alt+1");
 
   // g then a letter goes to a view; after the g, a hint lists the letters.
-  await page.keyboard.press("g");
+  await page.keyboard.press("Alt+g");
   await expect(page.locator(".chord-hint")).toContainText("Inbox");
   await page.keyboard.press("i");
   // Its name also carries the count of what waits there.
@@ -550,9 +550,9 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("textbox", { name: "Command" }).fill("brd");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Board 1" })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: /^Board/ })).toHaveClass(/active/);
 
-  await page.keyboard.press("n");
+  await page.keyboard.press("Alt+n");
   await page.keyboard.type("Keyboard only task");
   await page.keyboard.press("Enter");
   await expect(page.locator(".card", { hasText: "Keyboard only task" })).toBeVisible();
@@ -562,24 +562,24 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.getByRole("textbox", { name: "Command" }).fill("First in ws2");
   await page.keyboard.press("Enter");
   await expect(page.locator(".drawer .decision")).toContainText("uv run pytest -x");
-  await page.keyboard.press("a");
+  await page.keyboard.press("Alt+a");
   await expect(page.locator(".drawer .log")).toContainText("12 passed, 1 failed");
-  await page.keyboard.press("p");
+  await page.keyboard.press("Alt+p");
   await expect(page.locator(".drawer textarea[data-prompt]")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
-  await page.keyboard.press("t");
+  await page.keyboard.press("Alt+t");
   await expect(page.getByRole("button", { name: "Session" })).toHaveClass(/active/);
 
   // Opened in the grid, the agent's tile is enlarged; x goes back to all tiles.
-  await page.keyboard.press("o");
+  await page.keyboard.press("Alt+o");
   const strip = page.locator(".strip");
   await expect(strip.getByRole("button", { name: /All tiles/ })).toBeVisible();
   await expect(strip).toContainText("director-daemon");
   // The tile fits the main area; its log scrolls, not the frame around it.
   const main = page.locator(".main");
   expect(await main.evaluate((m) => m.scrollHeight <= m.clientHeight)).toBe(true);
-  await page.keyboard.press("x");
+  await page.keyboard.press("Alt+x");
   await expect(page.locator(".grid .tile").first()).toBeVisible();
 
   // Zoom like a browser: fewer, bigger tiles per row, more, or back to fit.
@@ -590,29 +590,29 @@ test("everything works from the keyboard", async ({ page }) => {
       .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length);
   await expect(zoom).toContainText("Auto");
   const fitted = await columns();
-  await page.keyboard.press("-");
+  await page.keyboard.press("Alt+-");
   await expect(zoom).toContainText(`${fitted + 1} per row`);
   expect(await columns()).toBe(fitted + 1);
-  await page.keyboard.press("=");
-  await page.keyboard.press("=");
+  await page.keyboard.press("Alt+=");
+  await page.keyboard.press("Alt+=");
   await expect(zoom).toContainText(`${Math.max(1, fitted - 1)} per row`);
-  await page.keyboard.press("0");
+  await page.keyboard.press("Alt+0");
   await expect(zoom).toContainText("Auto");
 });
 
 test("the timeline shows who waited on whom, and the history shows the repo", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("macbook + 1 pod");
-  await page.keyboard.press("g");
+  await page.keyboard.press("Alt+g");
   await page.keyboard.press("t");
   await expect(page.locator(".lane").first()).toBeVisible();
   await expect(page.locator(".lane-wait", { hasText: /waited .+ on you/ }).first()).toBeVisible();
   await expect(page.locator(".axis")).toContainText("−5 min");
-  await page.keyboard.press("w");
+  await page.keyboard.press("Alt+w");
   await expect(page.getByRole("button", { name: "2 h" })).toHaveAttribute("aria-pressed", "true");
   await shot(page, "timeline");
 
-  await page.keyboard.press("g");
+  await page.keyboard.press("Alt+g");
   await page.keyboard.press("h");
   await expect(page.locator("iframe[title^='jj orbit']")).toBeVisible();
   const orbit = (project: string) => page.frame({ url: new RegExp(`/orbit/${project}/$`) });
@@ -635,7 +635,7 @@ test("the timeline shows who waited on whom, and the history shows the repo", as
 test("tasks on a remote daemon show up and are answered like local ones", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("macbook + 1 pod");
-  await page.keyboard.press("n");
+  await page.keyboard.press("Alt+n");
   await page.getByLabel("Title").fill("Benchmark on the pod");
   await page.getByLabel("Workspace").selectOption("pod/ws1");
   await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -645,7 +645,7 @@ test("tasks on a remote daemon show up and are answered like local ones", async 
   await expect(remote.locator(".card-ws")).toHaveText("pod/ws1");
   await expect(remote.locator(".card-meta")).toContainText("pod");
 
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const decision = page.locator(".decision", { hasText: "pod/alpha" }).first();
   await expect(decision).toContainText("uv run pytest -x");
   await decision.getByRole("button", { name: /^Approve/ }).click();
@@ -662,7 +662,7 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("macbook + 1 pod");
   // The director works in ws1, whose trunk has lib.py.
-  await page.keyboard.press("g");
+  await page.keyboard.press("Alt+g");
   await page.keyboard.press("d");
   const prompt = page.locator(".drawer textarea[data-prompt]");
   await prompt.fill("Look at @li");
@@ -683,7 +683,7 @@ test("prompts take @ file mentions and images; the Files tab shows what agents w
   await expect(page.locator(".drawer .log")).toContainText("Look at @lib.py [dot.png]");
 
   // The director writes each spawned worker's context to .fleet/<name>/context.md.
-  await page.getByRole("button", { name: "Board 1" }).click();
+  await page.getByRole("button", { name: /^Board/ }).click();
   await page.locator(".card", { hasText: "Port the pulse pass" }).locator(".card-main").click();
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await expect(page.locator(".files")).toContainText(".fleet/");
@@ -732,7 +732,10 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
 }) => {
   await page.goto("/");
   await expect(page.locator(".host")).toContainText("macbook + 1 pod");
-  await page.locator(".rail").getByTitle("Import Claude Code sessions (i)").click();
+  await page
+    .locator(".rail")
+    .getByTitle(/^Import Claude Code sessions/)
+    .click();
   const dialog = page.getByRole("dialog", { name: "Import sessions" });
   const search = dialog.getByLabel("Search sessions");
   await search.fill("sched");
@@ -783,7 +786,7 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   // Imported once, the session is marked in the list.
   await page.locator(".drawer textarea[data-prompt]").focus();
   await page.keyboard.press("Escape");
-  await page.keyboard.press("i");
+  await page.keyboard.press("Alt+i");
   await expect(page.getByRole("dialog", { name: "Import sessions" })).toContainText(
     "already a task",
   );
@@ -879,7 +882,7 @@ test("the rail and the drawer resize by their inner edge, remember it, and reset
   page,
 }) => {
   await page.goto("/");
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const rail = page.locator(".rail");
   const handle = page.getByRole("separator", { name: "Resize the rail" });
   const width = async () => Math.round((await rail.boundingBox())?.width ?? 0);
@@ -928,7 +931,7 @@ test("the rail and the drawer resize by their inner edge, remember it, and reset
 
 test("the sidebars collapse to a strip and come back at their old width", async ({ page }) => {
   await page.goto("/");
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   const rail = page.locator(".rail");
   const width = async () => Math.round((await rail.boundingBox())?.width ?? 0);
   const before = await width();
@@ -938,7 +941,7 @@ test("the sidebars collapse to a strip and come back at their old width", async 
   await page.reload();
   await expect.poll(width).toBeLessThan(60);
 
-  await page.keyboard.press("Alt+r");
+  await page.keyboard.press("Alt+h");
   await expect.poll(width).toBe(before);
 
   // The drawer folds the same way, keeping its draft, and selecting an agent brings it back.
@@ -949,9 +952,9 @@ test("the sidebars collapse to a strip and come back at their old width", async 
   const prompt = drawer.locator("[data-prompt]");
   await prompt.fill("half a thought");
   await page.keyboard.press("Escape"); // leaves the field
-  await page.keyboard.press("Alt+d");
+  await page.keyboard.press("Alt+l");
   await expect.poll(drawerWidth).toBeLessThan(60);
-  await page.keyboard.press("Alt+d");
+  await page.keyboard.press("Alt+l");
   await expect.poll(drawerWidth).toBe(open);
   await expect(prompt).toHaveValue("half a thought");
   await drawer.getByRole("button", { name: "Collapse the drawer" }).click();
@@ -962,7 +965,7 @@ test("the sidebars collapse to a strip and come back at their old width", async 
 
 test("the drawer fills the window and shrinks back without losing its draft", async ({ page }) => {
   await page.goto("/");
-  await page.keyboard.press("2");
+  await page.keyboard.press("Alt+2");
   await page.locator(".rail .rail-item").first().click();
   const drawer = page.getByRole("complementary", { name: "Selected task" });
   const box = async () => (await drawer.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
@@ -977,7 +980,34 @@ test("the drawer fills the window and shrinks back without losing its draft", as
   await expect(prompt).toHaveValue("still here");
 
   await page.keyboard.press("Escape"); // leaves the field
-  await page.keyboard.press("Alt+f");
+  await page.keyboard.press("Alt+z");
   await expect.poll(async () => (await box()).width).toBe(normal);
   await expect(prompt).toHaveValue("still here");
+});
+
+test("letters typed while the focus is on the page start nothing, and Option keys belong to the focused pane", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.keyboard.press("n");
+  await page.keyboard.press("x");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // The focus moves between the panes by keyboard; a plain list key works only inside one.
+  await page.keyboard.press("Alt+7");
+  await expect(page.locator(".rail")).toBeFocused();
+  await expect(page.locator(".rail")).toHaveCSS("outline-style", "solid");
+  await expect(page.locator("main")).toHaveCSS("outline-style", "none");
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(page.locator("main")).toBeFocused();
+  await page.keyboard.press("Alt+7");
+  await expect(page.locator(".rail")).toBeFocused();
+  await page.keyboard.press("Alt+8");
+  await expect(page.locator("main")).toBeFocused();
+  await page.keyboard.press("Alt+7");
+  await expect(page.locator(".rail")).toBeFocused();
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(page.locator("main")).toBeFocused();
+  await page.keyboard.press("Alt+n");
+  await expect(page.getByRole("dialog", { name: "New task" })).toBeVisible();
 });

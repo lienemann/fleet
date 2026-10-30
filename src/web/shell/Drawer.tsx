@@ -86,6 +86,8 @@ export function Drawer({
       className={`drawer ${tab === "diff" ? "wide" : ""} ${full ? "full" : ""} ${collapsed && !full ? "collapsed" : ""}`}
       style={agentStyle(agent, color)}
       aria-label="Selected task"
+      data-pane="drawer"
+      tabIndex={-1}
     >
       <button
         type="button"

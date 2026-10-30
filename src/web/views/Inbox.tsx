@@ -48,8 +48,8 @@ export function Inbox({
   const answer = (behavior: "allow" | "deny") =>
     focused && send({ type: "answer", requestId: focused.requestId, answer: { behavior } });
 
-  // While the inbox is shown, j/k walk its decisions and a/r answer the focused one.
-  const inboxCommand = { group: "Inbox", priority: 1 };
+  // While the focus is in the inbox, j/k walk its decisions and ⌥A/⌥R answer the focused one.
+  const inboxCommand = { group: "Inbox", scope: "main" } as const;
   useCommands([
     {
       ...inboxCommand,
@@ -71,21 +71,21 @@ export function Inbox({
       ...inboxCommand,
       id: "inbox.approve",
       label: "Approve the focused permission",
-      keys: ["a"],
+      keys: ["alt+a"],
       run: () => focused?.decision === "permission" && answer("allow"),
     },
     {
       ...inboxCommand,
       id: "inbox.reject",
       label: "Reject the focused permission",
-      keys: ["r"],
+      keys: ["alt+r"],
       run: () => focused?.decision === "permission" && answer("deny"),
     },
     {
       ...inboxCommand,
       id: "inbox.open",
       label: "Open the focused decision's agent",
-      keys: ["o", "enter"],
+      keys: ["alt+o", "enter"],
       run: () => focused && onOpen(focused.agent),
     },
     {

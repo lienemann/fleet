@@ -9,7 +9,7 @@ import type {
   ThreadPlacement,
 } from "../../shared/review.ts";
 import { useFleet } from "../fleet.tsx";
-import { useCommands } from "../keys/keymap.tsx";
+import { keyLabel, useCommands } from "../keys/keymap.tsx";
 import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
 import { EMPTY_FORM, type Side, Thread, threadPlace } from "./Thread.tsx";
@@ -193,7 +193,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
     if (next) void choose(next);
   };
 
-  const group = { group: "Diff", priority: 1 };
+  const group = { group: "Diff", scope: "drawer" } as const;
   useCommands([
     {
       ...group,
@@ -229,42 +229,42 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
       ...group,
       id: "diff.approve",
       label: "Approve the hunk and go on (again: unapprove)",
-      keys: ["a"],
+      keys: ["alt+y"],
       run: toggleFocused,
     },
     {
       ...group,
       id: "diff.ask",
       label: "Ask about the hunk's changed lines",
-      keys: ["c"],
+      keys: ["alt+c"],
       run: () => focused && askAboutChanges(focused.hunk),
     },
     {
       ...group,
       id: "diff.edit",
       label: "Edit the hunk's lines",
-      keys: ["e"],
+      keys: ["alt+e"],
       run: () => canEdit && setComposing("edit"),
     },
     {
       ...group,
       id: "diff.layout",
       label: "Switch inline and side by side",
-      keys: ["v"],
+      keys: ["alt+v"],
       run: () => setLayout((l) => (l === "inline" ? "split" : "inline")),
     },
     {
       ...group,
       id: "diff.reload",
       label: "Reload the diff",
-      keys: ["shift+r"],
+      keys: ["alt+shift+r"],
       run: () => void load(),
     },
     {
       ...group,
       id: "diff.order",
       label: "Switch walkthrough and file order",
-      keys: ["w"],
+      keys: ["alt+shift+w"],
       run: () => setFileOrder((f) => !f),
     },
   ]);
@@ -284,7 +284,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
           <span className="spacer" />
           {model?.order && (
             <button type="button" className="small" onClick={() => setFileOrder(!fileOrder)}>
-              {fileOrder ? "File order" : "Walkthrough order"} <kbd>w</kbd>
+              {fileOrder ? "File order" : "Walkthrough order"} <kbd>{keyLabel("alt+shift+w")}</kbd>
             </button>
           )}
           <button
@@ -292,7 +292,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
             className="small"
             onClick={() => setLayout(layout === "inline" ? "split" : "inline")}
           >
-            {layout === "inline" ? "Side by side" : "Inline"} <kbd>v</kbd>
+            {layout === "inline" ? "Side by side" : "Inline"} <kbd>{keyLabel("alt+v")}</kbd>
           </button>
           <button type="button" className="small" onClick={() => void load()}>
             Reload

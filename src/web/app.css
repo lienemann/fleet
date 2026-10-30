@@ -3031,3 +3031,10 @@ button.ln:hover {
 .thread-note {
   max-width: 90ch;
 }
+
+/* The pane that owns the keys wears an outline; with the focus elsewhere, the view does. */
+[data-pane]:focus-within,
+.body:not(:has([data-pane]:focus-within)) > .main {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

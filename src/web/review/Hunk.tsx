@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode, useState } from "react";
 import { type AgentView, QUOTE_LIMIT } from "../../shared/reducer.ts";
 import type { FileView, HunkView, LineRange, LineThread } from "../../shared/review.ts";
+import { keyLabel } from "../keys/keymap.tsx";
 import type { Layout } from "./DiffView.tsx";
 import { highlightLine } from "./highlight.ts";
 import { type FormState, NewThread, type Side, Thread } from "./Thread.tsx";
@@ -135,7 +136,7 @@ export function Hunk(props: Props) {
               title="Ask about the changed lines; click line numbers to pick others"
               onClick={() => props.onCompose("thread")}
             >
-              Ask <kbd>c</kbd>
+              Ask <kbd>{keyLabel("alt+c")}</kbd>
             </button>
             <button
               type="button"
@@ -148,14 +149,14 @@ export function Hunk(props: Props) {
               }
               onClick={() => props.onCompose("edit")}
             >
-              Edit <kbd>e</kbd>
+              Edit <kbd>{keyLabel("alt+e")}</kbd>
             </button>
             <button
               type="button"
               className={`small ${hunk.approved ? "" : "primary"}`}
               onClick={() => props.onApprove(!hunk.approved)}
             >
-              {hunk.approved ? "Unapprove" : "Approve"} <kbd>a</kbd>
+              {hunk.approved ? "Unapprove" : "Approve"} <kbd>{keyLabel("alt+y")}</kbd>
             </button>
           </>
         )}

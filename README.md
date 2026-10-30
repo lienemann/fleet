@@ -296,24 +296,24 @@ one, also through a tunnel.
 
 ## Keyboard
 
-Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by name. The keys are mnemonics:
+Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by name. Every shortcut that is a letter, digit or sign takes Option (Alt elsewhere), so keys typed while the focus is on the page never start anything; only `j`, `k`, `[`, `]`, Enter and Esc work without it, and only while the focus is inside a pane (the rail, the view or the drawer). A pane's own commands fire only while the focus is in that pane, so the same keys mean the inbox's in the view and the diff's in the drawer. Option+`7`, `8` and `9` focus the rail, the view and the drawer, Option+← and Option+→ go from pane to pane, and the pane that owns the keys wears an accent outline. The first stroke of a chord takes Option, as in Option+G then `b`.
 
 | Keys | Action |
 | --- | --- |
-| `g b`, `g i`, `g g`, `g t`, `g f`, `g h` (or `1` to `6`) | go to board, inbox, grid, timeline, flow, history |
-| `g d` | select the director of the shown project, or of the first |
-| `j`, `k`, then `o` or Enter | next or previous agent (in the inbox: decision), open it in the grid |
-| `n`, `i`, `d` | new task, import CLI sessions, message a director |
-| `f` | with several projects, show the next one, then all again |
-| `p` | write to the selected agent; Esc leaves the field |
-| `a`, Shift+A, `r` | approve, always allow, or reject its permission request |
-| `m r`, `m c`, `m a`, `m o`, `m x` | move to review, request changes, accept, reopen, remove from fleet |
-| `s`, Shift+M, Esc | stop or start the session (a queued task starts now if its workspace is free), next permission mode, interrupt |
-| Alt+R, Alt+D, Alt+F | collapse the rail, collapse the drawer, expand the drawer to the full window |
-| `t`, Shift+T, `x` | next or previous drawer tab, close the drawer (in the grid: back to all tiles) |
-| `u`, Shift+L, Shift+N | mark all seen, lid-closed mode, notifications |
-| Shift+H, Shift+F | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
-| `j`, `k`, `a`, `c`, `e`, `v`, `w`, Shift+R in the diff | next or previous hunk, approve and go on, ask about the hunk's changed lines, edit, side by side, walkthrough or file order, reload |
+| Option+G then `b`, `i`, `g`, `t`, `f`, `h` (or Option+`1` to `6`) | go to board, inbox, grid, timeline, flow, history |
+| Option+G then `d` | select the director of the shown project, or of the first |
+| `j`, `k`, then Option+`o` or Enter | next or previous agent (in the inbox: decision), open it in the grid |
+| Option+`n`, `i`, `d` | new task, import CLI sessions, message a director |
+| Option+`f` | with several projects, show the next one, then all again |
+| Option+`p` | write to the selected agent; Esc leaves the field |
+| Option+`a`, Option+Shift+`a`, Option+`r` | approve, always allow, or reject its permission request |
+| Option+`m` then `r`, `c`, `a`, `o`, `x` | move to review, request changes, accept, reopen, remove from fleet |
+| Option+`s`, Option+Shift+`m`, Esc | stop or start the session (a queued task starts now if its workspace is free), next permission mode, interrupt |
+| Option+`h`, Option+`l`, Option+`z` | collapse the rail, collapse the drawer, expand the drawer to the full window |
+| Option+`t`, Option+Shift+`t`, Option+`x` | next or previous drawer tab, close the drawer (in the grid: back to all tiles) |
+| Option+`u`, Option+Shift+`l`, Option+Shift+`n` | mark all seen, lid-closed mode, notifications |
+| Option+Shift+`h`, Option+Shift+`f` | hand the selected agent over to a fresh session, next font (sans, serif, mono) |
+| `j`, `k`, Option+`y`, `c`, `e`, `v`, Option+Shift+`w`, Option+Shift+`r` in the diff | next or previous hunk, approve and go on, ask about the hunk's changed lines, edit, side by side, walkthrough or file order, reload |
 | `[`, `]` in the diff | review the next newer or older commit; above the newest is the whole change |
 | `w` in the timeline | switch between the last 15 minutes and 2 hours |
 

@@ -3,6 +3,7 @@ import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
 import type { AgentView, Decision } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
+import { keyLabel } from "../keys/keymap.tsx";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -123,7 +124,7 @@ function Permission({ compact, onAnswer }: Pick<Props, "onAnswer"> & { compact: 
   return (
     <footer>
       <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
-        Approve <kbd>a</kbd>
+        Approve <kbd>{keyLabel("alt+a")}</kbd>
       </button>
       {!compact && (
         <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
@@ -131,7 +132,7 @@ function Permission({ compact, onAnswer }: Pick<Props, "onAnswer"> & { compact: 
         </button>
       )}
       <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-        Reject <kbd>r</kbd>
+        Reject <kbd>{keyLabel("alt+r")}</kbd>
       </button>
     </footer>
   );

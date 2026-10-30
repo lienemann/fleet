@@ -89,7 +89,7 @@ export function Header({
           <select
             className="project-filter"
             aria-label="Show project"
-            title="Show one project in every view (f)"
+            title={`Show one project in every view (${keyLabel("alt+f")})`}
             value={filter.project ?? ""}
             onChange={(e) => filter.show(e.target.value || undefined)}
           >
@@ -113,7 +113,7 @@ export function Header({
           >
             {v.label}
             {v.id === "inbox" && inbox > 0 && <span className="count">{inbox}</span>}
-            <kbd>{v.key}</kbd>
+            <kbd>{keyLabel(`alt+${v.key}`)}</kbd>
           </button>
         ))}
       </nav>
@@ -133,7 +133,7 @@ export function Header({
         </span>
       </div>
       <button type="button" className="primary" onClick={onNewTask}>
-        + New task <kbd>n</kbd>
+        + New task <kbd>{keyLabel("alt+n")}</kbd>
       </button>
       <button
         type="button"

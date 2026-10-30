@@ -28,7 +28,7 @@ export const DRAWER: SidebarSpec = {
 };
 
 /** The shortcuts that fold the sidebars away and put the drawer over the whole window. */
-export const SIDEBAR_KEYS = { rail: "alt+r", drawer: "alt+d", full: "alt+f" } as const;
+export const SIDEBAR_KEYS = { rail: "alt+h", drawer: "alt+l", full: "alt+z" } as const;
 
 /** What a collapsed sidebar leaves behind: a strip with the button that brings it back. */
 export const STRIP = 36;

@@ -1,6 +1,6 @@
 import { agentList } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { useCommands } from "../keys/keymap.tsx";
+import { keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { Tile } from "../tile/Tile.tsx";
@@ -29,8 +29,8 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge, tiles }: Props) 
             id: "grid.all",
             label: "Show all tiles",
             group: "Grid",
-            keys: ["x"],
-            priority: 1,
+            keys: ["alt+x"],
+            scope: "main",
             run: () => onEnlarge(undefined),
           },
         ]
@@ -39,34 +39,34 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge, tiles }: Props) 
             id: "grid.bigger",
             label: "Bigger tiles, fewer per row",
             group: "Grid",
-            keys: ["="],
+            keys: ["alt+="],
             run: () => tiles.zoom("bigger"),
           },
           {
             id: "grid.smaller",
             label: "Smaller tiles, more per row",
             group: "Grid",
-            keys: ["-"],
+            keys: ["alt+-"],
             run: () => tiles.zoom("smaller"),
           },
           {
             id: "grid.fit",
             label: "Fit the tiles to the window",
             group: "Grid",
-            keys: ["0"],
+            keys: ["alt+0"],
             run: tiles.fit,
           },
         ],
   );
   if (agents.length === 0)
-    return <p className="empty">No agents yet. Start one with New task (n).</p>;
+    return <p className="empty">No agents yet. Start one with New task ({keyLabel("alt+n")}).</p>;
 
   if (big) {
     return (
       <div className="grid-enlarged">
         <nav className="strip">
           <button type="button" onClick={() => onEnlarge(undefined)}>
-            ← All tiles <kbd>x</kbd>
+            ← All tiles <kbd>{keyLabel("alt+x")}</kbd>
           </button>
           {agents
             .filter((agent) => agent.name !== big.name)
@@ -123,7 +123,7 @@ export function TileZoom({ perRow, zoom, fit }: Tiles) {
       <button
         type="button"
         className="small"
-        title="Smaller tiles, more per row (-)"
+        title={`Smaller tiles, more per row (${keyLabel("alt+-")})`}
         onClick={() => zoom("smaller")}
       >
         −
@@ -131,7 +131,7 @@ export function TileZoom({ perRow, zoom, fit }: Tiles) {
       <button
         type="button"
         className="small"
-        title="Fit the tiles to the window (0)"
+        title={`Fit the tiles to the window (${keyLabel("alt+0")})`}
         aria-pressed={perRow === "auto"}
         onClick={fit}
       >
@@ -140,7 +140,7 @@ export function TileZoom({ perRow, zoom, fit }: Tiles) {
       <button
         type="button"
         className="small"
-        title="Bigger tiles, fewer per row (=)"
+        title={`Bigger tiles, fewer per row (${keyLabel("alt+=")})`}
         onClick={() => zoom("bigger")}
       >
         +

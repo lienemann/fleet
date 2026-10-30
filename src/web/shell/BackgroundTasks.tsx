@@ -35,7 +35,7 @@ export function BackgroundTasks({ agent }: { agent: AgentView }) {
     send({ type: "background_task", agent: agent.name, taskId: task.id });
   const clear = () => send({ type: "clear_tasks", agent: agent.name });
 
-  const group = { group: "Activity", priority: 1 };
+  const group = { group: "Activity", scope: "drawer" } as const;
   useCommands([
     ...running.map((task) => ({
       ...group,
