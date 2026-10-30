@@ -121,16 +121,19 @@ export function demoQuery(delayMs = 400): QueryFn {
         slash_commands: ["compact", "context", "review", "init"],
       });
       let turn = 0;
+      /** What the first prompt asked for; later turns carry on with it. */
+      let scenario = FLAKY_TEST;
       for await (const prompt of params.prompt as AsyncIterable<SDKUserMessage>) {
         if (closed) return;
         interrupted = false;
         turn++;
         const text = typeof prompt.message.content === "string" ? prompt.message.content : "";
+        if (turn === 1) scenario = scenarioOf(text);
         const steps = fleetDirector
           ? fleetDirectorScript(turn)
           : director
             ? directorScript(turn, text)
-            : workerScript(turn, text, sessionId);
+            : workerScript(turn, text, sessionId, scenario);
         for (const step of steps) {
           if (closed) return;
           if (interrupted) break;
@@ -296,20 +299,66 @@ type Step =
       parent?: undefined;
     };
 
-/** The worker's walkthrough, in its first report and in each revision. */
-const WALKTHROUGH =
-  "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.";
-
-/** What a worker says last: its own task's outcome, so two workers in one demo do not repeat each other. */
-function closingText(prompt: string): string {
-  if (prompt.includes("Batch the event log writes")) {
-    return "Batched the event log writes into one transaction per 100 events; replaying 10,000 events takes 0.4 s instead of 2.1 s.\n\nStill open: whether the batch size should be a setting. I left it fixed at 100.";
-  }
-  return "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter; 50 of 50 repetitions are green.\n\nStill open: whether the two similar replay tests get the same fix. I listed both in the open points.";
+/** What a demo worker does for its task: the question it asks, the change it makes, what it reports. */
+interface Scenario {
+  question: string;
+  context: string;
+  options: [string, string];
+  file: { path: string; content: string };
+  openPoints: [string, string];
+  summary: string;
+  tests: string;
+  walkthrough: string;
+  /** The last thing the worker says, in the inbox's Finished item. */
+  closing: string;
 }
 
+const FLAKY_TEST: Scenario = {
+  question: "How should I fix the flaky assertion?",
+  context:
+    "The assertion uses a fixed 1 ms tolerance and CI runners jitter more.\nBoth fixes take a few minutes.",
+  options: ["Scale the tolerance with measured jitter", "Rewrite the test with a fake clock"],
+  file: {
+    path: "lib.py",
+    content:
+      "def tolerance():\n    # CI runners jitter more than 1 ms, so the bound follows the jitter this runner measured over its last runs instead of a fixed value\n    return max(1e-3, 4 * jitter())\n\n\ndef runs():\n    return 50\n",
+  },
+  openPoints: [
+    "Apply the same fix to the two similar tests?",
+    "Keep the old tolerance as a lower bound?",
+  ],
+  summary: "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.",
+  tests: "50 of 50 repetitions green",
+  walkthrough:
+    "## Tolerance\n\nThe [new tolerance](lib.py#L2-L3) scales with the jitter the runner measures.",
+  closing:
+    "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter; 50 of 50 repetitions are green.\n\nStill open: whether the two similar replay tests get the same fix. I listed both in the open points.",
+};
+
+const BATCHED_WRITES: Scenario = {
+  question: "How large should a batch of event log writes be?",
+  context:
+    "Each event is its own transaction now, and replaying 10,000 events takes 2.1 s.\nA larger batch is faster but loses more events when the daemon crashes.",
+  options: ["Batch 100 events per transaction", "Batch by a 50 ms time window"],
+  file: {
+    path: "events.py",
+    content:
+      "BATCH = 100\n\n\ndef append(db, events):\n    # One transaction per batch instead of one per event\n    with db:\n        db.executemany(INSERT, events[:BATCH])\n",
+  },
+  openPoints: ["Make the batch size a setting?", "Flush a partial batch on shutdown?"],
+  summary: "Batched the event log writes into one transaction per 100 events.",
+  tests: "replay of 10,000 events: 0.4 s, was 2.1 s",
+  walkthrough:
+    "## Batching\n\nThe [batched append](events.py#L4-L7) writes up to 100 events in one transaction.",
+  closing:
+    "Batched the event log writes into one transaction per 100 events; replaying 10,000 events takes 0.4 s instead of 2.1 s.\n\nStill open: whether the batch size should be a setting. I left it fixed at 100.",
+};
+
+const scenarioOf = (prompt: string): Scenario =>
+  prompt.includes("Batch the event log writes") ? BATCHED_WRITES : FLAKY_TEST;
+
 /** `session` keeps tool and request ids apart between workers that run the same script. */
-function workerScript(turn: number, prompt: string, session: string): Step[] {
+function workerScript(turn: number, prompt: string, session: string, scenario: Scenario): Step[] {
   const id = (n: number) => `${session}-${turn}-${n}`;
   // A question on lines of the diff gets an answer in its thread, and the change stays as it is.
   const thread = /Answer with the reply_thread tool, thread "([^"]+)"/.exec(prompt)?.[1];
@@ -340,7 +389,7 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
           changes: ["zmplwqrs"],
           tests: "13 passed",
           open_questions: [],
-          walkthrough: WALKTHROUGH,
+          walkthrough: scenario.walkthrough,
         },
       },
     ];
@@ -396,24 +445,20 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
       id: id(6),
       name: "request_decision",
       input: {
-        question: "How should I fix the flaky assertion?",
-        context:
-          "The assertion uses a fixed 1 ms tolerance and CI runners jitter more.\nBoth fixes take a few minutes.",
-        options: ["Scale the tolerance with measured jitter", "Rewrite the test with a fake clock"],
+        question: scenario.question,
+        context: scenario.context,
+        options: scenario.options,
         risk: [],
       },
     },
     {
       type: "write",
-      path: "lib.py",
-      content:
-        "def tolerance():\n    # CI runners jitter more than 1 ms, so the bound follows the jitter this runner measured over its last runs instead of a fixed value\n    return max(1e-3, 4 * jitter())\n\n\ndef runs():\n    return 50\n",
+      ...scenario.file,
     },
     {
       type: "write",
       path: ".fleet/open-points.md",
-      content:
-        "# Open points\n\n- [ ] Apply the same fix to the two similar tests?\n- [ ] Keep the old tolerance as a lower bound?\n",
+      content: `# Open points\n\n${scenario.openPoints.map((point) => `- [ ] ${point}\n`).join("")}`,
     },
     {
       type: "fleet",
@@ -426,14 +471,14 @@ function workerScript(turn: number, prompt: string, session: string): Step[] {
       id: id(8),
       name: "report_result",
       input: {
-        summary: "Replaced the fixed 1 ms tolerance with one scaled by measured runner jitter.",
+        summary: scenario.summary,
         changes: ["zmplwqrs"],
-        tests: "50 of 50 repetitions green",
-        open_questions: ["Apply the same fix to the two similar replay tests?"],
-        walkthrough: WALKTHROUGH,
+        tests: scenario.tests,
+        open_questions: [scenario.openPoints[0]],
+        walkthrough: scenario.walkthrough,
       },
     },
-    { type: "say", text: closingText(prompt) },
+    { type: "say", text: scenario.closing },
   ];
 }
 

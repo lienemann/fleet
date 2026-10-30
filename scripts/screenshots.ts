@@ -153,7 +153,7 @@ for (let i = 0; i < 40 && !(await alphaFinished.count()); i++) {
   const decision = page.locator(".decision", { hasText: "alpha" }).first();
   if (await decision.count()) {
     const allow = decision.getByRole("button", { name: /^(Allow|Approve)/ });
-    const option = decision.getByRole("button", { name: /Scale the tolerance/ });
+    const option = decision.getByRole("button", { name: /Scale the tolerance|Batch 100 events/ });
     if (await allow.count()) await allow.first().click();
     else if (await option.count()) await option.first().click();
   }
@@ -175,7 +175,7 @@ for (let i = 0; i < 80; i++) {
     .first();
   if (await decision.count()) {
     const allow = decision.getByRole("button", { name: /^(Allow|Approve)/ });
-    const option = decision.getByRole("button", { name: /Scale the tolerance/ });
+    const option = decision.getByRole("button", { name: /Scale the tolerance|Batch 100 events/ });
     if (await allow.count()) await allow.first().click();
     else if (await option.count()) await option.first().click();
   } else if (await point.count()) {
