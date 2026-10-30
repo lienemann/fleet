@@ -1,8 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { allWorkspaces, loadConfig, projectOf } from "../src/daemon/config.ts";
+import { allWorkspaces, loadConfig, projectOf, writeConfig } from "../src/daemon/config.ts";
 
 const home = () => mkdtempSync(join(tmpdir(), "fleet-home-"));
 
@@ -127,4 +127,74 @@ it("reads the inbox threshold, 15 s by default", () => {
   expect(loadConfig(dir, "/work/here").finishedAfterMs).toBe(2500);
   writeFileSync(join(dir, "config.toml"), "[inbox]\nfinished_after_seconds = -1\n");
   expect(() => loadConfig(dir, "/work/here")).toThrow();
+});
+
+it("writes changes into config.toml without losing its comments, spacing or key order", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  const text = `# My fleet, by hand.
+port = 7000 # not the default
+
+# Limits across all projects.
+[wip]
+running = 3
+
+# The main repo.
+[[projects]]
+name = "site" # shown in the rail
+path = "~/site"
+allowed_tools = ["Read"]
+
+  # Scratch checkout.
+  [[projects.workspaces]]
+  name = "ws1"
+  path = "~/site-ws1" # keeps its spelling
+
+  [[projects.workspaces]]
+  name = "ws2" # to be removed
+  path = "~/site-ws2"
+`;
+  writeFileSync(file, text);
+
+  const config = loadConfig(dir);
+  const project = config.projects[0];
+  if (!project) throw new Error("no project");
+  project.workspaces = project.workspaces.filter((ws) => ws.name !== "ws2");
+  project.workspaces.push({
+    name: "ws3",
+    path: "/r/ws3",
+    project: "site",
+    allowedTools: project.allowedTools,
+    explicit: false,
+  });
+  config.wip = { running: 3, review: 1 };
+  writeConfig(file, config);
+
+  const written = readFileSync(file, "utf8");
+  for (const kept of [
+    "# My fleet, by hand.",
+    "port = 7000 # not the default",
+    "# Limits across all projects.",
+    "# The main repo.",
+    'name = "site" # shown in the rail',
+    "# Scratch checkout.",
+    'path = "~/site-ws1" # keeps its spelling',
+  ]) {
+    expect(written).toContain(kept);
+  }
+  expect(written).not.toContain("ws2");
+  expect(written.indexOf("port")).toBeLessThan(written.indexOf("[wip]"));
+  expect(written.indexOf("[wip]")).toBeLessThan(written.indexOf("[[projects]]"));
+  const after = loadConfig(dir);
+  expect(after.wip).toEqual({ running: 3, review: 1 });
+  expect(after.projects[0]?.allowedTools).toEqual(["Read"]);
+  expect(after.projects[0]?.workspaces.map((ws) => ws.name)).toEqual(["ws1", "ws3"]);
+});
+
+it("creates config.toml with a header when there is none", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  writeConfig(file, loadConfig(dir, "/work/here"));
+  expect(readFileSync(file, "utf8")).toMatch(/^# Written by fleet/);
+  expect(loadConfig(dir).projects.map((p) => p.name)).toEqual(["here"]);
 });

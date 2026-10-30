@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { patch } from "@decimalturn/toml-patch";
 import { parse, stringify } from "smol-toml";
 import { z } from "zod";
 import type { Limits } from "../shared/protocol.ts";
@@ -279,7 +280,7 @@ const limitsTable = (limits: Limits): Table | undefined => {
 /**
  * Writes the projects and the fleet's limits to `config.toml`. The rest of the file stays as it
  * was, and so do settings fleet does not manage within a project or workspace, such as
- * `allowed_tools`. Comments other than the ones heading the file are lost.
+ * `allowed_tools`. The file is patched in place, so comments, spacing and key order survive.
  */
 export function writeConfig(file: string, config: Pick<Config, "projects" | "wip">): void {
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -328,8 +329,12 @@ export function writeConfig(file: string, config: Pick<Config, "projects" | "wip
       };
     }),
   };
-  const header = text.match(/^(?:#.*\n)+/)?.[0] ?? "# Written by fleet; see the README.\n";
-  writeFileSync(file, `${header}\n${stringify(withoutUndefined(table))}\n`);
+  const wanted = withoutUndefined(table);
+  if (text === "") {
+    writeFileSync(file, `# Written by fleet; see the README.\n\n${stringify(wanted)}\n`);
+  } else {
+    writeFileSync(file, patch(text, wanted));
+  }
 }
 
 /** TOML has no undefined; leaving a key undefined above means leaving it out. */
