@@ -3019,3 +3019,15 @@ button.ln:hover {
   border-left: 0;
   box-shadow: none;
 }
+
+/*
+ * In a wide inbox or drawer, running prose stops at about 90 characters and sits on the left,
+ * while code, diffs, tool output and tables keep the full width.
+ */
+.markdown > :is(p, ul, ol, blockquote, h1, h2, h3, h4),
+.line:is(.user, .message, .system) .text,
+.message pre,
+.thread-message > p,
+.thread-note {
+  max-width: 90ch;
+}
