@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { groupByLocation, notInDiff, relativeTo } from "../src/web/files.ts";
+import { absolutePath, groupByLocation, notInDiff, relativeTo } from "../src/web/files.ts";
 
 describe("files of an agent", () => {
+  it("makes a path absolute from the workspace unless it already is", () => {
+    expect(absolutePath("/ws", "src/a.py")).toBe("/ws/src/a.py");
+    expect(absolutePath("/ws", "/home/me/r.md")).toBe("/home/me/r.md");
+  });
+
   it("names a file relative to the workspace only when it is inside", () => {
     expect(relativeTo("/ws", "/ws/src/a.py")).toBe("src/a.py");
     expect(relativeTo("/ws", "/ws-other/a.py")).toBe("/ws-other/a.py");

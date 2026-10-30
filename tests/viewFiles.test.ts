@@ -42,22 +42,22 @@ function setup() {
     writeFileSync(path, content);
     return path;
   };
-  const read = (path: string) =>
-    supervisor.call({ type: "read_file", id: "1", agent: "alpha", path });
+  const read = (path: string, agent = "alpha") =>
+    supervisor.call({ type: "read_file", id: "1", agent, path });
   const attach = (files: Array<{ path: string; note?: string }>) =>
     toolsOf(fleetServer("alpha", "worker", supervisor))
       .find((t) => t.name === "attach_file")
       ?.handler({ files }, {});
   /** The agent wrote `path` with a tool, as the log records it. */
-  const wrote = (path: string) =>
+  const wrote = (path: string, agent = "alpha") =>
     log.append({
-      agent: "alpha",
+      agent,
       kind: "log",
       role: "tool_use",
       text: path,
       toolName: "Write",
     });
-  return { ...dirs, log, supervisor, write, read, attach, wrote };
+  return { ...dirs, repo: join(root, "repo"), log, supervisor, write, read, attach, wrote };
 }
 
 describe("reading a file for the viewer", () => {
@@ -106,6 +106,29 @@ describe("reading a file for the viewer", () => {
     const link = join(t.ws, "s.txt");
     symlinkSync(secret, link);
     await expect(t.read("s.txt")).rejects.toThrow(/never shown/);
+  });
+
+  it("shows what a director wrote in its notes, plans and memory, and still nothing else", async () => {
+    const t = setup();
+    const notes = t.write(join(t.repo, ".fleet", DIRECTOR, "backlog.md"));
+    const plan = t.write(join(t.claude, "plans/proposal/outline.md"));
+    const memory = t.write(join(t.claude, "projects/-x-repo/memory/feedback.md"));
+    const scratch = t.write(join(t.elsewhere, "scratch.md"));
+    const unlisted = t.write(join(t.claude, "plans/other.md"));
+    for (const path of [notes, plan, memory, scratch]) t.wrote(path, DIRECTOR);
+    for (const path of [notes, plan, memory])
+      expect(await t.read(path, DIRECTOR)).toMatchObject({ kind: "text" });
+    await expect(t.read(scratch, DIRECTOR)).rejects.toThrow(/outside what fleet shows/);
+    await expect(t.read(unlisted, DIRECTOR)).rejects.toThrow(/outside what fleet shows/);
+    // What the worker wrote does not open the director's files, nor the other way round.
+    await expect(t.read(plan)).rejects.toThrow(/outside what fleet shows/);
+  });
+
+  it("names a listed file that is gone from the disk", async () => {
+    const t = setup();
+    const plan = join(t.claude, "plans/moved.md");
+    t.wrote(plan, DIRECTOR);
+    await expect(t.read(plan, DIRECTOR)).rejects.toThrow(/does not exist/);
   });
 
   it("says binary and too large instead of sending the bytes", async () => {

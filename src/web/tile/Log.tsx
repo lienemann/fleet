@@ -1,6 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { FileEdit } from "../../shared/events.ts";
 import type { LogLine, Subagent } from "../../shared/reducer.ts";
+import { absolutePath } from "../files.ts";
+import { CopyPath } from "../ui/CopyPath.tsx";
 import { CutText } from "../ui/CutText.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 
@@ -70,10 +72,12 @@ export interface DiffLink {
 
 /** What a turn changed, file by file, like the Claude desktop app's card under a turn. */
 function EditedFiles({
+  cwd,
   title,
   edits,
   diff,
 }: {
+  cwd: string;
   title: string;
   edits: FileEdit[];
   diff?: DiffLink;
@@ -91,6 +95,7 @@ function EditedFiles({
         <div key={edit.path} className="edited-file">
           <span className="file-type">{extensionOf(edit.path)}</span>
           <EditedPath edit={edit} diff={diff} />
+          <CopyPath path={absolutePath(cwd, edit.path)} />
           <Counts added={edit.added} removed={edit.removed} />
         </div>
       ))}
@@ -145,6 +150,7 @@ const body =
 /** The transcript as the CLI shows it, anchored at the bottom unless the user scrolled up to read. */
 export function Log({
   agent,
+  cwd,
   lines,
   subagents,
   filter,
@@ -152,6 +158,8 @@ export function Log({
   diff,
 }: {
   agent: string;
+  /** The agent's workspace, which the paths of its edits are relative to. */
+  cwd: string;
   lines: LogLine[];
   subagents: Subagent[];
   filter: LogFilter;
@@ -183,7 +191,15 @@ export function Log({
       {shown.length === 0 && <p className="dim">No output for this filter.</p>}
       {shown.map((line) => {
         if (line.edits)
-          return <EditedFiles key={line.seq} title={line.text} edits={line.edits} diff={diff} />;
+          return (
+            <EditedFiles
+              key={line.seq}
+              cwd={cwd}
+              title={line.text}
+              edits={line.edits}
+              diff={diff}
+            />
+          );
         const { glyph, kind } = kindOf(line);
         const sub = line.parent !== null;
         const { thread } = line;

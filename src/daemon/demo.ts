@@ -542,6 +542,17 @@ function directorScript(turn: number, prompt: string): Step[] {
   if (prompt.startsWith("Message from")) {
     return [{ type: "say", text: "Noted; I will keep track of it in the ledger." }];
   }
+  // A director's own files go to Claude's plans, outside its checkout, and spawn nothing.
+  if (prompt.startsWith("Write the outline")) {
+    return [
+      {
+        type: "write",
+        path: join(claudeConfigDir(), "plans", "director-outline.md"),
+        content: "# Outline\n\nOne worker per page, then a pass over the navigation.\n",
+      },
+      { type: "say", text: "The outline is in my plans." },
+    ];
+  }
   const tasks = prompt
     .split("\n")
     .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())

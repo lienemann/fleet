@@ -1,6 +1,7 @@
-import { relativeTo } from "../files.ts";
+import { absolutePath, relativeTo } from "../files.ts";
+import { CopyPath } from "./CopyPath.tsx";
 
-/** A file of an agent that opens in the drawer's viewer; the full path is its tooltip. */
+/** A file of an agent that opens in the drawer's viewer, with a button to copy its path; the full path is the tooltip. */
 export function FileLink({
   cwd,
   path,
@@ -24,6 +25,7 @@ export function FileLink({
       >
         <code>{relativeTo(cwd, path)}</code>
       </button>
+      <CopyPath path={absolutePath(cwd, path)} />
       {note && <span className="dim"> {note}</span>}
     </>
   );

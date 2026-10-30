@@ -2,6 +2,10 @@
 export const relativeTo = (cwd: string, path: string): string =>
   path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 
+/** The absolute path of `path`, which an agent's lists name relative to its workspace if it lies inside. */
+export const absolutePath = (cwd: string, path: string): string =>
+  path.startsWith("/") ? path : `${cwd}/${path}`;
+
 /** Splits an agent's files into those in its workspace and those elsewhere, order kept. */
 export function groupByLocation(
   cwd: string,

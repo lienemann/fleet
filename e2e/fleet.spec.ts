@@ -15,6 +15,37 @@ const shot = async (page: Page, name: string) => {
 const rgb = (hex: string): string =>
   `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
 
+/** Collects what the page copies, so the test reads it back the same way in every browser. */
+async function captureClipboard(page: Page, api: "async" | "selection" = "async") {
+  await page.addInitScript((kind) => {
+    const copied: string[] = [];
+    Object.assign(window, { copied });
+    if (kind === "async") {
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: async (text: string) => void copied.push(text) },
+      });
+      return;
+    }
+    // No async clipboard, as on a page that is not secure: the copy goes through a selection.
+    Object.defineProperty(navigator, "clipboard", { value: undefined });
+    document.execCommand = (command: string) => {
+      const field = document.body.lastElementChild;
+      if (command === "copy" && field instanceof HTMLTextAreaElement) copied.push(field.value);
+      return true;
+    };
+  }, api);
+}
+
+const lastCopied = (page: Page): Promise<string | undefined> =>
+  page.evaluate(() => (window as unknown as { copied: string[] }).copied.at(-1));
+
+/** The row's "Copy path" button copies a path that fits `path` and says "Copied". */
+async function expectCopy(page: Page, row: Locator, path: RegExp) {
+  await row.getByRole("button", { name: "Copy path" }).click();
+  await expect(row).toContainText("Copied");
+  expect(await lastCopied(page)).toMatch(path);
+}
+
 const column = (page: Page, name: string) =>
   page.locator(".column", { has: page.getByRole("heading", { name }) });
 
@@ -441,6 +472,7 @@ test("files open from the edit card, the Outputs panel and the Report, also thos
   page,
 }) => {
   test.setTimeout(60_000);
+  await captureClipboard(page);
   await page.goto("/");
   const title = "Check the replay timings";
   await newTask(page, title, "ws2");
@@ -461,9 +493,16 @@ test("files open from the edit card, the Outputs panel and the Report, also thos
   const outside = edited.getByRole("button", { name: /-review\.md$/ });
   await expect(outside).toBeDisabled();
   await expect(outside).toHaveAttribute("title", /Outside the workspace/);
+  await expectCopy(page, edited.locator(".edited-file", { hasText: "lib.py" }), /^\/.*\/lib\.py$/);
+  await expectCopy(
+    page,
+    edited.locator(".edited-file", { hasText: "-review.md" }),
+    /\/plans\/.*-review\.md$/,
+  );
 
   // Outputs list everything the agent wrote, the plan outside the workspace included.
   await page.getByRole("button", { name: "Session", exact: true }).click();
+  await expectCopy(page, drawer.locator(".outputs li", { hasText: "lib.py" }), /^\/.*\/lib\.py$/);
   await drawer.locator(".outputs").getByRole("button", { name: "lib.py" }).click();
   await expect(drawer.locator(".file-content .hljs-keyword").first()).toBeVisible();
   await page.getByRole("button", { name: "Session", exact: true }).click();
@@ -478,16 +517,59 @@ test("files open from the edit card, the Outputs panel and the Report, also thos
   const attached = drawer.locator(".attached");
   await expect(attached).toContainText("What to look at first");
   await expect(attached).toContainText("Notes for the merge");
+  await expectCopy(
+    page,
+    attached.locator("li", { hasText: "-notes.txt" }),
+    /\/plans\/.*-notes\.txt$/,
+  );
   await attached.getByRole("button", { name: /-notes\.txt$/ }).click();
   await expect(drawer.locator(".file-content")).toContainText("Run the replay 50 times");
   await expect(drawer.locator(".files")).toContainText("Attached by");
   // The report came after both attachments, so nothing is left pending.
   await expect(drawer.locator(".files")).not.toContainText("may still change");
   await expect(drawer.locator(".files")).toContainText("Written elsewhere");
+  // The same row everywhere: a file the worker wrote but did not attach opens and copies too.
+  const scratch = drawer.locator(".files section", { hasText: "Written elsewhere" }).locator("li");
+  await expectCopy(page, scratch, /\/plans\/.*-scratch\.txt$/);
+  await scratch.getByRole("button", { name: /-scratch\.txt$/ }).click();
+  await expect(drawer.locator(".file-content")).toContainText("Scratch numbers.");
   await shot(page, "files");
 
   await page.keyboard.press("Alt+1");
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
+test("a director's files outside its checkout open in the Files tab and copy their path", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const dock = page.locator(".dock");
+  await dock.getByLabel("Talk to").selectOption("director-site");
+  const prompt = dock.getByPlaceholder(/Message the director of site/);
+  await prompt.fill("Write the outline");
+  await prompt.press("Enter");
+  await dock.getByRole("button", { name: "director-site" }).click();
+  const drawer = page.locator(".drawer");
+  await drawer.getByRole("button", { name: "Files", exact: true }).click();
+  const elsewhere = drawer.locator(".files section", { hasText: "Written elsewhere" });
+  await elsewhere.getByRole("button", { name: /director-outline\.md$/ }).click({ timeout: 15_000 });
+  await expect(drawer.locator(".file-content h1")).toHaveText("Outline");
+  await page.keyboard.press("Alt+x");
+});
+
+test("a path is copied through a selection where the page has no clipboard API", async ({
+  page,
+}) => {
+  await captureClipboard(page, "selection");
+  await page.goto("/");
+  const dock = page.locator(".dock");
+  await dock.getByLabel("Talk to").selectOption("director-site");
+  await dock.getByRole("button", { name: "director-site" }).click();
+  const drawer = page.locator(".drawer");
+  await drawer.getByRole("button", { name: "Files", exact: true }).click();
+  const row = drawer.locator(".files section", { hasText: "Written elsewhere" }).locator("li");
+  await expectCopy(page, row, /\/plans\/director-outline\.md$/);
+  await page.keyboard.press("Alt+x");
 });
 
 test("a second task in a busy workspace waits in the queue", async ({ page }) => {

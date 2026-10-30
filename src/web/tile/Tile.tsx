@@ -120,6 +120,7 @@ export function Tile({
       ) : (
         <Log
           agent={agent.name}
+          cwd={agent.cwd}
           lines={agent.log}
           subagents={agent.subagents}
           filter={filter}
