@@ -15,6 +15,7 @@ import { LOCAL, mergeInfo, mergeStates, routeCall, routeCommand } from "../share
 import type { Call, CallResults, Command, DaemonInfo } from "../shared/protocol.ts";
 import { emptyState, type FleetState, reduceAll, withoutProjects } from "../shared/reducer.ts";
 import { Connection } from "./connection.ts";
+import { pruneAgentDrafts } from "./drafts.ts";
 import { type Theme, useTheme } from "./useTheme.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -169,13 +170,26 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     },
     [remoteNames],
   );
+  const offline = remoteNames.filter((host) => !hosts[host]?.connected);
   const color = useCallback((c: string) => themedColor(c, theme), [theme]);
+
+  // Drafts of agents that are gone go with them, once every daemon has told who is there; a
+  // daemon not heard from yet would look like all its agents were gone. Agents of projects the
+  // config does not list stay, since their history does.
+  const everyone = Object.entries(hosts).flatMap(([host, h]) =>
+    Object.keys(h.state.agents).map((name) => (host === LOCAL ? name : `${host}/${name}`)),
+  );
+  const heard = hosts[LOCAL]?.state.lastSeq && offline.length === 0;
+  const everyoneKey = everyone.join("\u0000");
+  useEffect(() => {
+    if (heard) pruneAgentDrafts(new Set(everyoneKey ? everyoneKey.split("\u0000") : []));
+  }, [heard, everyoneKey]);
 
   const value: Fleet = {
     state,
     info,
     connected: hosts[LOCAL]?.connected ?? false,
-    offline: remoteNames.filter((host) => !hosts[host]?.connected),
+    offline,
     send,
     call,
     theme,
