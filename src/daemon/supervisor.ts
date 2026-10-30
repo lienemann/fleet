@@ -197,7 +197,14 @@ export interface SupervisorOptions {
   queryFn: QueryFn;
   config: Pick<
     Config,
-    "projects" | "wip" | "model" | "host" | "allowedTools" | "finishedAfterMs" | "readWhileWatching"
+    | "projects"
+    | "wip"
+    | "model"
+    | "effort"
+    | "host"
+    | "allowedTools"
+    | "finishedAfterMs"
+    | "readWhileWatching"
   >;
   power?: Pick<Power, "setLidMode">;
   /** Existing Claude Code sessions, for importing; the SDK's own store unless replaced. */
@@ -2230,7 +2237,7 @@ export class Supervisor implements ToolHost {
       queryFn: this.queryFn,
       resume: agent.sessionId,
       model: agent.model ?? this.config.model,
-      effort: agent.effort,
+      effort: agent.effort ?? this.config.effort,
       permissionMode: agent.permissionMode,
       allowedTools: allowed.filter((rule) => rule.includes("(")),
       additionalDirectories: readable,

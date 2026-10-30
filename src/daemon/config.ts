@@ -5,6 +5,7 @@ import { patch } from "@decimalturn/toml-patch";
 import { parse, stringify } from "smol-toml";
 import { z } from "zod";
 import { defaultProjectColor, HEX_COLOR } from "../shared/colors.ts";
+import { EFFORT_LEVELS, type EffortLevel } from "../shared/events.ts";
 import type { Limits } from "../shared/protocol.ts";
 
 export type { Limits };
@@ -59,7 +60,9 @@ const ConfigFile = z.object({
   fleet_director: z.boolean().default(true),
   /** Limits of the whole fleet, on top of each project's. */
   wip: LimitsConfig.default({}),
-  model: z.string().optional(),
+  /** What a new agent starts with; the model pill changes it per agent. */
+  model: z.string().default("opus"),
+  effort: z.enum(EFFORT_LEVELS).default("high"),
   projects: z.array(ProjectConfig).optional(),
   /** Daemons on other hosts (Coder pods), reached through a tunnel to their loopback port. */
   remotes: z
@@ -120,7 +123,9 @@ export interface Config {
   allowedTools: string[];
   /** Limits of the whole fleet, on top of each project's. */
   wip: Limits;
-  model?: string;
+  /** The model and effort a new agent starts with. */
+  model: string;
+  effort: EffortLevel;
   projects: Project[];
   remotes: Array<{ name: string; url: string }>;
   /** The Python that runs jj orbit for the history view, if there is one. */
@@ -250,6 +255,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     allowedTools: parsed.allowed_tools,
     wip: parsed.wip,
     model: parsed.model,
+    effort: parsed.effort,
     projects,
     remotes: parsed.remotes,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,

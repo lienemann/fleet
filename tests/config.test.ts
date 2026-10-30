@@ -134,6 +134,15 @@ it("keeps Finished items unread while the user watches, unless the setting says 
   expect(loadConfig(dir, "/work/here").readWhileWatching).toBe(true);
 });
 
+it("starts new agents on Opus with high effort unless config.toml says otherwise", () => {
+  expect(loadConfig(home(), "/work/here")).toMatchObject({ model: "opus", effort: "high" });
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), 'model = "fable"\neffort = "max"\n');
+  expect(loadConfig(dir, "/work/here")).toMatchObject({ model: "fable", effort: "max" });
+  writeFileSync(join(dir, "config.toml"), 'effort = "huge"\n');
+  expect(() => loadConfig(dir, "/work/here")).toThrow();
+});
+
 it("reads the inbox threshold, 15 s by default", () => {
   expect(loadConfig(home(), "/work/here").finishedAfterMs).toBe(15_000);
   const dir = home();

@@ -142,6 +142,8 @@ export const testConfig = (
 ): SupervisorOptions["config"] => ({
   host: "mac",
   wip: {},
+  model: "opus",
+  effort: "high",
   allowedTools: [],
   finishedAfterMs: 15_000,
   readWhileWatching: false,

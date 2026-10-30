@@ -160,7 +160,8 @@ The header and `fleet --version` show the version from `package.json`. To releas
 port = 7777
 # auth = false                          # no login, for a computer nobody else uses
 # fleet_director = false                # no fleet director
-model = "opus"                          # default model, optional
+model = "opus"                          # what new agents start with (the default)
+effort = "high"                         # low, medium, high, xhigh or max (the default is high)
 wip = { running = 6, review = 3 }       # for all projects together; leave it out for no limit
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
 allowed_tools = ["Bash(uv run pytest:*)"]  # also run without asking; none by default

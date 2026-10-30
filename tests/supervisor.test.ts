@@ -76,6 +76,13 @@ describe("Supervisor", () => {
     expect(log.state.agents.alpha?.permissionMode).toBe("auto");
   });
 
+  it("starts a new agent with the configured model and effort", async () => {
+    const { supervisor, calls } = setup();
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => calls.length === 1);
+    expect(calls[0]?.options).toMatchObject({ model: "opus", effort: "high" });
+  });
+
   it("sets the effort of a running session and of its later starts", async () => {
     const { log, supervisor, calls, queries } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
