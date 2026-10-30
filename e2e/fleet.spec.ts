@@ -100,6 +100,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(split).toBeVisible();
   expect(await split.evaluate((rows) => rows.scrollWidth <= rows.clientWidth)).toBe(true);
   await page.getByRole("button", { name: /^Inline/ }).click();
+  await expect(diff.locator(".rows.split")).toHaveCount(0);
   await page.locator(".diff-bar").click();
   await page.keyboard.press("a");
   await expect(diff.locator(".progress")).toContainText("1/");
@@ -137,6 +138,16 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await thread.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await shot(page, "thread");
 
+  // In one commit's view, a thread on lines that commit did not change waits below the hunks
+  // until the user asks to see it among all changes.
+  await picker.selectOption(own ?? "");
+  const elsewhere = diff.locator(".threads-elsewhere");
+  await expect(elsewhere).toContainText("Why 50 runs?");
+  await elsewhere.getByRole("button", { name: "Show in all changes" }).click();
+  await expect(diff.locator(".diff-scope")).toContainText("from the fork point");
+  await expect(diff.locator(".threads-elsewhere")).toHaveCount(0);
+  await expect(thread).toBeVisible();
+
   // A reply that lands while the user is elsewhere waits in the inbox. Leaving the Diff tab at
   // once keeps the answer from being seen where it appears.
   await thread.getByRole("button", { name: "Reply" }).click();
@@ -158,6 +169,10 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await page.evaluate(
     () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
   );
+  // Without this the check below would pass whatever the layout does.
+  await expect(
+    diff.locator(".thread", { hasText: "Is 50 enough on a slow runner?" }),
+  ).not.toBeInViewport({ ratio: 0.5 });
   await page.getByRole("button", { name: "Live" }).click();
   await page.setViewportSize(screen);
   await replies.getByRole("button", { name: "Open", exact: true }).click();
@@ -172,7 +187,29 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(
     diff.locator(".thread", { hasText: "Is 50 enough on a slow runner?" }),
   ).toBeVisible();
+  // Asking for the thread again, from the session, goes to it again.
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.getByRole("button", { name: "Open in diff" }).last().click();
+  await expect(thread).toBeInViewport();
+
+  // Mark read takes an answer out of the inbox without going to it.
+  await thread.getByRole("button", { name: "Reply" }).click();
+  await thread.getByRole("textbox").fill("And on a fast runner?");
+  await thread.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.keyboard.press("2");
+  await expect(replies).toContainText("alpha", { timeout: 10_000 });
+  await replies.getByRole("button", { name: "Mark read" }).click();
+  await expect(replies).toHaveCount(0);
   await page.keyboard.press("1");
+  await page.getByRole("button", { name: /^Diff/ }).click();
+
+  // A reply can wait for Request changes as well.
+  await thread.getByRole("button", { name: "Reply" }).click();
+  await thread.getByRole("textbox").fill("Try 5 runs too.");
+  await thread.getByLabel("Hold for Request changes").check();
+  await thread.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(thread).toContainText("held for Request changes");
 
   // A held question waits for Request changes, which sends it and moves the card.
   await runs.locator(".row.removed", { hasText: "return 1" }).getByRole("button").click();
@@ -180,12 +217,13 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await compose.getByLabel("Hold for Request changes").check();
   await compose.getByRole("button", { name: "Save", exact: true }).click();
   // Accepting now would leave the held question unsent, so Accept says so too.
-  await expect(diff.getByRole("button", { name: /^Accept.* · 1 held/ })).toBeVisible();
-  await diff.getByRole("button", { name: /Request changes · 1 held/ }).click();
-  await expect(card(page, "Changes requested", "Fix the flaky replay test")).toBeVisible();
+  await expect(diff.getByRole("button", { name: /^Accept.* · 2 held/ })).toBeVisible();
+  await diff.getByRole("button", { name: /Request changes · 2 held/ }).click();
+  // The card is in Changes requested only while the revision runs, too briefly to wait for.
   await expect(card(page, "Review", "Fix the flaky replay test")).toBeVisible({ timeout: 10_000 });
   await page.getByRole("button", { name: /^Messages/ }).click();
   await expect(page.locator(".drawer")).toContainText("Was 1 run ever enough?");
+  await expect(page.locator(".drawer")).toContainText("Try 5 runs too.");
   await page.getByRole("button", { name: "Live" }).click();
   // Each turn that edited files ends with a card of them.
   const edited = page.locator(".drawer .edited").first();
@@ -193,6 +231,16 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await expect(edited.locator(".edited-file", { hasText: "lib.py" })).toContainText(/\+\d+ −\d+/);
   await edited.scrollIntoViewIfNeeded();
   await shot(page, "edited");
+
+  // A resolved thread collapses; opening it from the session shows it in full again.
+  await page.getByRole("button", { name: /^Diff/ }).click();
+  await thread.getByRole("button", { name: "Resolve" }).click();
+  await expect(diff.locator(".thread.resolved")).toContainText("Why 50 runs?");
+  await page.getByRole("button", { name: "Live" }).click();
+  await page.getByRole("button", { name: "Open in diff" }).first().click();
+  await expect(diff.locator(".thread:not(.resolved)", { hasText: "Why 50 runs?" })).toBeVisible();
+  // The wide diff covers the card.
+  await page.getByRole("button", { name: "Live" }).click();
 
   await reviewed.getByRole("button", { name: "Accept" }).click();
   await expect(card(page, "Accepted", "Fix the flaky replay test")).toBeVisible();
