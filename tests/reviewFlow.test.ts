@@ -237,6 +237,16 @@ describe("review flow", () => {
     expect(promptsOf(log)[0]?.text).toContain("Back again");
   });
 
+  it("reports pending edits with a message held for a detached agent", () => {
+    const { log, supervisor } = review();
+    log.append({ kind: "activity", agent: "alpha", activity: "detached" });
+    log.append({ kind: "review_edited", agent: "alpha", edit });
+    supervisor.handle(open(false));
+    const agent = log.state.agents.alpha as AgentView;
+    expect(agent.edits).toEqual([]);
+    expect(agent.held?.at(-1)?.text).toContain("I edited these lines myself");
+  });
+
   it("keeps a thread message for a queued task until the change request", () => {
     const { log, supervisor } = setup();
     log.append({ kind: "task_state", agent: "alpha", state: "queued" });
