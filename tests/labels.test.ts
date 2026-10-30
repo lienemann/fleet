@@ -45,7 +45,7 @@ describe("usage", () => {
   it("reads as one line, with the details in a tooltip", () => {
     expect(usageText(usage)).toBe("5 h 8% · week 49%");
     expect(usageDetails(usage, Date.parse("2026-10-24T00:30:00Z"))).toBe(
-      "team plan\n5 h: 8% used, resets in 1h 30m\nweek: 49% used\nExtra usage: 81.05 of 80.00 USD",
+      "team plan\n5 h: 8% used, resets in 1 h 30 min\nweek: 49% used\nExtra usage: 81.05 of 80.00 USD",
     );
   });
 });

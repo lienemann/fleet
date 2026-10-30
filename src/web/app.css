@@ -52,7 +52,8 @@ button.icon,
 .color-dot {
   min-height: 0;
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }

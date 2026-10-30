@@ -105,14 +105,16 @@ export function ago(ms: number): string {
   return `${Math.floor(minutes / 60)} h ago`;
 }
 
-/** "4m", "1h 52m": how long something has been going on. */
+/** "<1 min", "4 min", "1 h 52 min": how long something has been going on or took. */
 export function duration(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "<1m";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
+  if (minutes < 1) return "<1 min";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
+
+/** The first line of a text without the blank ones before it: a notification body, a folded run. */
+export const firstLine = (text: string): string => text.trim().split("\n")[0] ?? "";
 
 /** The choice for an alias, or for the full id a running session reports. */
 const findModel = (models: readonly ModelChoice[], value: string): ModelChoice | undefined =>

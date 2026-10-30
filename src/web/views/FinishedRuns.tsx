@@ -1,15 +1,13 @@
 import { type KeyboardEvent, useState } from "react";
 import type { AgentView, FinishedRun } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
-import { ago } from "../labels.ts";
+import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { useNow } from "../useNow.ts";
 
 /** What Go sends: for an agent that waited for the user's go. */
 const GO = "Go ahead.";
-
-const firstLine = (run: FinishedRun): string => run.text.trim().split("\n")[0] ?? "";
 
 function Tag({ run }: { run: FinishedRun }) {
   return (
@@ -22,20 +20,23 @@ function Tag({ run }: { run: FinishedRun }) {
   );
 }
 
-/** "58 min", "1 h 5 min": how long a run worked. */
-function worked(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "<1 min";
-  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
-}
-
 /** "ran 58 min · 3 min ago" */
 function Span({ run }: { run: FinishedRun }) {
   const now = useNow();
   return (
     <span className="dim">
-      ran {worked(run.workMs)} · {ago(now - run.endedAt)}
+      ran {duration(run.workMs)} · {ago(now - run.endedAt)}
     </span>
+  );
+}
+
+/** A run's text; one that was cut says so, as the log does. */
+function RunText({ run }: { run: FinishedRun }) {
+  return (
+    <>
+      <Markdown text={run.text} />
+      {run.truncated && <p className="dim">… cut off at 4,000 characters.</p>}
+    </>
   );
 }
 
@@ -69,7 +70,7 @@ function FoldedRun({
           <Tag run={run} />
           {agent && <AgentName agent={agent} />}
           <Span run={run} />
-          {!open && <span className="first-line">{firstLine(run)}</span>}
+          {!open && <span className="first-line">{firstLine(run.text)}</span>}
         </button>
         {onOpen && (
           <button type="button" className="link accent" onClick={onOpen}>
@@ -77,7 +78,7 @@ function FoldedRun({
           </button>
         )}
       </div>
-      {open && <Markdown text={run.text} />}
+      {open && <RunText run={run} />}
     </div>
   );
 }
@@ -135,7 +136,7 @@ export function FinishedGroup({
           Open
         </button>
       </header>
-      <Markdown text={newest.text} />
+      <RunText run={newest} />
       <textarea
         rows={2}
         value={comment}
@@ -146,9 +147,12 @@ export function FinishedGroup({
       <footer>
         <button
           type="button"
-          disabled={text !== ""}
+          // Not `disabled`: Firefox shows no tooltip on a disabled button.
+          aria-disabled={text !== ""}
           title={text ? "Send covers what you wrote" : undefined}
-          onClick={() => send({ type: "finished_reply", agent: agent.name, ids, text: GO })}
+          onClick={() => {
+            if (!text) send({ type: "finished_reply", agent: agent.name, ids, text: GO });
+          }}
         >
           Go
         </button>
