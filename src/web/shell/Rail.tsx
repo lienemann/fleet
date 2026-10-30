@@ -12,8 +12,8 @@ import {
 import { useFleet } from "../fleet.tsx";
 import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
-import { useProjects } from "../projects.tsx";
-import { AgentLabel, useProjectColors } from "../ui/AgentLabel.tsx";
+import { useLocalProjects, useProjects } from "../projects.tsx";
+import { AgentLabel, useProjectColor, useProjectColors } from "../ui/AgentLabel.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
 import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
@@ -28,6 +28,8 @@ interface Props {
   onImport: () => void;
   onAddWorkspace: (project?: string) => void;
   onAddProject: () => void;
+  /** Opens the color picker of a project. */
+  onColor: (project: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }
@@ -68,11 +70,13 @@ export function Rail({
   onImport,
   onAddWorkspace,
   onAddProject,
+  onColor,
   collapsed,
   onToggleCollapsed,
 }: Props) {
   const { state, info } = useFleet();
   const projects = useProjects();
+  const local = useLocalProjects();
   const colorOf = useProjectColors();
   const [folded, toggle] = useFolded();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
@@ -104,6 +108,7 @@ export function Rail({
       <h2 className="rail-head">
         <span className="rail-label">Agents</span>
         <span className="rail-actions">
+          {!grouped && local[0] && <ColorDot project={local[0].name} onColor={onColor} />}
           <button
             type="button"
             className="link"
@@ -147,6 +152,9 @@ export function Rail({
                     <span className="caret" aria-hidden="true" />
                     {name}
                   </button>
+                  {local.some((p) => p.name === name) && (
+                    <ColorDot project={name} onColor={onColor} />
+                  )}
                   {!open && own.some(needsUser) && (
                     <span className="dot col-needs_you" title={`An agent of ${name} needs you`} />
                   )}
@@ -191,6 +199,22 @@ export function Rail({
         {state.usage && state.usage.limits.length > 0 && <PlanUsage usage={state.usage} />}
       </footer>
     </aside>
+  );
+}
+
+/** A dot in the project's color that opens the picker for it. */
+function ColorDot({ project, onColor }: { project: string; onColor: (project: string) => void }) {
+  const color = useProjectColor(project);
+  return (
+    <button
+      type="button"
+      className="color-dot"
+      aria-label={`Color of ${project}`}
+      title={`Color of ${project} (${keyLabel("alt+k")})`}
+      onClick={() => onColor(project)}
+    >
+      <span className="dot" style={{ background: color }} />
+    </button>
   );
 }
 

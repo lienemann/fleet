@@ -15,7 +15,7 @@ import { type Command, focusPane, focusPaneNamed, PANES, useCommands } from "./k
 import { Palette } from "./keys/Palette.tsx";
 import { Shortcuts } from "./keys/Shortcuts.tsx";
 import { lowDiskText } from "./labels.ts";
-import { useProjectFilter, useProjects } from "./projects.tsx";
+import { useLocalProjects, useProjectFilter, useProjects } from "./projects.tsx";
 import { AddProject } from "./shell/AddProject.tsx";
 import { AddWorkspace } from "./shell/AddWorkspace.tsx";
 import { DirectorDock } from "./shell/DirectorDock.tsx";
@@ -23,6 +23,7 @@ import { DRAWER_TABS, Drawer, type DrawerTab } from "./shell/Drawer.tsx";
 import { Header } from "./shell/Header.tsx";
 import { ImportSessions } from "./shell/ImportSessions.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
+import { ProjectColor } from "./shell/ProjectColor.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
 import { attachAgent } from "./tile/attach.ts";
@@ -42,7 +43,7 @@ import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
 import { toMarkRead, useWindowFocus } from "./watching.ts";
 
-type Overlay = "new-task" | "import" | "workspaces" | "project" | "shortcuts" | "palette";
+type Overlay = "new-task" | "import" | "workspaces" | "project" | "color" | "shortcuts" | "palette";
 
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
@@ -59,6 +60,7 @@ export function App() {
   const show = (kind: Overlay, project?: string): void =>
     setOverlay({ kind, id: Date.now() + Math.random(), project });
   const projects = useProjects();
+  const localProjects = useLocalProjects();
   const filter = useProjectFilter();
   const agent = selected ? state.agents[selected] : undefined;
   const agents = agentList(state);
@@ -199,6 +201,11 @@ export function App() {
       projects.map((p) => p.name),
       filter.project,
       filter.show,
+    ),
+    ...colorCommands(
+      localProjects.map((p) => p.name),
+      filter.project ?? (selected ? state.agents[selected]?.project : undefined),
+      (project) => show("color", project),
     ),
     {
       id: "task.import",
@@ -607,6 +614,7 @@ export function App() {
           onImport={() => show("import")}
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
+          onColor={(project) => show("color", project)}
           collapsed={rail.collapsed}
           onToggleCollapsed={rail.toggle}
         />
@@ -665,6 +673,13 @@ export function App() {
           onClose={() => setOverlay(undefined)}
         />
       )}
+      {overlay?.kind === "color" && overlay.project && (
+        <ProjectColor
+          key={overlay.id}
+          project={overlay.project}
+          onClose={() => setOverlay(undefined)}
+        />
+      )}
       {overlay?.kind === "project" && (
         <AddProject key={overlay.id} onClose={() => setOverlay(undefined)} />
       )}
@@ -704,6 +719,40 @@ function projectCommands(
         label: `Show project ${name}`,
         group: "Projects",
         run: () => show(name),
+      }),
+    ),
+  ];
+}
+
+/**
+ * Choosing a project's color: the key goes to the shown project, or the selected agent's, or the
+ * first one; the palette names each. Only this daemon's projects can change; a pod keeps its own.
+ */
+function colorCommands(
+  names: string[],
+  shown: string | undefined,
+  choose: (project: string) => void,
+): Command[] {
+  const target = names.find((name) => name === shown) ?? names[0];
+  return [
+    ...(target === undefined
+      ? []
+      : [
+          {
+            id: "project.color",
+            label: "Choose the color of the shown project",
+            group: "Projects",
+            keys: ["alt+k"],
+            paletteHidden: true,
+            run: () => choose(target),
+          },
+        ]),
+    ...names.map(
+      (name): Command => ({
+        id: `project.color.${name}`,
+        label: `Color of ${name}`,
+        group: "Projects",
+        run: () => choose(name),
       }),
     ),
   ];

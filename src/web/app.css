@@ -1340,6 +1340,19 @@ button.link.accent {
 .swatch[aria-pressed="true"] {
   border-color: var(--strong);
 }
+.swatches {
+  display: flex;
+  padding: 0;
+  border: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.own-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 /* Quiet text under the prompt, on one line: the pickers shrink before anything wraps. */
 .cli-bar {
   display: flex;

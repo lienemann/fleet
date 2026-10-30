@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { SWATCHES, themedColor } from "../src/shared/colors.ts";
 import { MAC_SECRET } from "./secrets.ts";
 
 // One daemon serves all tests, so they run in order and find agents by task title.
@@ -9,6 +10,10 @@ const shots = process.env.FLEET_SHOTS;
 const shot = async (page: Page, name: string) => {
   if (shots) await page.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
 };
+
+/** `rgb(r, g, b)`, as the browser reports a color. */
+const rgb = (hex: string): string =>
+  `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
 
 const column = (page: Page, name: string) =>
   page.locator(".column", { has: page.getByRole("heading", { name }) });
@@ -480,6 +485,58 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
   await expect(header).toHaveAttribute("aria-expanded", "false");
   await header.click();
   await expect(site).toContainText("Polish the homepage");
+});
+
+test("a project's color is chosen in the rail, and cards, the inbox and the drawer wear it and name the project", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const homepage = page.locator(".card", { hasText: "Polish the homepage" });
+  const flaky = page.locator(".card", { hasText: "Fix the flaky replay test" });
+  const color = (chip: Locator) => chip.evaluate((el) => getComputedStyle(el).color);
+  const siteChip = homepage.locator(".project-chip");
+  const before = await color(siteChip);
+  // The two projects start with colors of their own.
+  expect(await color(flaky.locator(".project-chip"))).not.toBe(before);
+
+  await page.getByRole("button", { name: "Color of site" }).click();
+  const dialog = page.getByRole("dialog", { name: "Color of site" });
+  const pick = SWATCHES[2];
+  await dialog.getByRole("button", { name: pick }).click();
+  await expect(dialog.getByRole("button", { name: pick })).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: "Close" }).click();
+
+  // The card, the tile's tint and the rail follow, and so does the choice after a reload.
+  const theme = (await page.evaluate(() => document.documentElement.dataset.theme)) as
+    | "dark"
+    | "light";
+  const wears = rgb(themedColor(pick, theme));
+  await expect.poll(() => color(siteChip)).toBe(wears);
+  await expect(homepage.locator(".agent-label .name")).toHaveCSS("color", wears);
+  await expect(
+    page
+      .locator(".rail-project", { hasText: "Polish the homepage" })
+      .locator(".name", { hasText: /^director-site$/ }),
+  ).toHaveCSS("color", wears);
+  await page.reload();
+  await expect
+    .poll(() =>
+      color(page.locator(".card", { hasText: "Polish the homepage" }).locator(".project-chip")),
+    )
+    .toBe(wears);
+
+  // Inbox items name their agent and project, in the project's color.
+  await page.keyboard.press("Alt+2");
+  const item = page.locator(".decision", { hasText: "Polish the homepage" });
+  await expect(item.locator(".project-chip")).toHaveText("site", { timeout: 15_000 });
+  await expect(item.locator(".agent-label .name")).toHaveCSS("color", wears);
+
+  // So does the drawer's header.
+  await page.keyboard.press("Alt+1");
+  await page.locator(".card", { hasText: "Polish the homepage" }).locator(".card-main").click();
+  const head = page.locator(".drawer-head .agent-label");
+  await expect(head.locator(".project-chip")).toHaveText("site");
+  await expect(head.locator(".name")).toHaveCSS("color", wears);
 });
 
 test("a side question gets an answer that stays out of the session", async ({ page }) => {
