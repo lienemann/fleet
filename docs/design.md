@@ -312,6 +312,8 @@ When the directory is missing, or none of its files has the expected shape, the 
 
 The daemon can make agents run commands, so it is reachable only through `127.0.0.1` and tunnels, never an open port.
 
+**Reading files.** The browser asks the daemon for a file's content, never for a path of its own choosing. The daemon reads files inside the agent's workspace and the repos it may read. Outside them it reads only a plan (`plans/`) or a memory file (`projects/*/memory/`) of Claude's config directory that the agent wrote or attached. Paths are resolved through symlinks first, so a link cannot lead out, and nothing under `~/.fleet/secret` or `~/.fleet/remotes` is ever shown, whatever lists it. Attaching a path applies the same rules, so a worker learns at once that fleet will not show a file.
+
 **Network.** Bind to `127.0.0.1`. Remote access from the phone or another machine goes through an ssh tunnel, Coder port forwarding or the VPN; no auth layer of its own in phase 1.
 
 **Claude login.** Personal use on the Team/Max subscription. The SDK sessions run under my own Claude Code login, and the support article on the Agent SDK confirms subscription limits apply to it. Six parallel agents drain limits fast; the monthly API credits included with Max and Team plans are the overflow.

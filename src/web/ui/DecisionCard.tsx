@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
 import type { AgentView, Decision } from "../../shared/reducer.ts";
-import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
 import { AgentLabel } from "./AgentLabel.tsx";
+import { FileBody } from "./FileBody.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
@@ -228,17 +228,8 @@ function Questions({
 }
 
 function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
-  const { call } = useFleet();
-  const [content, setContent] = useState<string>();
-  const [error, setError] = useState<string>();
   const [comment, setComment] = useState("");
   const path = decision.path ?? "";
-
-  useEffect(() => {
-    call({ type: "read_file", agent: decision.agent, path }).then(setContent, (e: Error) =>
-      setError(e.message),
-    );
-  }, [call, decision.agent, path]);
 
   const message = comment.trim() || undefined;
   return (
@@ -246,11 +237,7 @@ function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
       <p className="review-path">
         {decision.reviewKind} · <code>{path}</code>
       </p>
-      {content !== undefined && path.endsWith(".md") ? (
-        <Markdown text={content} className="input file" />
-      ) : (
-        <pre className="input file">{error ?? content ?? "Loading…"}</pre>
-      )}
+      <FileBody agent={decision.agent} path={path} className="input file" />
       <textarea
         value={comment}
         onChange={(e) => setComment(e.target.value)}

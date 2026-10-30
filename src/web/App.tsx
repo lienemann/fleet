@@ -55,6 +55,8 @@ export function App() {
   const [tab, setTab] = useState<DrawerTab>("live");
   // A new object for each request, so opening the same thread again scrolls to it again.
   const [thread, setThread] = useState<{ id: string }>();
+  // Likewise for the file the Files tab shows.
+  const [file, setFile] = useState<{ path: string }>();
   // Each opening is a new object, so "closed, then opened again" in one batch still opens it.
   const [overlay, setOverlay] = useState<{ kind: Overlay; id: number; project?: string }>();
   const show = (kind: Overlay, project?: string): void =>
@@ -68,19 +70,23 @@ export function App() {
 
   // A thread asked for once is done with when another agent opens or the drawer closes; reopening
   // the agent must not jump back to it.
+  const forgetTargets = (): void => {
+    setThread(undefined);
+    setFile(undefined);
+  };
   const select = (name: string): void => {
     setSelected(name);
-    setThread(undefined);
+    forgetTargets();
     drawer.expand();
   };
   const closeDrawer = (): void => {
     setSelected(undefined);
-    setThread(undefined);
+    forgetTargets();
   };
-  /** Tabs other than the diff have no use for a thread, and coming back to the diff should not jump. */
+  /** A tab has no use for what another one was opened at, and coming back should not jump. */
   const goTab = (next: DrawerTab): void => {
     setTab(next);
-    setThread(undefined);
+    forgetTargets();
   };
   /** Opens the agent in the drawer and puts the cursor into its prompt, once the drawer shows it. */
   const message = (name: string): void => {
@@ -112,6 +118,13 @@ export function App() {
     drawer.expand();
     setTab("diff");
     setThread({ id });
+  };
+  /** Opens a file of the selected agent in the Files tab. */
+  const showFile = (path: string): void => {
+    drawer.expand();
+    setTab("files");
+    forgetTargets();
+    setFile({ path });
   };
   const open = (name: string): void => {
     select(name);
@@ -644,8 +657,10 @@ export function App() {
             agent={agent}
             tab={tab}
             thread={thread}
+            file={file}
             onTab={goTab}
             onOpenThread={(id) => showThread(agent.name, id)}
+            onOpenFile={showFile}
             onOpenInGrid={() => open(agent.name)}
             onClose={closeDrawer}
             collapsed={drawer.collapsed}

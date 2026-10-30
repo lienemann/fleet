@@ -10,9 +10,14 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OpenPoint } from "../shared/events.ts";
-import type { TaskOutput } from "../shared/protocol.ts";
+import type { FileContent, TaskOutput } from "../shared/protocol.ts";
+
+/** Where Claude Code keeps its settings, plans and memory. */
+export const claudeConfigDir = (): string =>
+  process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 
 /** Files larger than this are not shown in the browser. */
 const MAX_BYTES = 512 * 1024;
@@ -36,14 +41,77 @@ export function readOutputTail(path: string, all = false): TaskOutput {
 
 export class OutsideWorkspaceError extends Error {}
 
+const isInside = (root: string, file: string): boolean => {
+  const rel = relative(root, file);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
 /** Resolves `path` against `root` and refuses anything that ends up outside it, symlinks included. */
 export function resolveInside(root: string, path: string): string {
   const real = realPath(resolve(root, path));
-  const rel = relative(realPath(root), real);
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (!isInside(realPath(root), real)) {
     throw new OutsideWorkspaceError(`${path} is outside the workspace`);
   }
   return real;
+}
+
+/** What the browser may read of one agent's files. */
+export interface ReadScope {
+  /** The agent's workspace, relative paths start here. */
+  cwd: string;
+  /** Directories the agent reads freely: its workspace and the repos it may look at. */
+  roots: string[];
+  /** Paths the agent wrote or attached; they count outside the roots if they are documents. */
+  listed: string[];
+  /** Claude's config directory, whose plans and memory hold documents agents write for the user. */
+  configDir: string;
+  /** Files and directories that are never shown, whatever else allows them. */
+  denied: string[];
+}
+
+export class NotReadableError extends Error {}
+
+/** A plan or a memory file of Claude Code: `plans/` and `projects/<dir>/memory/`. */
+const isClaudeDocument = (configDir: string, file: string): boolean => {
+  const rel = relative(realPath(configDir), file);
+  return /^(plans|projects[\\/][^\\/]+[\\/]memory)[\\/]/.test(rel);
+};
+
+/**
+ * The real path of `path` if the browser may read it: inside the agent's roots, or a plan or
+ * memory file the agent wrote or attached. Symlinks are resolved first, so a link cannot lead
+ * out of where the rules allow.
+ */
+export function resolveReadable(scope: ReadScope, path: string): string {
+  const file = realPath(resolve(scope.cwd, path));
+  if (scope.denied.some((denied) => isInside(realPath(denied), file)))
+    throw new NotReadableError(`${path} is never shown`);
+  if (scope.roots.some((root) => isInside(realPath(root), file))) return file;
+  if (
+    isClaudeDocument(scope.configDir, file) &&
+    scope.listed.some((listed) => realPath(resolve(scope.cwd, listed)) === file)
+  )
+    return file;
+  throw new NotReadableError(`${path} is outside what fleet shows of this agent's files`);
+}
+
+/** Bytes looked at to tell text from binary. */
+const SNIFF_BYTES = 8 * 1024;
+
+/** A file for the viewer: its text, or just its size when it is binary or too large to send. */
+export function readFileContent(file: string): FileContent {
+  const { size } = statSync(file);
+  if (size > MAX_BYTES) return { kind: "too_large", size };
+  const bytes = readFileSync(file);
+  if (bytes.subarray(0, SNIFF_BYTES).includes(0)) return { kind: "binary", size };
+  return { kind: "text", size, text: bytes.toString("utf8") };
+}
+
+/** Resolves `path` like `resolveReadable` and reads it as the viewer needs. */
+export function readViewable(scope: ReadScope, path: string): FileContent {
+  const file = resolveReadable(scope, path);
+  if (!existsSync(file) || !statSync(file).isFile()) throw new Error(`${path} does not exist`);
+  return readFileContent(file);
 }
 
 /** Like realpath, but for paths that may not exist yet: resolves the nearest existing ancestor. */

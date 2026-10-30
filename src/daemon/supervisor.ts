@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { defaultProjectColor } from "../shared/colors.ts";
@@ -27,6 +26,7 @@ import type {
   Command,
   DaemonInfo,
   DirectoryInfo,
+  FileContent,
   SessionSummary,
   TaskOutput,
 } from "../shared/protocol.ts";
@@ -44,12 +44,14 @@ import {
   workspaceUse,
 } from "../shared/reducer.ts";
 import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
+import { secretFile } from "./auth.ts";
 import { changeRequest, threadMessage } from "./changeRequest.ts";
 import {
   allWorkspaces,
   type Config,
   defaultWorkspace,
   expandHome,
+  fleetHome,
   isWithin,
   type Limits,
   NAME,
@@ -64,10 +66,13 @@ import {
 import type { EventLog } from "./eventLog.ts";
 import {
   agentNotes,
+  claudeConfigDir,
   listWorkspaceFiles,
   OutsideWorkspaceError,
   parseOpenPoints,
+  type ReadScope,
   readOutputTail,
+  readViewable,
   readWorkspaceFile,
   resolveInside,
 } from "./files.ts";
@@ -620,7 +625,7 @@ export class Supervisor implements ToolHost {
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
       case "read_file":
-        return readWorkspaceFile(agent.cwd, call.path);
+        return this.viewFile(agent, call.path);
       case "list_files":
         return listWorkspaceFiles(agent.cwd);
       case "notes":
@@ -2110,6 +2115,32 @@ export class Supervisor implements ToolHost {
     writeFileSync(join(dir, "context.md"), `# ${agent.title}\n\n${context}\n`);
   }
 
+  /** Repos an agent reads besides its own directory: every project's for the fleet director. */
+  private readableRepos(agent: AgentView): string[] {
+    if (agent.role === "fleet-director") return this.config.projects.map((p) => p.path);
+    return (this.projectOf(agent) ?? this.home)?.readOnly ?? [];
+  }
+
+  /** What the browser may read of an agent's files; see `resolveReadable`. */
+  private readScope(agent: AgentView): ReadScope {
+    const home = fleetHome();
+    return {
+      cwd: agent.cwd,
+      roots: [agent.cwd, ...this.readableRepos(agent)],
+      listed: agent.outputs,
+      configDir: claudeConfigDir(),
+      denied: [secretFile(home), join(home, "remotes")],
+    };
+  }
+
+  private viewFile(agent: AgentView, path: string): FileContent {
+    try {
+      return readViewable(this.readScope(agent), path);
+    } catch (error) {
+      throw new ToolError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private readFile(agent: string, path: string): string {
     const cwd = this.agent(agent)?.cwd;
     if (!cwd) throw new ToolError(`No agent "${agent}".`);
@@ -2131,8 +2162,7 @@ export class Supervisor implements ToolHost {
     const project = fleet ? undefined : (this.projectOf(agent) ?? this.home);
     keepNotesOutOfVcs(agent.cwd);
     const allowed = director ? [] : (this.workspace(agent.workspace)?.allowedTools ?? []);
-    // Repos the agent reads besides its own directory: every project's for the fleet director.
-    const readable = fleet ? this.config.projects.map((p) => p.path) : (project?.readOnly ?? []);
+    const readable = this.readableRepos(agent);
     // Bare tool names in allowedTools would skip canUseTool with an SDK warning, so the
     // daemon approves those itself; only rules with a pattern go to the CLI.
     const approved = new Set(allowed.filter((rule) => !rule.includes("(")));
@@ -2248,8 +2278,6 @@ function memoryDir(cwd: string, configDir: string): string {
   }
   return join(configDir, "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"), "memory");
 }
-
-const claudeConfigDir = (): string => process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 
 /**
  * A director plans and delegates; the only files it writes are its own notes, the

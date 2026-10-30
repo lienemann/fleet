@@ -165,7 +165,15 @@ function purposeOf(input: unknown): string | undefined {
 export function summarizeInput(input: unknown): string {
   if (typeof input !== "object" || input === null) return "";
   const record = input as Record<string, unknown>;
-  for (const key of ["command", "file_path", "path", "pattern", "url", "description"]) {
+  for (const key of [
+    "command",
+    "file_path",
+    "notebook_path",
+    "path",
+    "pattern",
+    "url",
+    "description",
+  ]) {
     if (typeof record[key] === "string") return record[key];
   }
   return JSON.stringify(input);

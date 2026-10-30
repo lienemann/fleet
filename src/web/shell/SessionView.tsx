@@ -5,6 +5,7 @@ import { useFleet } from "../fleet.tsx";
 import { MODE_LABELS, modelLabel } from "../labels.ts";
 import { holderLabel } from "../tile/attach.ts";
 import { canHandOver } from "../tile/CliBar.tsx";
+import { FileLink } from "../ui/FileLink.tsx";
 
 /** Outputs shown before "Show more". */
 const OUTPUTS_SHOWN = 5;
@@ -20,12 +21,18 @@ const tokens = (n: number): string =>
  * Where the session runs, what fills its context window, and which files it wrote: the side
  * panel of the Claude desktop app, for one agent.
  */
-export function SessionView({ agent }: { agent: AgentView }) {
+export function SessionView({
+  agent,
+  onOpenFile,
+}: {
+  agent: AgentView;
+  onOpenFile: (path: string) => void;
+}) {
   return (
     <div className="drawer-scroll session-view">
       <Environment agent={agent} />
       <Context agent={agent} />
-      <Outputs agent={agent} />
+      <Outputs agent={agent} onOpenFile={onOpenFile} />
     </div>
   );
 }
@@ -155,10 +162,8 @@ function categoryClass(category: ContextCategory): string {
   return `cat-${category.id ?? "other"}`;
 }
 
-function Outputs({ agent }: { agent: AgentView }) {
+function Outputs({ agent, onOpenFile }: { agent: AgentView; onOpenFile: (path: string) => void }) {
   const [all, setAll] = useState(false);
-  const relative = (path: string) =>
-    path.startsWith(`${agent.cwd}/`) ? path.slice(agent.cwd.length + 1) : path;
   const shown = all ? agent.outputs : agent.outputs.slice(0, OUTPUTS_SHOWN);
   return (
     <section className="panel">
@@ -166,8 +171,8 @@ function Outputs({ agent }: { agent: AgentView }) {
       {agent.outputs.length === 0 && <p className="empty">No files written yet.</p>}
       <ul className="outputs">
         {shown.map((path) => (
-          <li key={path} title={path}>
-            <code>{relative(path)}</code>
+          <li key={path}>
+            <FileLink cwd={agent.cwd} path={path} onOpen={onOpenFile} />
           </li>
         ))}
       </ul>

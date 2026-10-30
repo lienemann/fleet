@@ -30,9 +30,12 @@ interface Props {
   tab: DrawerTab;
   /** The line thread the diff scrolls to and expands, when the drawer was opened for one. */
   thread?: { id: string };
+  /** The file the Files tab opens, when the drawer was opened for one. */
+  file?: { path: string };
   onTab: (tab: DrawerTab) => void;
   onOpenInGrid: () => void;
   onOpenThread: (thread: string) => void;
+  onOpenFile: (path: string) => void;
   onClose: () => void;
   /** Folded away to a strip; the drawer stays mounted, so its draft and scroll stay. */
   collapsed: boolean;
@@ -47,9 +50,11 @@ export function Drawer({
   agent,
   tab,
   thread,
+  file,
   onTab,
   onOpenInGrid,
   onOpenThread,
+  onOpenFile,
   onClose,
   collapsed,
   onToggleCollapsed,
@@ -159,9 +164,9 @@ export function Drawer({
       </nav>
       <div className="drawer-body">
         {tab === "live" && <Tile agent={agent} selected onOpenThread={onOpenThread} />}
-        {tab === "session" && <SessionView agent={agent} />}
+        {tab === "session" && <SessionView agent={agent} onOpenFile={onOpenFile} />}
         {tab === "activity" && <ActivityView agent={agent} />}
-        {tab === "files" && <FilesView agent={agent} />}
+        {tab === "files" && <FilesView agent={agent} request={file} />}
         {tab === "diff" && <DiffView agent={agent} thread={thread} />}
         {tab === "report" && <ReportView agent={agent} />}
         {tab === "messages" && (

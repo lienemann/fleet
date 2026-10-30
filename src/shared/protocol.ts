@@ -187,7 +187,10 @@ const id = z.string().min(1);
 
 /** Requests that get an answer: a `reply` message with the same id. */
 export const CallSchema = z.discriminatedUnion("type", [
-  /** A file of the agent's workspace. */
+  /**
+   * A file to show: one of the agent's roots, or one of its outputs or attached files in a
+   * place agents keep their documents. Relative paths are the workspace's.
+   */
   z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
   /** Loads the diff view; without a scope, the agent's whole change since trunk. */
   z.object({
@@ -268,9 +271,16 @@ export type Command = z.infer<typeof CommandSchema>;
 export type Call = z.infer<typeof CallSchema>;
 export type ClientMessage = Command | Call;
 
+/** A file as the viewer gets it; `text` only for kind "text". */
+export interface FileContent {
+  kind: "text" | "binary" | "too_large";
+  size: number;
+  text?: string;
+}
+
 /** What each call answers with. */
 export interface CallResults {
-  read_file: string;
+  read_file: FileContent;
   list_files: string[];
   list_sessions: SessionSummary[];
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
