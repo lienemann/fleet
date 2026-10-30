@@ -3,13 +3,14 @@ import { FLEET_DIRECTOR } from "../../shared/events.ts";
 import { useFleet } from "../fleet.tsx";
 import { type Command, useCommands } from "../keys/keymap.tsx";
 import { useProjects } from "../projects.tsx";
+import { AgentLabel } from "../ui/AgentLabel.tsx";
 
 /**
  * A director's latest reply and a prompt to it, always at hand: the fleet director's, or, picked
  * in the dock, a project's director.
  */
 export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { state, send, color } = useFleet();
+  const { state, send } = useFleet();
   const projects = useProjects();
   const [draft, setDraft] = useState("");
   const [chosen, setChosen] = useState<string>();
@@ -63,15 +64,7 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
           ))}
         </select>
       )}
-      <button
-        type="button"
-        className="link name"
-        style={{ color: color(director.color) }}
-        title={`Open ${target.name}`}
-        onClick={() => onOpen(target.name)}
-      >
-        {target.name}
-      </button>
+      <AgentLabel agent={target.name} chip={false} onOpen={onOpen} />
       {(director.activity === "working" || reply) && (
         <span className="dock-reply" title={reply?.text}>
           {director.activity === "working" ? "thinking…" : reply?.text.split("\n")[0]}

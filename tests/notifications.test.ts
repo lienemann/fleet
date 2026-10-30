@@ -38,7 +38,11 @@ describe("notices", () => {
       before,
     );
     expect(notices(before, after)).toEqual([
-      { agent: "alpha", title: "alpha needs you", body: "Fix the flaky test: wants to use Bash" },
+      {
+        agent: "alpha",
+        title: "alpha · test needs you",
+        body: "Fix the flaky test: wants to use Bash",
+      },
     ]);
   });
 
@@ -58,13 +62,13 @@ describe("notices", () => {
       before,
     );
     expect(notices(before, after)).toEqual([
-      { agent: "alpha", title: "alpha is in review", body: "Scaled the tolerance." },
+      { agent: "alpha", title: "alpha · test is in review", body: "Scaled the tolerance." },
     ]);
   });
 
   it.each([
-    [undefined, "alpha finished", "Replaced the tolerance."],
-    ["offline", "alpha stopped", "Replaced the tolerance."],
+    [undefined, "alpha · test finished", "Replaced the tolerance."],
+    ["offline", "alpha · test stopped", "Replaced the tolerance."],
   ])(
     "announces a Finished item (stopped: %s) with the first line of its text",
     (stopped, title, body) => {
@@ -112,7 +116,7 @@ describe("notices", () => {
       {
         agent: "alpha",
         tag: "finished-alpha",
-        title: "alpha finished",
+        title: "alpha · test finished",
         body: "Done r2",
         finished: "r2",
       },
@@ -150,7 +154,7 @@ describe("notices", () => {
         risk: [],
       };
       const after = reduceAll(at([idle, decision, run("r1", "Done.")], 4), before);
-      expect(notices(before, after).map((n) => n.title)).toEqual(["alpha needs you"]);
+      expect(notices(before, after).map((n) => n.title)).toEqual(["alpha · test needs you"]);
     });
 
     it("is outdated once the item is read, here or in another window", () => {
@@ -178,7 +182,7 @@ describe("notices", () => {
       before,
     );
     expect(notices(before, after)).toEqual([
-      { agent: "alpha", title: "Message from alpha", body: "Which branch?" },
+      { agent: "alpha", title: "Message from alpha · test", body: "Which branch?" },
     ]);
   });
 

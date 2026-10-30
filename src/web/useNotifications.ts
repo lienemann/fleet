@@ -7,6 +7,7 @@ import {
   needsUser,
   pendingDecisions,
 } from "../shared/reducer.ts";
+import { agentText } from "./agentStyle.ts";
 import { columnLabel, firstLine, lowDiskText } from "./labels.ts";
 
 const STORAGE_KEY = "fleet.notifications";
@@ -77,7 +78,7 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
       result.push({
         agent: agent.name,
         tag: `finished-${agent.name}`,
-        title: `${agent.name} ${finished.stopped ? "stopped" : "finished"}`,
+        title: `${agentText(agent)} ${finished.stopped ? "stopped" : "finished"}`,
         body: firstLine(finished.text),
         finished: finished.id,
       });
@@ -94,19 +95,19 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
         : "is waiting for your reply";
       result.push({
         agent: agent.name,
-        title: `${agent.name} needs you`,
+        title: `${agentText(agent)} needs you`,
         body: `${agent.title}: ${what}`,
       });
     } else if (agent.task === "review") {
       result.push({
         agent: agent.name,
-        title: `${agent.name} is ${columnLabel("review")}`,
+        title: `${agentText(agent)} is ${columnLabel("review")}`,
         body: agent.report?.summary ?? agent.title,
       });
     } else {
       result.push({
         agent: agent.name,
-        title: `${agent.name} wrote something for you`,
+        title: `${agentText(agent)} wrote something for you`,
         body: agent.title,
       });
     }
@@ -114,9 +115,10 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
   const known = before.messages.at(-1)?.seq ?? 0;
   for (const message of after.messages) {
     if (message.seq > known && message.to === USER) {
+      const sender = after.agents[message.from];
       result.push({
         agent: message.from,
-        title: `Message from ${message.from}`,
+        title: `Message from ${sender ? agentText(sender) : message.from}`,
         body: firstLine(message.body),
       });
     }

@@ -46,8 +46,8 @@ quiet minutes), the end of that output, and Stop.
 
 When a session's context fills up, Hand over (Shift+H) asks it to write a handover document to
 `.fleet/<agent>/handover-N.md`. fleet then starts a fresh session under the same name, which reads the document and
-carries on, and tells the director. Each agent has a color and, if you like, a background tint of that color; both
-are set from the dot in the tile header.
+carries on, and tells the director. Each project has a color, which its cards, tiles, agents and inbox items wear, and each agent has, if you like, a
+background tint of it, set from the dot in the tile header. Choose the project's color from the dot in its rail head.
 
 Agents talk to fleet through tools the daemon serves in-process. A worker calls `report_result` when it is done,
 `request_decision` or `request_review` when it needs you, `submit_open_points` for a file of questions,
@@ -74,7 +74,7 @@ needs you while fleet is in the background. Everything is reachable from the key
 app.
 
 Not there yet: rewind (op restore plus a session fork), showing which review threads a revision addressed,
-op-log entries attributed to agents and agent colors in jj orbit, the CLI's "You should know" side agent, and
+op-log entries attributed to agents in jj orbit, the CLI's "You should know" side agent, and
 read-only lists of skills, hooks and MCP servers.
 
 ## Projects
@@ -167,6 +167,7 @@ allowed_tools = ["Bash(uv run pytest:*)"]  # also run without asking; none by de
 [[projects]]
 name = "foo"
 path = "~/Projects/foo"                 # the default workspace, which you share with the project's director
+color = "#4fd1c5"                       # what its tickets wear; fleet picks one and writes it here
 wip = { running = 4, review = 2 }
 read_only = ["~/Projects/bar"]          # repos its agents read without asking
 # director = false turns its director off; allowed_tools = [...] replaces the list for the project

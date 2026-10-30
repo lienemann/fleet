@@ -586,10 +586,9 @@ h2 {
 .drawer-line .dot {
   width: 9px;
   height: 9px;
-  background: var(--agent);
+  background: var(--project);
 }
 .drawer-line .name {
-  color: var(--agent);
   font-size: 13px;
 }
 .drawer-line .ws {
@@ -701,7 +700,7 @@ button.link.accent {
   flex-direction: column;
   gap: 7px;
   padding: 9px;
-  background: color-mix(in srgb, var(--agent) var(--tint, 0%), var(--card));
+  background: color-mix(in srgb, var(--project) var(--tint, 0%), var(--card));
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 1px 2px var(--shadow);
@@ -726,15 +725,15 @@ button.link.accent {
 }
 .card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   width: 100%;
 }
 .card-head .dot {
-  background: var(--agent);
+  background: var(--project);
 }
 .card-head .name {
-  color: var(--agent);
   font-size: 12px;
 }
 .card-ws {
@@ -1034,18 +1033,18 @@ button.link.accent {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: color-mix(in srgb, var(--agent) var(--tint, 0%), var(--panel));
+  background: color-mix(in srgb, var(--project) var(--tint, 0%), var(--panel));
   border: 1px solid var(--line);
-  border-top: 3px solid var(--agent);
+  border-top: 3px solid var(--project);
   border-radius: 10px;
   overflow: hidden;
 }
 .tile.needs-you {
   border-color: var(--warnline);
-  border-top-color: var(--agent);
+  border-top-color: var(--project);
 }
 .tile.selected {
-  box-shadow: 0 0 0 1px var(--agent);
+  box-shadow: 0 0 0 1px var(--project);
 }
 .tile > header {
   display: flex;
@@ -1067,10 +1066,9 @@ button.link.accent {
   background: transparent;
 }
 .color-dot .dot {
-  background: var(--agent);
+  background: var(--project);
 }
 .tile .name {
-  color: var(--agent);
   font: 600 12.5px var(--font-mono);
 }
 .tile .ws {
@@ -1085,11 +1083,15 @@ button.link.accent {
   color: var(--muted);
   font-size: 11px;
 }
-/* The project, shown on cards and tiles only while there are several. */
+/* The project, in its own color; shown next to an agent only while there are several. */
 .project-chip {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
-  color: var(--accent);
   white-space: nowrap;
+}
+.agent-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
 }
 .tile > header .pill {
   padding: 0 7px;
@@ -1139,7 +1141,7 @@ button.link.accent {
   background: transparent;
   color: var(--fg3);
 }
-.color-row {
+.tint-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1148,9 +1150,6 @@ button.link.accent {
   background: var(--col);
   border-bottom: 1px solid var(--line);
   font-size: 11.5px;
-}
-.color-row .dim:not(:first-child) {
-  margin-left: 8px;
 }
 .status-row {
   display: flex;
@@ -1194,7 +1193,7 @@ button.link.accent {
   min-height: 80px;
   overflow-y: auto;
   padding: 8px 10px;
-  background: color-mix(in srgb, var(--agent, transparent) var(--tint, 0%), var(--term));
+  background: color-mix(in srgb, var(--project, transparent) var(--tint, 0%), var(--term));
   font: 12px / 1.55 var(--font-mono);
   display: flex;
   flex-direction: column;
@@ -1491,7 +1490,7 @@ button.link.accent {
   color: var(--muted);
 }
 .prompt-row .caret {
-  color: var(--agent, var(--accent));
+  color: var(--project, var(--accent));
   font: 600 13px var(--font-mono);
 }
 .prompt textarea {
@@ -2738,7 +2737,7 @@ button.ln:hover {
 .rail-body {
   margin-left: 12px;
   padding-left: 8px;
-  border-left: 1px solid var(--line2);
+  border-left: 2px solid color-mix(in srgb, var(--project) 55%, var(--line2));
 }
 /* The workspaces within a project's section: a quiet label, not a second heading. */
 .rail .rail-sub {
@@ -3003,7 +3002,7 @@ button.ln:hover {
   gap: 12px;
 }
 .drawer-strip .dot {
-  background: var(--agent);
+  background: var(--project);
 }
 /* A collapsed diff drawer goes back into the row; it lies over the view only while it is open. */
 .drawer.wide.collapsed {

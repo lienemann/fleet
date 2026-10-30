@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { SWATCHES } from "../../shared/colors.ts";
 import { TINTS } from "../../shared/events.ts";
 import {
   type AgentView,
@@ -8,10 +7,10 @@ import {
   pendingDecisions,
   workspaceHolder,
 } from "../../shared/reducer.ts";
-import { agentStyle, TINT_LABELS } from "../agentStyle.ts";
+import { TINT_LABELS } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
-import { useProjects } from "../projects.tsx";
+import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
@@ -36,19 +35,19 @@ const FILTER_LABELS: Record<LogFilter, string> = { all: "All", main: "Main", sub
 
 /** A live session, mirroring the TUI: transcript, to-dos, pending decisions, CLI bar and prompt. */
 export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThread }: Props) {
-  const { state, send, call, color } = useFleet();
+  const { state, send, call } = useFleet();
   const [filter, setFilter] = useState<LogFilter>("all");
-  const [colors, setColors] = useState(false);
+  const [tinting, setTinting] = useState(false);
+  const style = useAgentStyle(agent);
   const decisions = pendingDecisions(state).filter((d) => d.agent === agent.name);
   const column = columnOf(agent);
   const queued = agent.task === "queued";
   const side = useSideChat(agent.name);
-  const chip = useProjects().length > 1 && agent.project;
 
   return (
     <section
       className={`tile ${selected ? "selected" : ""} ${column === "needs_you" ? "needs-you" : ""}`}
-      style={agentStyle(agent, color)}
+      style={style}
       aria-label={`Session ${agent.name}`}
       onPointerDown={onSelect}
     >
@@ -56,17 +55,16 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThr
         <button
           type="button"
           className="color-dot"
-          title="Agent color and background"
-          aria-label="Agent color"
-          aria-expanded={colors}
-          onClick={() => setColors(!colors)}
+          title="Background tint"
+          aria-label="Background tint"
+          aria-expanded={tinting}
+          onClick={() => setTinting(!tinting)}
         >
           <span className="dot" />
         </button>
-        <span className="name">{agent.name}</span>
+        <AgentLabel agent={agent.name} />
         <span className="ws">{agent.workspace}</span>
         <span className="host-chip">{agent.host}</span>
-        {chip && <span className="project-chip">{agent.project}</span>}
         <span className={`pill col-${column}`}>
           {agent.reconnecting ? "reconnecting" : columnLabel(column)}
         </span>
@@ -93,7 +91,7 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThr
           </button>
         )}
       </header>
-      {colors && <ColorRow agent={agent} onDone={() => setColors(false)} />}
+      {tinting && <TintRow agent={agent} />}
       <StatusRow agent={agent} />
       {agent.activity === "detached" && agent.sessionId && <Detached agent={agent} />}
       {agent.handover?.state === "writing" && (
@@ -256,25 +254,10 @@ function Queued({ agent }: { agent: AgentView }) {
   );
 }
 
-function ColorRow({ agent, onDone }: { agent: AgentView; onDone: () => void }) {
-  const { send, color } = useFleet();
+function TintRow({ agent }: { agent: AgentView }) {
+  const { send } = useFleet();
   return (
-    <div className="color-row">
-      <span className="dim">Color</span>
-      {SWATCHES.map((swatch) => (
-        <button
-          key={swatch}
-          type="button"
-          className="swatch"
-          aria-label={swatch}
-          aria-pressed={swatch === agent.color}
-          style={{ background: color(swatch) }}
-          onClick={() => {
-            send({ type: "set_color", agent: agent.name, color: swatch });
-            onDone();
-          }}
-        />
-      ))}
+    <div className="tint-row">
       <span className="dim">Background</span>
       <fieldset className="segmented" aria-label="Background tint">
         {TINTS.map((tint) => (

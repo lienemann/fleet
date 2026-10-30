@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocalProjects, useProjectFilter } from "../projects.tsx";
+import { ProjectChip } from "../ui/AgentLabel.tsx";
 
 /**
  * jj orbit, proxied by the daemon: the commit graph of all workspaces of one project's repo
@@ -45,6 +46,7 @@ export function History() {
               </option>
             ))}
           </select>
+          {project && <ProjectChip project={project} />}
         </label>
       )}
       <iframe

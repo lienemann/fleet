@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { type AgentView, agentList, type Lane, type Segment } from "../../shared/reducer.ts";
-import { useFleet } from "../fleet.tsx";
 import { keyLabel, useCommands } from "../keys/keymap.tsx";
 import { duration } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
+import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { useNow } from "../useNow.ts";
 
 const WINDOWS = [
@@ -40,7 +40,6 @@ function visible(history: Segment[], from: number, now: number) {
 
 /** One lane per agent showing its state over time, with how long it waited on the user. */
 export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { color } = useFleet();
   const state = useShownState();
   const now = useNow(10_000);
   const [windowIndex, setWindowIndex] = useState(0);
@@ -102,9 +101,7 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
         {agents.map((agent) => (
           <div key={agent.name} className="lane">
             <button type="button" className="link lane-name" onClick={() => onOpen(agent.name)}>
-              <span className="name" style={{ color: color(agent.color) }}>
-                {agent.name}
-              </span>
+              <AgentLabel agent={agent.name} chip={false} />
               <span className="lane-title">{agent.title}</span>
             </button>
             <div className="track">

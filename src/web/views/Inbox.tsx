@@ -11,6 +11,7 @@ import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
+import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 import { FinishedGroup, ReadRuns } from "./FinishedRuns.tsx";
@@ -29,7 +30,7 @@ export function Inbox({
   onOpen: (agent: string) => void;
   onOpenThread: (agent: string, thread: string) => void;
 }) {
-  const { send, state: all, color } = useFleet();
+  const { send, state: all } = useFleet();
   const state = useShownState();
   const items = pendingDecisions(state);
   const docs = openPointDocs(state);
@@ -159,12 +160,7 @@ export function Inbox({
           {replies.map(({ agent, thread }) => (
             <article key={thread.id} className="decision reply">
               <header>
-                <strong
-                  className="name"
-                  style={{ color: color(all.agents[agent]?.color ?? "#888888") }}
-                >
-                  {agent}
-                </strong>
+                <AgentLabel agent={agent} />
                 <code className="name">{threadPlace(thread.path, thread.side, thread.lines)}</code>
               </header>
               <p className="reply-text">
@@ -204,18 +200,13 @@ export function Inbox({
 }
 
 function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
-  const { state, send, color } = useFleet();
+  const { send } = useFleet();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const open = doc.points.filter((p) => p.answer === undefined);
   return (
     <article className="decision points">
       <header>
-        <strong
-          className="name"
-          style={{ color: color(state.agents[doc.agent]?.color ?? "#888888") }}
-        >
-          {doc.agent}
-        </strong>
+        <AgentLabel agent={doc.agent} />
         <code className="name">{doc.path}</code>
         <span className="dim">
           {doc.points.length - open.length}/{doc.points.length} answered

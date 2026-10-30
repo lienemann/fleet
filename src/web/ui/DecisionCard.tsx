@@ -6,6 +6,7 @@ import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
+import { AgentLabel } from "./AgentLabel.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 interface Props {
@@ -38,7 +39,6 @@ export function DecisionCard({
   focused,
   onAnswer,
 }: Props) {
-  const { color } = useFleet();
   const now = useNow();
   const inline = variant !== "card";
   const compact = variant === "compact";
@@ -52,9 +52,7 @@ export function DecisionCard({
         <span className={`kind kind-${decision.decision}`}>{KIND_LABELS[decision.decision]}</span>
         {agent && (
           <>
-            <strong className="name" style={{ color: color(agent.color) }}>
-              {agent.name}
-            </strong>
+            <AgentLabel agent={agent.name} />
             <span className="dim">{agent.title}</span>
             <span className="dim host">· {agent.host}</span>
             <span className="spacer" />

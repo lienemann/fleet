@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { FLEET_DIRECTOR, USER } from "../../shared/events.ts";
 import { agentList, type Message, needsUser } from "../../shared/reducer.ts";
-import { useFleet } from "../fleet.tsx";
 import { agentStatus } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
+import { useAgentColors } from "../ui/AgentLabel.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
 import { useNow } from "../useNow.ts";
 
@@ -46,7 +46,6 @@ const pairKey = (a: string, b: string): string => [a, b].sort().join("\u0000");
  * who exchanged messages. Clicking a link filters the list.
  */
 export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
-  const { color } = useFleet();
   const state = useShownState();
   const now = useNow(1000);
   const [filter, setFilter] = useState<string>();
@@ -125,7 +124,7 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
   )
     .slice(-30)
     .reverse();
-  const tint = (agent: string) => color(state.agents[agent]?.color ?? "#a3acbd");
+  const tint = useAgentColors();
   const at = (agent: string) => positions.get(agent) ?? { x: CENTER, y: CENTER };
 
   return (

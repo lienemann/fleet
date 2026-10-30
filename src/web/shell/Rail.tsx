@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import type { Usage } from "../../shared/events.ts";
 import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
@@ -13,6 +13,7 @@ import { useFleet } from "../fleet.tsx";
 import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
 import { useProjects } from "../projects.tsx";
+import { AgentLabel, useProjectColors } from "../ui/AgentLabel.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
 import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
@@ -72,6 +73,7 @@ export function Rail({
 }: Props) {
   const { state, info } = useFleet();
   const projects = useProjects();
+  const colorOf = useProjectColors();
   const [folded, toggle] = useFolded();
   const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
   const grouped = projects.length > 1;
@@ -130,7 +132,11 @@ export function Rail({
             const open = !folded.has(name);
             const own = inProject(name);
             return (
-              <section key={name} className="rail-project">
+              <section
+                key={name}
+                className="rail-project"
+                style={{ "--project": colorOf(name) } as CSSProperties}
+              >
                 <h2 className="rail-head">
                   <button
                     type="button"
@@ -291,7 +297,6 @@ function AgentRow({
   selected: boolean;
   onSelect: (n: string) => void;
 }) {
-  const { color } = useFleet();
   const { label: status, dot } = agentStatus(agent);
   return (
     <button
@@ -301,9 +306,7 @@ function AgentRow({
       onClick={() => onSelect(agent.name)}
     >
       <span className={`dot col-${dot} act-${agent.activity}`} />
-      <span className="name" style={{ color: color(agent.color) }}>
-        {agent.name}
-      </span>
+      <AgentLabel agent={agent.name} chip={false} />
       <span className="rail-title">{agent.title}</span>
       {agent.unseen && <span className="new">new</span>}
     </button>
@@ -326,7 +329,7 @@ function WorkspaceRow({
   only: boolean;
   onSelect: (agent: string) => void;
 }) {
-  const { state, send, color } = useFleet();
+  const { state, send } = useFleet();
   const use = workspaceUse(state, name);
   const { claim } = use;
   const task = use.tasks[0];
@@ -367,7 +370,7 @@ function WorkspaceRow({
               onClick={() => onSelect(task.name)}
             >
               <span className={`dot col-${status.dot} act-${task.activity}`} />
-              <span style={{ color: color(task.color) }}>{task.name}</span>
+              <AgentLabel agent={task.name} chip={false} />
               <span className="dim">{status.label}</span>
             </button>
           ) : (

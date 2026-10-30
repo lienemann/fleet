@@ -69,7 +69,7 @@ function hostsReducer(hosts: Record<string, Host>, action: Action): Record<strin
   return { ...hosts, [action.host]: next };
 }
 
-const FleetContext = createContext<Fleet | undefined>(undefined);
+export const FleetContext = createContext<Fleet | undefined>(undefined);
 
 export function useFleet(): Fleet {
   const fleet = useContext(FleetContext);

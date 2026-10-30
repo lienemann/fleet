@@ -3,6 +3,7 @@ import type { AgentView, FinishedRun } from "../../shared/reducer.ts";
 import { useFleet } from "../fleet.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
+import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { useNow } from "../useNow.ts";
 
@@ -41,12 +42,9 @@ function RunText({ run }: { run: FinishedRun }) {
 }
 
 function AgentName({ agent }: { agent: AgentView }) {
-  const { color } = useFleet();
   return (
     <>
-      <strong className="name" style={{ color: color(agent.color) }}>
-        {agent.name}
-      </strong>
+      <AgentLabel agent={agent.name} />
       <span className="dim">{agent.title}</span>
     </>
   );

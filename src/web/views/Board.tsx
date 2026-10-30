@@ -10,11 +10,11 @@ import {
   pendingDecisions,
   workspaceHolder,
 } from "../../shared/reducer.ts";
-import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
+import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { useNow } from "../useNow.ts";
 
@@ -96,7 +96,6 @@ export function Board({ selected, onSelect, onMessage }: Props) {
                 selected={agent.name === selected}
                 onSelect={onSelect}
                 onMessage={onMessage}
-                chip={projects.length > 1}
               />
             ))}
           </section>
@@ -111,16 +110,14 @@ function Card({
   selected,
   onSelect,
   onMessage,
-  chip,
 }: {
   agent: AgentView;
   selected: boolean;
   onSelect: (n: string) => void;
   onMessage: (n: string) => void;
-  /** Names the agent's project, when there is more than one. */
-  chip: boolean;
 }) {
-  const { state, send, color } = useFleet();
+  const { state, send } = useFleet();
+  const style = useAgentStyle(agent);
   const now = useNow();
   const column = columnOf(agent);
   const move = (to: UserMove) => send({ type: "move", agent: agent.name, to });
@@ -143,16 +140,15 @@ function Card({
   return (
     <article
       className={`card ${selected ? "selected" : ""} ${column === "needs_you" ? "waiting" : ""}`}
-      style={agentStyle(agent, color)}
+      style={style}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("text/fleet-agent", agent.name)}
     >
       <button type="button" className="card-main" onClick={() => onSelect(agent.name)}>
         <span className="card-head">
           <span className="dot" />
-          <span className="name">{agent.name}</span>
+          <AgentLabel agent={agent.name} />
           <span className="card-ws">{agent.workspace}</span>
-          {chip && agent.project && <span className="project-chip">{agent.project}</span>}
           <span className="spacer" />
           {agent.unseen && <span className="new">new</span>}
           <span className="since">{duration(now - agent.columnSince)}</span>

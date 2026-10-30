@@ -1,10 +1,10 @@
 import { type AgentView, columnOf } from "../../shared/reducer.ts";
-import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { DiffView } from "../review/DiffView.tsx";
 import { Tile } from "../tile/Tile.tsx";
+import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
@@ -56,7 +56,8 @@ export function Drawer({
   full,
   onToggleFull,
 }: Props) {
-  const { state, color } = useFleet();
+  const { state } = useFleet();
+  const style = useAgentStyle(agent);
   const now = useNow();
   const column = columnOf(agent);
   const context = contextPercent(agent);
@@ -84,7 +85,7 @@ export function Drawer({
   return (
     <aside
       className={`drawer ${tab === "diff" ? "wide" : ""} ${full ? "full" : ""} ${collapsed && !full ? "collapsed" : ""}`}
-      style={agentStyle(agent, color)}
+      style={style}
       aria-label="Selected task"
       data-pane="drawer"
       tabIndex={-1}
@@ -102,7 +103,7 @@ export function Drawer({
       <header className="drawer-head">
         <div className="drawer-line">
           <span className="dot" />
-          <span className="name">{agent.name}</span>
+          <AgentLabel agent={agent.name} />
           <span className="ws">
             {agent.workspace} · {agent.host}
           </span>
