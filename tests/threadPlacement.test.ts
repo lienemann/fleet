@@ -81,13 +81,44 @@ describe("placeThreads", () => {
     expect(placed[0]).toMatchObject({ hunk: "b", lines: range(10, 11) });
   });
 
+  it("does not take a common one-line quote from far away", () => {
+    const lines = Array.from({ length: 400 }, (_, i) => (i === 349 ? "}" : `l${i}`));
+    const far = file({
+      headLines: lines,
+      hunks: [{ id: "far", base: range(350, 351), head: range(350, 351) }],
+    });
+    const placed = placeThreads(
+      [thread({ quote: ["}"], lines: range(20, 21) })],
+      [far],
+      [far],
+      CONTEXT,
+    );
+    expect(placed).toEqual([{ thread: "t1", outdated: true }]);
+  });
+
+  it("puts a selection longer than its quote under its last line", () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `l${i + 1}`);
+    const long = file({
+      headLines: lines,
+      hunks: [{ id: "h", base: range(1, 41), head: range(1, 41) }],
+    });
+    const quoted = lines.slice(0, 20);
+    const placed = placeThreads(
+      [thread({ quote: quoted, lines: range(1, 31) })],
+      [long],
+      [long],
+      CONTEXT,
+    );
+    expect(placed).toEqual([{ thread: "t1", hunk: "h", lines: range(1, 31), outdated: false }]);
+  });
+
   it("in a single commit, keeps a thread of another commit off the hunks but not outdated", () => {
     const branch = file();
     const commit = file({
       headLines: branch.baseLines,
       hunks: [{ id: "c1", base: range(2, 3), head: range(2, 3) }],
     });
-    // The commit's hunk is 2; its context ends at line 5, which is where the quote used to be.
+    // Neither file holds the quoted line: the commit's still has the base text on line 5.
     const other = file({ headLines: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] });
     for (const shown of [[], [commit], [other]]) {
       expect(placeThreads([thread()], [branch], shown, CONTEXT)).toEqual([
