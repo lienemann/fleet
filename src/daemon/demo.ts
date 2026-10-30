@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type {
   Query,
   SDKMessage,
@@ -7,6 +7,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { USAGE_METHOD } from "./account.ts";
+import { claudeConfigDir } from "./files.ts";
 import type { HolderHost } from "./holders.ts";
 import type { QueryFn } from "./session.ts";
 import type { SessionSource } from "./sessions.ts";
@@ -56,7 +57,7 @@ export function demoQuery(delayMs = 400): QueryFn {
       }
       if (step.type === "write") {
         // Like the CLI's Write: the call, then a result with the whole file as its patch.
-        const filePath = join(options.cwd ?? ".", step.path);
+        const filePath = resolve(options.cwd ?? ".", step.path);
         const before = existsSync(filePath) ? readFileSync(filePath, "utf8") : null;
         const id = `${sessionId}-write-${step.path}`;
         yield use(id, "Write", { file_path: filePath, content: step.content });
@@ -305,6 +306,8 @@ interface Scenario {
   context: string;
   options: [string, string];
   file: { path: string; content: string };
+  /** A review file the worker writes for the user outside its workspace, and attaches. */
+  review?: string;
   openPoints: [string, string];
   summary: string;
   tests: string;
@@ -354,12 +357,43 @@ const BATCHED_WRITES: Scenario = {
     "Batched the event log writes into one transaction per 100 events; replaying 10,000 events takes 0.4 s instead of 2.1 s.\n\nStill open: whether the batch size should be a setting. I left it fixed at 100.",
 };
 
+const REVIEW_FILES: Scenario = {
+  ...FLAKY_TEST,
+  review:
+    "# Review notes\n\nStart with the new `tolerance`; the run count is only a default.\n\n```python\nreturn max(1e-3, 4 * jitter())\n```\n",
+};
+
 const scenarioOf = (prompt: string): Scenario =>
-  prompt.includes("Batch the event log writes") ? BATCHED_WRITES : FLAKY_TEST;
+  prompt.includes("Batch the event log writes")
+    ? BATCHED_WRITES
+    : prompt.includes("replay timings")
+      ? REVIEW_FILES
+      : FLAKY_TEST;
 
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string, scenario: Scenario): Step[] {
   const id = (n: number) => `${session}-${turn}-${n}`;
+  const plans = join(claudeConfigDir(), "plans");
+  const review = {
+    path: join(plans, `${session}-review.md`),
+    notes: join(plans, `${session}-notes.txt`),
+    scratch: join(plans, `${session}-scratch.txt`),
+  };
+  // Files for the user go to Claude's plans, outside the workspace, as workers put them.
+  const reviewFiles: Step[] = scenario.review
+    ? [
+        { type: "write", path: review.path, content: scenario.review },
+        {
+          type: "fleet",
+          id: id(10),
+          name: "attach_file",
+          input: { files: [{ path: review.path, note: "What to look at first" }] },
+        },
+        { type: "write", path: review.notes, content: "Run the replay 50 times before merging.\n" },
+        // Not attached: it shows under what the worker wrote elsewhere.
+        { type: "write", path: review.scratch, content: "Scratch numbers.\n" },
+      ]
+    : [];
   // A question on lines of the diff gets an answer in its thread, and the change stays as it is.
   const thread = /Answer with the reply_thread tool, thread "([^"]+)"/.exec(prompt)?.[1];
   if (thread) {
@@ -390,6 +424,7 @@ function workerScript(turn: number, prompt: string, session: string, scenario: S
           tests: "13 passed",
           open_questions: [],
           walkthrough: scenario.walkthrough,
+          files: [],
         },
       },
     ];
@@ -455,6 +490,7 @@ function workerScript(turn: number, prompt: string, session: string, scenario: S
       type: "write",
       ...scenario.file,
     },
+    ...reviewFiles,
     {
       type: "write",
       path: ".fleet/open-points.md",
@@ -476,6 +512,7 @@ function workerScript(turn: number, prompt: string, session: string, scenario: S
         tests: scenario.tests,
         open_questions: [scenario.openPoints[0]],
         walkthrough: scenario.walkthrough,
+        files: scenario.review ? [{ path: review.notes, note: "Notes for the merge" }] : [],
       },
     },
     { type: "say", text: scenario.closing },

@@ -339,6 +339,57 @@ test("a run that ends while the user watches the agent goes straight to read", a
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
 
+test("files open from the edit card, the Outputs panel and the Report, also those outside the workspace", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const title = "Check the replay timings";
+  await newTask(page, title, "ws2");
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+  await answerFromInbox(page, title);
+  await page.keyboard.press("Alt+1");
+  const task = card(page, "Review", title);
+  await expect(task).toBeVisible({ timeout: 15_000 });
+  await task.locator(".card-main").click();
+  const drawer = page.locator(".drawer");
+
+  // A file of the change opens in the diff; one outside the workspace has no place there.
+  const edited = drawer.locator(".edited");
+  await edited.getByRole("button", { name: "lib.py" }).click();
+  await expect(page.locator(".diff .diff-file[data-file='lib.py']")).toBeInViewport();
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await edited.getByRole("button", { name: /^Show all/ }).click();
+  const outside = edited.getByRole("button", { name: /-review\.md$/ });
+  await expect(outside).toBeDisabled();
+  await expect(outside).toHaveAttribute("title", /Outside the workspace/);
+
+  // Outputs list everything the agent wrote, the plan outside the workspace included.
+  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await drawer.locator(".outputs").getByRole("button", { name: "lib.py" }).click();
+  await expect(drawer.locator(".file-content .hljs-keyword").first()).toBeVisible();
+  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await drawer
+    .locator(".outputs")
+    .getByRole("button", { name: /-review\.md$/ })
+    .click();
+  await expect(drawer.locator(".file-content h1")).toHaveText("Review notes");
+
+  // Attached files come with their notes, in the Report and in the Files tab.
+  await page.getByRole("button", { name: "Report", exact: true }).click();
+  const attached = drawer.locator(".attached");
+  await expect(attached).toContainText("What to look at first");
+  await expect(attached).toContainText("Notes for the merge");
+  await attached.getByRole("button", { name: /-notes\.txt$/ }).click();
+  await expect(drawer.locator(".file-content")).toContainText("Run the replay 50 times");
+  await expect(drawer.locator(".files")).toContainText("Attached by");
+  await expect(drawer.locator(".files")).toContainText("Written elsewhere");
+  await shot(page, "files");
+
+  await page.keyboard.press("Alt+1");
+  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
 test("a second task in a busy workspace waits in the queue", async ({ page }) => {
   await page.goto("/");
   await newTask(page, "First in ws2", "ws2");

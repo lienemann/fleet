@@ -22,6 +22,9 @@ process.on("unhandledRejection", (reason) => console.error("fleet: unhandled rej
 const home = fleetHome();
 mkdirSync(home, { recursive: true });
 
+// The demo's agents write plans too, and they belong with the demo's home, not the user's Claude.
+if (process.env.FLEET_DEMO) process.env.CLAUDE_CONFIG_DIR ||= join(home, "claude");
+
 const config = loadConfig(home);
 const log = new EventLog(join(home, "fleet.db"));
 // FLEET_DEMO=1 runs scripted agents instead of Claude, for UI work and end-to-end tests.
