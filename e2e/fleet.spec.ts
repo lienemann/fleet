@@ -476,6 +476,8 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
   await page.keyboard.press("Enter");
   await expect(header).toHaveAttribute("aria-expanded", "false");
   await expect(site).not.toContainText("Polish the homepage");
+  await page.reload();
+  await expect(header).toHaveAttribute("aria-expanded", "false");
   await header.click();
   await expect(site).toContainText("Polish the homepage");
 });
