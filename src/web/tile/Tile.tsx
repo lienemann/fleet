@@ -8,6 +8,7 @@ import {
   workspaceHolder,
 } from "../../shared/reducer.ts";
 import { TINT_LABELS } from "../agentStyle.ts";
+import { notInDiff } from "../files.ts";
 import { useFleet } from "../fleet.tsx";
 import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
@@ -29,12 +30,22 @@ interface Props {
   enlarged?: boolean;
   /** Shows a user line's thread in the diff; without it, such lines carry no link. */
   onOpenThread?: (thread: string) => void;
+  /** Opens a file of the task's diff; without it the files of an edit card are plain text. */
+  onOpenDiffFile?: (path: string) => void;
 }
 
 const FILTER_LABELS: Record<LogFilter, string> = { all: "All", main: "Main", subagents: "Sub" };
 
 /** A live session, mirroring the TUI: transcript, to-dos, pending decisions, CLI bar and prompt. */
-export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThread }: Props) {
+export function Tile({
+  agent,
+  selected,
+  onSelect,
+  onEnlarge,
+  enlarged,
+  onOpenThread,
+  onOpenDiffFile,
+}: Props) {
   const { state, send, call } = useFleet();
   const [filter, setFilter] = useState<LogFilter>("all");
   const [tinting, setTinting] = useState(false);
@@ -112,6 +123,12 @@ export function Tile({ agent, selected, onSelect, onEnlarge, enlarged, onOpenThr
           subagents={agent.subagents}
           filter={filter}
           onOpenThread={onOpenThread}
+          diff={
+            onOpenDiffFile && {
+              open: onOpenDiffFile,
+              unavailable: (path) => notInDiff(agent, path),
+            }
+          }
         />
       )}
       {decisions.map((decision) => (

@@ -184,7 +184,7 @@ One web app served by the daemon, with six views over the same task data. Select
 | Flow     | Who talks to whom?          | Agents as nodes, messages as packets in the sender's project color; click a link to filter                                                              |
 | History  | What happened to the repo?  | jj graph of all workspaces, classic or 3D; op log as checkpoints                                                                                |
 
-**Tile.** Mirrors the TUI: live log anchored at the bottom, filter All / Main / Subagents, to-do list, files for me, decision bar with explanation and risk tags, side-agent note, and a CLI bar with permission mode, model, context meter, Interrupt, Rewind and `/compact`. The prompt has a slash-command menu and an attach button. The tile's header names the agent and its project, and the project's color marks the tile; its tint setting (off, soft, medium, strong) says how much of that color goes into the background of the tile and its card.
+**Tile.** Mirrors the TUI: live log anchored at the bottom, filter All / Main / Subagents, to-do list, files for me, decision bar with explanation and risk tags, side-agent note, and a CLI bar with permission mode, model, context meter, Interrupt, Rewind and `/compact`. Under a turn, the card of edited files names each file as a link that opens the task's diff at that file, in all changes since trunk; a file outside the workspace, one under `.fleet/`, or an agent without a task has a disabled link whose tooltip says why. The prompt has a slash-command menu and an attach button. The tile's header names the agent and its project, and the project's color marks the tile; its tint setting (off, soft, medium, strong) says how much of that color goes into the background of the tile and its card.
 
 **Theming.** Dark and light. Light is beige with a dark red accent and serif headings; project colors switch to darker variants so they stay readable, a color of my own included. In dark, one too dark to read is lightened. All colors are CSS variables per theme.
 
@@ -204,6 +204,7 @@ fleet has its own diff view in the browser, built on reviewdiff-core, so review 
 **What the view shows**
 - Side-by-side or inline diff of a task's jj change against trunk, one file after another, with syntax highlighting.
 - A scope picker: all changes since the fork point from trunk, or one of the task's commits against its parent, stepping older and newer by key.
+- Opening it from a file name, such as one in the tile's edit card, scrolls to that file and focuses its first hunk; a file the diff does not hold is named in a notice.
 - Per hunk: Approve and next, Skip, Ask (opens a thread on its changed lines). Progress ("3/9 hunks approved") on the card and in the drawer.
 - Accept with unreviewed hunks is allowed but says how many.
 

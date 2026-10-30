@@ -24,10 +24,18 @@ interface Focus {
 /**
  * Review of a task's change against trunk, or of one of its commits, built on reviewdiff-core:
  * approve hunk by hunk, ask about lines in threads, fix small things in place. Approvals are
- * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it;
- * each new request object does so again.
+ * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it,
+ * `file` scrolls to that file and focuses its first hunk; each new request object does so again.
  */
-export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: string } }) {
+export function DiffView({
+  agent,
+  thread,
+  file: fileRequest,
+}: {
+  agent: AgentView;
+  thread?: { id: string };
+  file?: { path: string };
+}) {
   const { call, send } = useFleet();
   const [model, setModel] = useState<ReviewModel>();
   const [error, setError] = useState<string>();
@@ -109,6 +117,41 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
       ?.scrollIntoView({ block: "center" });
     setReveal(undefined);
   }, [reveal]);
+
+  // The file asked for: shown in all changes, since the file may belong to another commit.
+  const [wantedFile, setWantedFile] = useState(fileRequest?.path);
+  const [revealFile, setRevealFile] = useState<string>();
+  const [missingFile, setMissingFile] = useState<string>();
+  useEffect(() => {
+    setWantedFile(fileRequest?.path);
+    setMissingFile(undefined);
+  }, [fileRequest]);
+  // The diff loads on its own once the agent rests; a file asked for mid-turn needs it now.
+  useEffect(() => {
+    if (fileRequest && !resting) void load();
+  }, [fileRequest, resting, load]);
+  useEffect(() => {
+    if (!model || !wantedFile) return;
+    const found = model.files.find((f) => f.path === wantedFile);
+    if (found) {
+      const first = found.hunks[0];
+      if (first) setFocusId(first.id);
+      setRevealFile(wantedFile);
+      setWantedFile(undefined);
+    } else if (model.scope.kind === "commit") {
+      void load({ kind: "branch" });
+    } else {
+      setMissingFile(wantedFile);
+      setWantedFile(undefined);
+    }
+  }, [model, wantedFile, load]);
+  useEffect(() => {
+    if (!revealFile) return;
+    container.current
+      ?.querySelector(`[data-file="${CSS.escape(revealFile)}"]`)
+      ?.scrollIntoView({ block: "start" });
+    setRevealFile(undefined);
+  }, [revealFile]);
 
   // With a walkthrough, j/k go through the hunks in the order it discusses them, as in ReviewDiff.
   const walkthroughOrder = model?.order && !fileOrder ? model.order : undefined;
@@ -318,6 +361,11 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
         </div>
       </header>
       {error && <p className="banner">{error}</p>}
+      {missingFile && (
+        <p className="banner">
+          <code>{missingFile}</code> is not in this diff.
+        </p>
+      )}
       {!model && !error && <p className="empty">Loading the diff…</p>}
       {model?.files.length === 0 && (
         <p className="empty">
@@ -339,7 +387,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
         />
       )}
       {model?.files.map((file) => (
-        <section key={file.path} className="diff-file">
+        <section key={file.path} className="diff-file" data-file={file.path}>
           <h3>
             <code>{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</code>
             <span className="dim">{file.status}</span>

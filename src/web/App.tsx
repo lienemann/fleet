@@ -55,8 +55,9 @@ export function App() {
   const [tab, setTab] = useState<DrawerTab>("live");
   // A new object for each request, so opening the same thread again scrolls to it again.
   const [thread, setThread] = useState<{ id: string }>();
-  // Likewise for the file the Files tab shows.
+  // Likewise for the file the Files tab shows and the file the diff scrolls to.
   const [file, setFile] = useState<{ path: string }>();
+  const [diffFile, setDiffFile] = useState<{ path: string }>();
   // Each opening is a new object, so "closed, then opened again" in one batch still opens it.
   const [overlay, setOverlay] = useState<{ kind: Overlay; id: number; project?: string }>();
   const show = (kind: Overlay, project?: string): void =>
@@ -73,6 +74,7 @@ export function App() {
   const forgetTargets = (): void => {
     setThread(undefined);
     setFile(undefined);
+    setDiffFile(undefined);
   };
   const select = (name: string): void => {
     setSelected(name);
@@ -125,6 +127,13 @@ export function App() {
     setTab("files");
     forgetTargets();
     setFile({ path });
+  };
+  /** Opens the selected agent's diff at one of its files. */
+  const showDiffFile = (path: string): void => {
+    drawer.expand();
+    setTab("diff");
+    forgetTargets();
+    setDiffFile({ path });
   };
   const open = (name: string): void => {
     select(name);
@@ -658,9 +667,11 @@ export function App() {
             tab={tab}
             thread={thread}
             file={file}
+            diffFile={diffFile}
             onTab={goTab}
             onOpenThread={(id) => showThread(agent.name, id)}
             onOpenFile={showFile}
+            onOpenDiffFile={showDiffFile}
             onOpenInGrid={() => open(agent.name)}
             onClose={closeDrawer}
             collapsed={drawer.collapsed}

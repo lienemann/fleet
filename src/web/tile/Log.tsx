@@ -61,8 +61,22 @@ const EDITS_SHOWN = 3;
 
 const extensionOf = (path: string): string => /\.([\w]+)$/.exec(path)?.[1]?.slice(0, 4) ?? "";
 
+/** How an edited file opens in the task's diff: the click, and why a file cannot be shown there. */
+export interface DiffLink {
+  open: (path: string) => void;
+  unavailable: (path: string) => string | undefined;
+}
+
 /** What a turn changed, file by file, like the Claude desktop app's card under a turn. */
-function EditedFiles({ title, edits }: { title: string; edits: FileEdit[] }) {
+function EditedFiles({
+  title,
+  edits,
+  diff,
+}: {
+  title: string;
+  edits: FileEdit[];
+  diff?: DiffLink;
+}) {
   const [all, setAll] = useState(false);
   const added = edits.reduce((sum, e) => sum + e.added, 0);
   const removed = edits.reduce((sum, e) => sum + e.removed, 0);
@@ -75,9 +89,7 @@ function EditedFiles({ title, edits }: { title: string; edits: FileEdit[] }) {
       {(all ? edits : edits.slice(0, EDITS_SHOWN)).map((edit) => (
         <div key={edit.path} className="edited-file">
           <span className="file-type">{extensionOf(edit.path)}</span>
-          <span className="edited-path" title={edit.path}>
-            {edit.path}
-          </span>
+          <EditedPath edit={edit} diff={diff} />
           <Counts added={edit.added} removed={edit.removed} />
         </div>
       ))}
@@ -87,6 +99,27 @@ function EditedFiles({ title, edits }: { title: string; edits: FileEdit[] }) {
         </button>
       )}
     </div>
+  );
+}
+
+function EditedPath({ edit, diff }: { edit: FileEdit; diff?: DiffLink }) {
+  if (!diff)
+    return (
+      <span className="edited-path" title={edit.path}>
+        {edit.path}
+      </span>
+    );
+  const reason = diff.unavailable(edit.path);
+  return (
+    <button
+      type="button"
+      className="link edited-path"
+      disabled={reason !== undefined}
+      title={reason ?? `Open ${edit.path} in the diff`}
+      onClick={() => diff.open(edit.path)}
+    >
+      {edit.path}
+    </button>
   );
 }
 
@@ -102,11 +135,14 @@ export function Log({
   subagents,
   filter,
   onOpenThread,
+  diff,
 }: {
   lines: LogLine[];
   subagents: Subagent[];
   filter: LogFilter;
   onOpenThread?: (thread: string) => void;
+  /** Makes the files of an edit card open in the diff; without it they are plain text. */
+  diff?: DiffLink;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
@@ -131,7 +167,8 @@ export function Log({
     >
       {shown.length === 0 && <p className="dim">No output for this filter.</p>}
       {shown.map((line) => {
-        if (line.edits) return <EditedFiles key={line.seq} title={line.text} edits={line.edits} />;
+        if (line.edits)
+          return <EditedFiles key={line.seq} title={line.text} edits={line.edits} diff={diff} />;
         const { glyph, kind } = kindOf(line);
         const sub = line.parent !== null;
         const { thread } = line;

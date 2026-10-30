@@ -1241,6 +1241,14 @@ button.link.accent {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+button.edited-path {
+  text-align: left;
+  font: inherit;
+}
+button.edited-path:not(:disabled):hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 .file-type {
   flex: none;
   width: 3.2em;
