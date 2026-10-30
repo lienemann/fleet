@@ -477,6 +477,30 @@ export const agentList = (state: FleetState): AgentView[] =>
     (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.createdSeq - b.createdSeq,
   );
 
+/**
+ * The state without the agents of projects the config no longer lists, and what hangs on them:
+ * their decisions, open points, messages and links. The events stay in the log, so a project
+ * that comes back has its history again. Agents without a project (the fleet director) stay.
+ */
+export function withoutProjects(state: FleetState, known: ReadonlySet<string>): FleetState {
+  const gone = new Set(
+    Object.values(state.agents).flatMap((a) =>
+      a.project !== undefined && !known.has(a.project) ? [a.name] : [],
+    ),
+  );
+  if (gone.size === 0) return state;
+  const kept = <T extends { agent: string }>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(record).filter(([, v]) => !gone.has(v.agent)));
+  return {
+    ...state,
+    agents: Object.fromEntries(Object.entries(state.agents).filter(([name]) => !gone.has(name))),
+    decisions: kept(state.decisions),
+    openPoints: kept(state.openPoints),
+    messages: state.messages.filter((m) => !gone.has(m.from) && !gone.has(m.to)),
+    links: state.links.filter(([a, b]) => !gone.has(a) && !gone.has(b)),
+  };
+}
+
 function apply(state: FleetState, event: FleetEvent): FleetState {
   // Handled before the agent lookup: the user sends messages too, and is not an agent.
   if (event.kind === "message") {

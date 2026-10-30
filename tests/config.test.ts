@@ -21,6 +21,19 @@ it("falls back to the current directory as the only project and workspace", () =
   expect(config.diskMinFree).toBe(10 * 1024 ** 3);
 });
 
+it("has no project when the current directory is fleet's own home", () => {
+  const dir = home();
+  expect(loadConfig(dir, join(dir, "fleet-director")).projects).toEqual([]);
+  writeFileSync(join(dir, "config.toml"), "projects = []\n");
+  expect(loadConfig(dir, "/work/here").projects).toEqual([]);
+});
+
+it("refuses a project inside fleet's home", () => {
+  const dir = home();
+  writeFileSync(join(dir, "config.toml"), `[[projects]]\nname = "x"\npath = "${dir}/sub"\n`);
+  expect(() => loadConfig(dir)).toThrow(/where fleet keeps its own files/);
+});
+
 it("reads workspaces and lets them override the allow list", () => {
   const dir = home();
   writeFileSync(

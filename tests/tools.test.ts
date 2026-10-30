@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { parseOpenPoints, resolveInside } from "../src/daemon/files.ts";
@@ -855,6 +855,15 @@ describe("fleet director", () => {
     expect(loadConfig(home).projects[2]?.workspaces.map((w) => w.name)).toEqual(["d1"]);
     // The two projects before it share the test palette color, so the new one gets the next.
     expect(loadConfig(home).projects[2]?.color).toBe(SWATCHES[1]);
+  });
+
+  it("refuses a repo inside fleet's home as a project", () => {
+    const { root, supervisor } = fleet();
+    vi.stubEnv("FLEET_HOME", root);
+    const repo = join(root, "inside");
+    execFileSync("jj", ["git", "init", repo], { env: jjEnv });
+    expect(() => supervisor.addProject(repo)).toThrow("cannot be a project");
+    vi.unstubAllEnvs();
   });
 
   it("adds a project at the workspace given when its repo has no default workspace", () => {

@@ -37,7 +37,7 @@ const power = process.env.FLEET_DEMO
     ? new Power(emitPower)
     : undefined;
 if (power) {
-  log.subscribe(() => power.update(log.state));
+  log.subscribe(() => power.update(supervisor.state));
   setInterval(() => void power.check(), 60_000).unref();
 }
 const supervisor = new Supervisor({

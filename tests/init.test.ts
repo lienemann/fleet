@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
 import { allWorkspaces, loadConfig } from "../src/daemon/config.ts";
 import { init } from "../src/daemon/init.ts";
@@ -43,4 +43,11 @@ it("keeps workspaces that exist, and never overwrites a config", () => {
   const written = readFileSync(join(home, "config.toml"), "utf8");
   expect(() => init({ cwd: path, home, workspaces: 2, jj })).toThrow(/exists already/);
   expect(readFileSync(join(home, "config.toml"), "utf8")).toBe(written);
+});
+
+it("refuses a repo inside fleet's home", () => {
+  const { path, jj } = repo();
+  expect(() => init({ cwd: path, home: dirname(path), workspaces: 1, jj })).toThrow(
+    /cannot be a project/,
+  );
 });

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { stringify } from "smol-toml";
-import { projectName } from "./config.ts";
+import { fleetHomeMessage, isFleetHome, projectName } from "./config.ts";
 
 export interface InitOptions {
   /** Any directory inside the jj repo. */
@@ -33,6 +33,7 @@ const runJj = (args: string[], cwd: string): string =>
  */
 export function init({ cwd, home, workspaces, into, jj = runJj }: InitOptions): InitResult {
   const repo = jj(["root"], cwd).trim();
+  if (isFleetHome(repo, home)) throw new Error(fleetHomeMessage(repo, home));
   const folder = resolve(into ?? dirname(repo));
   const configFile = join(home, "config.toml");
   if (existsSync(configFile)) {

@@ -234,6 +234,35 @@ describe("restart", () => {
   });
 });
 
+describe("agents of a project the config does not list", () => {
+  const stray = (log: EventLog) => {
+    log.append(worker("director-gone", { role: "director", project: "gone", workspace: "gone" }));
+    log.append({ kind: "activity", agent: "director-gone", activity: "idle" });
+    log.append(worker("old", { project: "gone", workspace: "gone" }));
+  };
+
+  it("run no session, count nowhere and stay in the log", () => {
+    const log = new EventLog(":memory:");
+    stray(log);
+    const { supervisor, calls } = setup(log);
+    expect(calls).toEqual([]);
+    expect(supervisor.state.agents).toEqual({});
+    expect(Object.keys(log.state.agents)).toContain("old");
+  });
+
+  it("come back with their history when the project is listed again", () => {
+    const log = new EventLog(":memory:");
+    stray(log);
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: testConfig({ workspaces }, testProject("gone")),
+    });
+    supervisor.init();
+    expect(Object.keys(supervisor.state.agents)).toContain("old");
+  });
+});
+
 describe("projects", () => {
   function twoProjects(log = new EventLog(":memory:")) {
     const site = testProject("site", {

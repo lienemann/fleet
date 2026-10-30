@@ -178,6 +178,14 @@ export const projectOf = (
 export const isWithin = (path: string, dir: string): boolean =>
   path === dir || path.startsWith(`${dir}/`);
 
+/** Fleet's own directory, with the config, the event log and the directors' folders, is no project. */
+export const isFleetHome = (path: string, home = fleetHome()): boolean =>
+  isWithin(resolve(path), resolve(home));
+
+/** The error for a project path inside fleet's home. */
+export const fleetHomeMessage = (path: string, home = fleetHome()): string =>
+  `${path} is inside ${resolve(home)}, where fleet keeps its own files, so it cannot be a project.`;
+
 /**
  * The project a directory belongs to: the one whose default workspace or workspaces contain it,
  * the closest when directories nest.
@@ -194,7 +202,10 @@ export function projectAt(config: Pick<Config, "projects">, cwd: string): Projec
   return closest?.project;
 }
 
-/** Reads `config.toml`; without one, the current directory is the only project. */
+/**
+ * Reads `config.toml`; without a list of projects, the current directory is the only one,
+ * unless that is fleet's own home.
+ */
 export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Config {
   const file = join(home, "config.toml");
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
@@ -204,9 +215,11 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     path: fallbackCwd,
     wip: DEFAULT_LIMITS,
   });
-  const configured = (parsed.projects ?? [only]).map((p) => {
+  const listed = parsed.projects ?? (isFleetHome(fallbackCwd, home) ? [] : [only]);
+  const configured = listed.map((p) => {
     const allowedTools = p.allowed_tools ?? parsed.allowed_tools;
     const path = expandHome(p.path);
+    if (isFleetHome(path, home)) throw new Error(`config.toml: ${fleetHomeMessage(path, home)}`);
     const workspaces: Workspace[] = p.workspaces.map((ws) => ({
       name: ws.name,
       path: expandHome(ws.path),

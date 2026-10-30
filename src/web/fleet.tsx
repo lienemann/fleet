@@ -13,7 +13,7 @@ import { themedColor } from "../shared/colors.ts";
 import type { FleetEvent } from "../shared/events.ts";
 import { LOCAL, mergeInfo, mergeStates, routeCall, routeCommand } from "../shared/hosts.ts";
 import type { Call, CallResults, Command, DaemonInfo } from "../shared/protocol.ts";
-import { emptyState, type FleetState, reduceAll } from "../shared/reducer.ts";
+import { emptyState, type FleetState, reduceAll, withoutProjects } from "../shared/reducer.ts";
 import { Connection } from "./connection.ts";
 import { type Theme, useTheme } from "./useTheme.ts";
 
@@ -68,6 +68,10 @@ function hostsReducer(hosts: Record<string, Host>, action: Action): Record<strin
   })();
   return { ...hosts, [action.host]: next };
 }
+
+/** A daemon's state without the projects its config does not list; none show before its info. */
+const shown = ({ state, info }: Host): FleetState =>
+  withoutProjects(state, new Set(info?.projects.map((p) => p.name)));
 
 export const FleetContext = createContext<Fleet | undefined>(undefined);
 
@@ -132,9 +136,10 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     const others = Object.fromEntries(
       Object.entries(hosts)
         .filter(([host]) => host !== LOCAL)
-        .map(([host, h]) => [host, h.state]),
+        .map(([host, h]) => [host, shown(h)]),
     );
-    return mergeStates(hosts[LOCAL]?.state ?? emptyState(), others);
+    const local = hosts[LOCAL];
+    return mergeStates(local ? shown(local) : emptyState(), others);
   }, [hosts]);
   const info = useMemo(() => {
     const local = hosts[LOCAL]?.info;

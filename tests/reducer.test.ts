@@ -18,6 +18,7 @@ import {
   THREAD_MESSAGES_LIMIT,
   unreadFinished,
   unreadThreads,
+  withoutProjects,
 } from "../src/shared/reducer.ts";
 import { worker } from "./helpers.ts";
 
@@ -874,5 +875,24 @@ describe("finished runs", () => {
     const idle = afterSteps([1, activity("idle")]);
     expect(stretchEnded(idle, afterSteps([1, activity("idle")], [2, said("late")]))).toBe(false);
     expect(stretchEnded(undefined, agentAt([0, activity("idle")]))).toBe(false);
+  });
+});
+
+describe("withoutProjects", () => {
+  const log = events(
+    worker("a", { project: "kept" }),
+    worker("b", { project: "gone" }),
+    worker("c", { project: undefined }),
+    { kind: "message", agent: "b", to: "a", body: "hi" },
+    { kind: "message", agent: "a", to: "c", body: "yo" },
+  );
+
+  it("drops the agents of unlisted projects and what hangs on them, but not the events", () => {
+    const state = reduceAll(log);
+    const shown = withoutProjects(state, new Set(["kept"]));
+    expect(Object.keys(shown.agents)).toEqual(["a", "c"]);
+    expect(shown.messages.map((m) => m.body)).toEqual(["yo"]);
+    // Listed again, the same state has them back.
+    expect(withoutProjects(state, new Set(["kept", "gone"]))).toBe(state);
   });
 });

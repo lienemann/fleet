@@ -111,7 +111,7 @@ it("removes only a workspace nobody uses, and never the last one", () => {
     `\n[[projects.workspaces]]\nname = "${name}"\npath = "${home}/${name}"\n`;
   writeFileSync(
     file,
-    `[[projects]]\nname = "p"\npath = "${home}"\ndirector = false\n${["ws1", "ws2", "ws3"].map(entry).join("")}`,
+    `[[projects]]\nname = "p"\npath = "/work/p"\ndirector = false\n${["ws1", "ws2", "ws3"].map(entry).join("")}`,
   );
   const changed = vi.fn();
   const supervisor = new Supervisor({
@@ -175,7 +175,7 @@ it("adding a workspace keeps the file's header, its other settings and allowed_t
 it("changes a project's color, writes it to config.toml and tells the pages", () => {
   const home = mkdtempSync(join(tmpdir(), "fleet-color-"));
   const file = join(home, "config.toml");
-  writeFileSync(file, `# Mine.\n[[projects]]\nname = "p"\npath = "${home}"\ndirector = false\n`);
+  writeFileSync(file, `# Mine.\n[[projects]]\nname = "p"\npath = "/work/p"\ndirector = false\n`);
   const changed = vi.fn();
   const supervisor = new Supervisor({
     log: new EventLog(":memory:"),

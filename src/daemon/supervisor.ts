@@ -36,10 +36,12 @@ import {
   agentList,
   type Claim,
   columnOf,
+  type FleetState,
   HOLDS_WORKSPACE,
   holdsWorkspace,
   linksOf,
   stretchEnded,
+  withoutProjects,
   workspaceHolder,
   workspaceInUse,
   workspaceUse,
@@ -53,6 +55,8 @@ import {
   defaultWorkspace,
   expandHome,
   fleetHome,
+  fleetHomeMessage,
+  isFleetHome,
   isWithin,
   type Limits,
   NAME,
@@ -274,11 +278,27 @@ export class Supervisor implements ToolHost {
   }
 
   private get agents(): AgentView[] {
-    return agentList(this.log.state);
+    return agentList(this.state);
   }
 
   private agent(name: string): AgentView | undefined {
-    return this.log.state.agents[name];
+    return this.state.agents[name];
+  }
+
+  private shown?: { source: FleetState; projects: string; state: FleetState };
+
+  /**
+   * What the log says about the projects the config lists. Agents of other projects are not
+   * here, so no session of theirs runs and nothing counts them; their events stay in the log.
+   */
+  get state(): FleetState {
+    const projects = this.config.projects.map((p) => p.name);
+    const key = projects.join("\0");
+    const source = this.log.state;
+    if (this.shown?.source !== source || this.shown.projects !== key) {
+      this.shown = { source, projects: key, state: withoutProjects(source, new Set(projects)) };
+    }
+    return this.shown.state;
   }
 
   private get workspaces(): Workspace[] {
@@ -397,7 +417,7 @@ export class Supervisor implements ToolHost {
       this.append(FLEET_DIRECTOR, { kind: "task_removed" });
     }
     for (const project of this.config.projects) this.startDirector(project);
-    for (const decision of Object.values(this.log.state.decisions)) {
+    for (const decision of Object.values(this.state.decisions)) {
       this.append(decision.agent, {
         kind: "decision_resolved",
         requestId: decision.requestId,
@@ -599,7 +619,7 @@ export class Supervisor implements ToolHost {
         this.removeWorkspace(message.workspace);
         return;
       case "release_workspace":
-        if (this.log.state.claims[message.workspace]) this.release(message.workspace);
+        if (this.state.claims[message.workspace]) this.release(message.workspace);
         return;
       case "restart":
         if (message.cancel) this.cancelRestart();
@@ -715,7 +735,7 @@ export class Supervisor implements ToolHost {
     }
     // The stand-in for a project without workspaces goes once it has one, unless a task uses it.
     const unused = (ws: Workspace) =>
-      ws.fallback && !workspaceInUse(workspaceUse(this.log.state, ws.name));
+      ws.fallback && !workspaceInUse(workspaceUse(this.state, ws.name));
     const { allowedTools } = project;
     // A project's own checkout is its director's too: tasks go there only when they name it.
     const checkout = this.config.projects.some((p) => p.path === path);
@@ -755,6 +775,7 @@ export class Supervisor implements ToolHost {
     } catch {
       throw new ToolError(`${dir} is not in a jj repo.`);
     }
+    if (isFleetHome(repo)) throw new ToolError(fleetHomeMessage(repo));
     const existing = this.config.projects.find((p) => p.path === repo);
     if (existing) throw new ToolError(`${repo} is the project ${existing.name} already.`);
     const project: Project = {
@@ -798,7 +819,7 @@ export class Supervisor implements ToolHost {
     const reason =
       project.workspaces.length === 1
         ? "it is the only one"
-        : workspaceInUse(workspaceUse(this.log.state, name));
+        : workspaceInUse(workspaceUse(this.state, name));
     if (reason) throw new Error(`${name} stays: ${reason}.`);
     project.workspaces = project.workspaces.filter((ws) => ws.name !== name);
     this.configChanged([project]);
@@ -1457,7 +1478,7 @@ export class Supervisor implements ToolHost {
     const recipient = this.agent(to);
     // Sessions outside fleet are not workers of a project.
     if (sender?.role !== "worker" || recipient?.role !== "worker") return true;
-    return sender.project === recipient.project || linksOf(this.log.state, from).includes(to);
+    return sender.project === recipient.project || linksOf(this.state, from).includes(to);
   }
 
   /**
@@ -1541,7 +1562,7 @@ export class Supervisor implements ToolHost {
   ledger(director?: string, of?: Project): string {
     const viewer = director === undefined ? undefined : this.agent(director);
     const project = viewer?.role === "director" ? viewer.project : of?.name;
-    const links = (a: AgentView) => linksOf(this.log.state, a.name);
+    const links = (a: AgentView) => linksOf(this.state, a.name);
     const ours = (a: AgentView) => project === undefined || a.project === project;
     const workers = this.agents.filter(
       (a) =>
@@ -1700,7 +1721,7 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
     if (agent.task !== "queued") throw new ToolError(`${name} is ${columnOf(agent)}, not queued.`);
-    const holder = workspaceHolder(this.log.state, agent.workspace, name);
+    const holder = workspaceHolder(this.state, agent.workspace, name);
     if (holder) {
       throw new ToolError(
         `${agent.workspace} is held by ${holder}; ${name} starts once it is free.`,
@@ -1756,7 +1777,7 @@ export class Supervisor implements ToolHost {
   /** Every workspace, of one project or all, with what holds it: tasks, a claim, or nothing. */
   workspaceList(project?: Project): WorkspaceStatus[] {
     return (project?.workspaces ?? this.workspaces).map(({ name, path, explicit }) => {
-      const use = workspaceUse(this.log.state, name);
+      const use = workspaceUse(this.state, name);
       return { name, path, explicit, ...use, tasks: use.tasks.map((a) => a.name) };
     });
   }
@@ -1796,7 +1817,7 @@ export class Supervisor implements ToolHost {
   }
 
   releaseWorkspace(holder: string, name: string): string {
-    const claim = this.log.state.claims[name];
+    const claim = this.state.claims[name];
     if (!claim) return `${name} was not claimed.`;
     if (claim.holder !== holder) throw new ToolError(`${name} is claimed by ${claim.holder}.`);
     this.release(name);
@@ -1812,7 +1833,7 @@ export class Supervisor implements ToolHost {
    */
   sessionHook({ event, session, cwd }: SessionHook): string {
     const holder = `session-${session.slice(0, 8)}`;
-    const held = Object.entries(this.log.state.claims).filter(([, c]) => c.holder === holder);
+    const held = Object.entries(this.state.claims).filter(([, c]) => c.holder === holder);
     if (event === "SessionEnd") {
       const until = Date.now() + CLAIM_GRACE_MS;
       for (const [name, claim] of held) {
@@ -1837,7 +1858,7 @@ export class Supervisor implements ToolHost {
     if (tasks.length > 0) {
       return `fleet: ${ws.name} holds the work of ${tasks.join(", ")}; your edits here would collide with it. Ask the user, or ${claimHint}.`;
     }
-    const claim = this.log.state.claims[ws.name];
+    const claim = this.state.claims[ws.name];
     if (claim && claim.holder !== holder && claim.until === undefined) {
       return `fleet: ${ws.name} is claimed by ${claim.holder}${claim.note ? ` (${claim.note})` : ""}. Ask the user, or ${claimHint}.`;
     }
@@ -1856,7 +1877,7 @@ export class Supervisor implements ToolHost {
 
   /** Releases the claims of sessions that ended longer ago than the grace period. */
   expireClaims(now = Date.now()): void {
-    for (const [name, claim] of Object.entries(this.log.state.claims)) {
+    for (const [name, claim] of Object.entries(this.state.claims)) {
       if (claim.until !== undefined && claim.until <= now) this.release(name);
     }
   }
@@ -1999,10 +2020,10 @@ export class Supervisor implements ToolHost {
   }
 
   private answerPoint(docId: string, pointId: string, answer: string): void {
-    const doc = this.log.state.openPoints[docId];
+    const doc = this.state.openPoints[docId];
     if (!doc?.points.some((p) => p.id === pointId)) return;
     this.append(doc.agent, { kind: "point_answered", docId, pointId, answer });
-    if (this.log.state.openPoints[docId]) return; // still open
+    if (this.state.openPoints[docId]) return; // still open
     const answers = doc.points
       .map((p) => `- ${p.text}\n  → ${p.id === pointId ? answer : p.answer}`)
       .join("\n");
@@ -2109,7 +2130,7 @@ export class Supervisor implements ToolHost {
 
   private workspaceFree(workspace: string, except?: string): boolean {
     return (
-      !this.log.state.claims[workspace] &&
+      !this.state.claims[workspace] &&
       !this.agents.some(
         (other) => other.name !== except && other.workspace === workspace && holdsWorkspace(other),
       )

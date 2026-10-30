@@ -12,12 +12,15 @@ const port = Number(process.env.PORT ?? 7791);
 const isPod = process.env.FLEET_POD === "1";
 const podPort = port + 100;
 
-const home = mkdtempSync(join(tmpdir(), "fleet-e2e-"));
+// The repos sit next to fleet's home, not in it: nothing inside the home is a project.
+const root = mkdtempSync(join(tmpdir(), "fleet-e2e-"));
+const home = join(root, "home");
+mkdirSync(home);
 const env = { ...process.env, JJ_USER: "Demo", JJ_EMAIL: "demo@example.com" };
 
-/** A jj repo at `home/<name>` whose trunk has lib.py. */
+/** A jj repo at `root/<name>` whose trunk has lib.py. */
 function repo(name: string): string {
-  const path = join(home, name);
+  const path = join(root, name);
   mkdirSync(path);
   const jj = (...args: string[]) => execFileSync("jj", args, { cwd: path, env, stdio: "ignore" });
   jj("git", "init");
@@ -44,7 +47,7 @@ const workspace = (name: string, path: string) =>
   `[[projects.workspaces]]\nname = "${name}"\npath = "${path}"\n`;
 // The director (and so the history view) of "daemon" works in ws1.
 const daemon = (director: boolean) =>
-  `[[projects]]\nname = "daemon"\npath = "${join(home, "ws1")}"\n` +
+  `[[projects]]\nname = "daemon"\npath = "${join(root, "ws1")}"\n` +
   (director ? "" : "director = false\n") +
   "wip = { running = 4, review = 2 }\n" +
   ["ws1", "ws2"].map((name) => workspace(name, repo(name))).join("");
@@ -61,7 +64,7 @@ if (isPod) {
   config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${inbox}${disk}${daemon(false)}`;
 } else {
   const site = repo("site");
-  execFileSync("jj", ["workspace", "add", "--name", "pages", join(home, "pages")], {
+  execFileSync("jj", ["workspace", "add", "--name", "pages", join(root, "pages")], {
     cwd: site,
     env,
     stdio: "ignore",
@@ -69,7 +72,7 @@ if (isPod) {
   config =
     `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}[wip]\nrunning = 6\nreview = 3\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n` +
-    `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(home, "pages"))}` +
+    `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(root, "pages"))}` +
     // The screenshots show the history of a repository with more in it than the demo's.
     (process.env.HISTORY_REPO
       ? `\n[[projects]]\nname = "web"\npath = "${process.env.HISTORY_REPO}"\ndirector = false\n`
