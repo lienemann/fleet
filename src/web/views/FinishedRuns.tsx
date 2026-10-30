@@ -5,6 +5,7 @@ import { useFleet } from "../fleet.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
+import { ItemActions } from "../ui/ItemActions.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { useNow } from "../useNow.ts";
 
@@ -104,6 +105,7 @@ export function FinishedGroup({
   if (!newest) return null;
   const ids = runs.map((run) => run.id);
   const text = comment.trim();
+  const stopped = newest.stopped !== undefined && agent.activity === "stopped";
   const submit = () => {
     send(
       text
@@ -125,15 +127,6 @@ export function FinishedGroup({
         <AgentName agent={agent} />
         <span className="spacer" />
         <Span run={newest} />
-        {newest.stopped && agent.activity === "stopped" && (
-          <button
-            type="button"
-            className="link accent"
-            onClick={() => send({ type: "start", agent: agent.name })}
-          >
-            Start
-          </button>
-        )}
         <button type="button" className="link accent" onClick={onOpen}>
           Open
         </button>
@@ -146,22 +139,31 @@ export function FinishedGroup({
         onKeyDown={pressed}
         placeholder={`Comment for ${agent.name} (leave empty to just mark it read)`}
       />
-      <footer>
-        <button
-          type="button"
-          // Not `disabled`: Firefox shows no tooltip on a disabled button.
-          aria-disabled={text !== ""}
-          title={text ? "Send covers what you wrote" : undefined}
-          onClick={() => {
-            if (!text) send({ type: "finished_reply", agent: agent.name, ids, text: GO });
-          }}
-        >
-          Go
-        </button>
-        <button type="button" className="primary" onClick={submit}>
-          {text ? "Send" : "Mark read"}
-        </button>
-      </footer>
+      <ItemActions
+        actions={[
+          ...(stopped
+            ? [
+                {
+                  label: "Start",
+                  tone: "primary" as const,
+                  run: () => send({ type: "start", agent: agent.name }),
+                },
+              ]
+            : []),
+          {
+            label: text ? "Send" : "Mark read",
+            keys: text ? "mod+enter" : undefined,
+            tone: stopped ? undefined : "primary",
+            run: submit,
+          },
+          {
+            label: "Go",
+            inactive: text !== "",
+            title: text ? "Send covers what you wrote" : undefined,
+            run: () => send({ type: "finished_reply", agent: agent.name, ids, text: GO }),
+          },
+        ]}
+      />
       {earlier.map((run) => (
         <FoldedRun key={run.id} run={run} />
       ))}

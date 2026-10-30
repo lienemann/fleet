@@ -14,11 +14,13 @@ import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
+import { ItemActions } from "../ui/ItemActions.tsx";
 import { MessageItem } from "../ui/MessageItem.tsx";
+import { Options } from "../ui/Options.tsx";
 import { FinishedGroup, ReadRuns } from "./FinishedRuns.tsx";
 
 /** Answers most open points get; anything else is typed. */
-const QUICK_ANSWERS = ["Yes", "No", "Defer"];
+const QUICK_ANSWERS = ["Yes", "No", "Defer"].map((label) => ({ label }));
 
 /** Lines of a reply the inbox shows before the diff has the rest. */
 const REPLY_LINES = 3;
@@ -163,26 +165,27 @@ export function Inbox({
               <header>
                 <AgentLabel agent={agent} />
                 <code className="name">{threadPlace(thread.path, thread.side, thread.lines)}</code>
-              </header>
-              <p className="reply-text">
-                {(thread.messages.at(-1)?.body ?? "").split("\n").slice(0, REPLY_LINES).join("\n")}
-              </p>
-              <footer>
+                <span className="spacer" />
                 <button
                   type="button"
-                  className="small"
+                  className="link accent"
                   onClick={() => onOpenThread(agent, thread.id)}
                 >
                   Open
                 </button>
-                <button
-                  type="button"
-                  className="small"
-                  onClick={() => send({ type: "thread_read", agent, threadId: thread.id })}
-                >
-                  Mark read
-                </button>
-              </footer>
+              </header>
+              <p className="reply-text">
+                {(thread.messages.at(-1)?.body ?? "").split("\n").slice(0, REPLY_LINES).join("\n")}
+              </p>
+              <ItemActions
+                actions={[
+                  {
+                    label: "Mark read",
+                    tone: "primary",
+                    run: () => send({ type: "thread_read", agent, threadId: thread.id }),
+                  },
+                ]}
+              />
             </article>
           ))}
         </section>
@@ -225,32 +228,30 @@ function PointForm({ doc, point }: { doc: OpenPointsDoc; point: OpenPointsDoc["p
     send({ type: "answer_point", docId: doc.docId, pointId: point.id, answer: text });
     setDraft("");
   };
+  const submit = () => draft.trim() && answer(draft.trim());
   return (
     <form
       className="point"
       onSubmit={(event) => {
         event.preventDefault();
-        if (draft.trim()) answer(draft.trim());
+        submit();
       }}
     >
       <span>{point.text}</span>
       {point.answer === undefined ? (
-        <div className="point-answer">
-          {QUICK_ANSWERS.map((quick) => (
-            <button key={quick} type="button" className="small" onClick={() => answer(quick)}>
-              {quick}
-            </button>
-          ))}
+        <>
+          <Options choices={QUICK_ANSWERS} onPick={answer} />
           <input
+            className="other"
             aria-label={`Answer to: ${point.text}`}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="or write an answer"
           />
-          <button type="submit" className="small primary" disabled={!draft.trim()}>
-            Answer
-          </button>
-        </div>
+          <ItemActions
+            actions={[{ label: "Answer", tone: "primary", disabled: !draft.trim(), run: submit }]}
+          />
+        </>
       ) : (
         <span className="answered">✓ {point.answer}</span>
       )}

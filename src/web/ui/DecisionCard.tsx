@@ -3,12 +3,13 @@ import type { DecisionKind } from "../../shared/events.ts";
 import type { Answer } from "../../shared/protocol.ts";
 import type { AgentView, Decision } from "../../shared/reducer.ts";
 import { useAgentDraft } from "../drafts.ts";
-import { keyLabel } from "../keys/keymap.tsx";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
 import { AgentLabel } from "./AgentLabel.tsx";
 import { FileBody } from "./FileBody.tsx";
+import { ItemActions } from "./ItemActions.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { Options } from "./Options.tsx";
 
 interface Props {
   decision: Decision;
@@ -121,19 +122,30 @@ function subjectOf(decision: Decision): string {
 
 function Permission({ compact, onAnswer }: Pick<Props, "onAnswer"> & { compact: boolean }) {
   return (
-    <footer>
-      <button type="button" className="primary" onClick={() => onAnswer({ behavior: "allow" })}>
-        Approve <kbd>{keyLabel("alt+a")}</kbd>
-      </button>
-      {!compact && (
-        <button type="button" onClick={() => onAnswer({ behavior: "allow", alwaysAllow: true })}>
-          Always allow
-        </button>
-      )}
-      <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-        Reject <kbd>{keyLabel("alt+r")}</kbd>
-      </button>
-    </footer>
+    <ItemActions
+      actions={[
+        {
+          label: "Approve",
+          tone: "primary",
+          keys: "alt+a",
+          run: () => onAnswer({ behavior: "allow" }),
+        },
+        ...(compact
+          ? []
+          : [
+              {
+                label: "Always allow",
+                run: () => onAnswer({ behavior: "allow", alwaysAllow: true }),
+              },
+            ]),
+        {
+          label: "Reject",
+          tone: "danger",
+          keys: "alt+r",
+          run: () => onAnswer({ behavior: "deny" }),
+        },
+      ]}
+    />
   );
 }
 
@@ -187,21 +199,12 @@ function Questions({
         <fieldset key={q.question}>
           {/* The strip's first line already asks a single question. */}
           {!(inline && questions.length === 1) && <legend>{q.question}</legend>}
-          <div className="options">
-            {q.options.map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                className="option"
-                aria-pressed={chosen[q.question]?.includes(option.label) ?? false}
-                title={option.description}
-                onClick={() => pick(q.question, option.label, q.multiSelect ?? false)}
-              >
-                {option.label}
-                {!inline && option.description && <small>{option.description}</small>}
-              </button>
-            ))}
-          </div>
+          <Options
+            choices={q.options}
+            chosen={chosen[q.question] ?? []}
+            describe={!inline}
+            onPick={(label) => pick(q.question, label, q.multiSelect ?? false)}
+          />
           {!compact && (
             <input
               className="other"
@@ -214,21 +217,18 @@ function Questions({
         </fieldset>
       ))}
       {!compact && (
-        <footer>
-          <button
-            type="button"
-            className="primary"
-            disabled={!complete}
-            onClick={() =>
-              send(Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)])))
-            }
-          >
-            Answer
-          </button>
-          <button type="button" onClick={() => onAnswer({ behavior: "deny" })}>
-            Dismiss
-          </button>
-        </footer>
+        <ItemActions
+          actions={[
+            {
+              label: "Answer",
+              tone: "primary",
+              disabled: !complete,
+              run: () =>
+                send(Object.fromEntries(questions.map((q) => [q.question, answerTo(q.question)]))),
+            },
+            { label: "Dismiss", tone: "danger", run: () => onAnswer({ behavior: "deny" }) },
+          ]}
+        />
       )}
     </>
   );
@@ -254,14 +254,12 @@ function Review({ decision, onAnswer }: Pick<Props, "decision" | "onAnswer">) {
         rows={3}
         placeholder="Comments for the agent (needed when asking for changes)"
       />
-      <footer>
-        <button type="button" className="primary" onClick={() => answer(true)}>
-          Approve
-        </button>
-        <button type="button" disabled={!message} onClick={() => answer(false)}>
-          Request changes
-        </button>
-      </footer>
+      <ItemActions
+        actions={[
+          { label: "Approve", tone: "primary", run: () => answer(true) },
+          { label: "Request changes", disabled: !message, run: () => answer(false) },
+        ]}
+      />
     </>
   );
 }

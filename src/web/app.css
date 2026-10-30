@@ -845,10 +845,15 @@ button.link.accent {
   max-height: 12em;
   overflow: auto;
 }
-.decision footer {
+/* The buttons of every inbox item; a danger one sits at the end, apart from the others. */
+footer.actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+button.danger {
+  color: var(--delfg);
 }
 .decision fieldset {
   border: 1px solid var(--line2);
@@ -951,10 +956,6 @@ button.link.accent {
 }
 .finished textarea {
   width: 100%;
-}
-.finished footer {
-  display: flex;
-  gap: 6px;
 }
 .finished .run,
 .read-finished .run {
@@ -2954,7 +2955,7 @@ button.ln:hover {
   background: transparent;
   color: var(--muted);
 }
-.decision.card footer button {
+.decision.card footer.actions button {
   min-height: 32px;
   padding: 6px 12px;
   font-weight: 500;
@@ -2994,10 +2995,6 @@ button.ln:hover {
   margin: 0;
   font-size: 12.5px;
   white-space: pre-wrap;
-}
-.reply footer {
-  display: flex;
-  gap: 6px;
 }
 
 /* Collapsed sidebars leave a strip with the button that brings them back. */
