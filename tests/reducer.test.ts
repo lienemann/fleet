@@ -242,7 +242,32 @@ describe("session panel", () => {
       attach("/p/b.md"),
       attach("/p/a.md"),
     );
-    expect(agent.attached).toEqual([{ path: "/p/a.md", note: "Review" }, { path: "/p/b.md" }]);
+    expect(agent.attached).toEqual([
+      { path: "/p/a.md", note: "Review", reported: false },
+      { path: "/p/b.md", reported: false },
+    ]);
+  });
+
+  it("counts an attached file as delivered only after the next report, and again pending when re-attached", () => {
+    const attach = (path: string): NewEvent => ({
+      kind: "files_attached",
+      agent: "a",
+      files: [{ path }],
+    });
+    const report: NewEvent = {
+      kind: "report",
+      agent: "a",
+      report: { summary: "Done.", changes: [], openQuestions: [] },
+    };
+    const reported = (agent: AgentView) => agent.attached.map((f) => [f.path, f.reported]);
+    expect(reported(run(attach("/p/a.md")))).toEqual([["/p/a.md", false]]);
+    expect(reported(run(attach("/p/a.md"), report, attach("/p/b.md")))).toEqual([
+      ["/p/b.md", false],
+      ["/p/a.md", true],
+    ]);
+    expect(reported(run(attach("/p/a.md"), report, attach("/p/a.md")))).toEqual([
+      ["/p/a.md", false],
+    ]);
   });
 
   it("keeps a bounded number of attached files, the oldest going first", () => {

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
-import type { AgentView } from "../../shared/reducer.ts";
+import type { AgentView, AttachedEntry } from "../../shared/reducer.ts";
 import { groupByLocation } from "../files.ts";
 import { useFleet } from "../fleet.tsx";
 import { duration } from "../labels.ts";
@@ -31,6 +31,9 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
 
   const noteFiles = new Set(notes?.map((n) => `${agent.cwd}/${n.path}`));
   const attached = new Set(agent.attached.map((f) => f.path));
+  // Fleet does not watch files, so one attached since the last report may still be written to.
+  const delivered = agent.attached.filter((f) => f.reported);
+  const pending = agent.attached.filter((f) => !f.reported);
   // Attached files and notes have their own lists above, so each file shows once.
   const written = groupByLocation(
     agent.cwd,
@@ -45,16 +48,8 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
     <div className="drawer-scroll files">
       {error && <p className="banner">{error}</p>}
       {nothing && <p className="empty">{agent.name} has not written any files for you yet.</p>}
-      {agent.attached.length > 0 && (
-        <section>
-          <h3>Attached by {agent.name}</h3>
-          <ul>
-            {agent.attached.map((file) => (
-              <li key={file.path}>{link(file.path, file.note)}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <AttachedFiles title={`Attached by ${agent.name}`} files={delivered} link={link} />
+      <AttachedFiles title="Attached, may still change" files={pending} link={link} />
       {notes && notes.length > 0 && (
         <section>
           <h3>Notes</h3>
@@ -78,6 +73,28 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
         </section>
       )}
     </div>
+  );
+}
+
+function AttachedFiles({
+  title,
+  files,
+  link,
+}: {
+  title: string;
+  files: AttachedEntry[];
+  link: (path: string, note?: string) => ReactNode;
+}) {
+  if (files.length === 0) return null;
+  return (
+    <section>
+      <h3>{title}</h3>
+      <ul>
+        {files.map((file) => (
+          <li key={file.path}>{link(file.path, file.note)}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

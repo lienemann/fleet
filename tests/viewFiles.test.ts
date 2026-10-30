@@ -129,8 +129,8 @@ describe("attach_file and report_result files", () => {
     await t.attach([{ path: diff }]);
     await t.attach([{ path: review }]);
     expect(t.log.state.agents.alpha?.attached).toEqual([
-      { path: review, note: "Review for Jan" },
-      { path: diff, note: undefined },
+      { path: review, note: "Review for Jan", reported: false },
+      { path: diff, note: undefined, reported: false },
     ]);
   });
 
@@ -163,7 +163,8 @@ describe("attach_file and report_result files", () => {
       {},
     );
     const alpha = t.log.state.agents.alpha;
-    expect(alpha?.attached).toEqual([{ path: notes, note: "n" }]);
+    // The report came right after the attachment, so the file is delivered with it.
+    expect(alpha?.attached).toEqual([{ path: notes, note: "n", reported: true }]);
     expect(alpha?.report?.summary).toBe("Done.");
   });
 

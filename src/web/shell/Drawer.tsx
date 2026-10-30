@@ -203,21 +203,18 @@ function ReportView({
   onOpenFile: (path: string) => void;
 }) {
   const report = agent.report;
-  if (!report && agent.attached.length === 0)
-    return <p className="empty">{agent.name} has not reported a result yet.</p>;
+  // Only files the worker reported after attaching: before that it may still be writing them.
+  const delivered = agent.attached.filter((file) => file.reported);
+  if (!report) return <p className="empty">{agent.name} has not reported a result yet.</p>;
   return (
     <div className="drawer-scroll report">
-      {report && (
-        <>
-          <h2>Summary</h2>
-          <Markdown text={report.summary} />
-        </>
-      )}
-      {agent.attached.length > 0 && (
+      <h2>Summary</h2>
+      <Markdown text={report.summary} />
+      {delivered.length > 0 && (
         <>
           <h2>Files</h2>
           <ul className="attached">
-            {agent.attached.map((file) => (
+            {delivered.map((file) => (
               <li key={file.path}>
                 <FileLink cwd={agent.cwd} path={file.path} note={file.note} onOpen={onOpenFile} />
               </li>
@@ -225,7 +222,7 @@ function ReportView({
           </ul>
         </>
       )}
-      {report && report.changes.length > 0 && (
+      {report.changes.length > 0 && (
         <>
           <h2>Changes</h2>
           <p>
@@ -237,13 +234,13 @@ function ReportView({
           </p>
         </>
       )}
-      {report?.tests && (
+      {report.tests && (
         <>
           <h2>Tests</h2>
           <p>{report.tests}</p>
         </>
       )}
-      {report && report.openQuestions.length > 0 && (
+      {report.openQuestions.length > 0 && (
         <>
           <h2>Open questions</h2>
           <ul>
@@ -253,7 +250,7 @@ function ReportView({
           </ul>
         </>
       )}
-      {report?.walkthrough && (
+      {report.walkthrough && (
         <>
           <h2>Walkthrough</h2>
           <Markdown text={report.walkthrough} className="walkthrough" />

@@ -140,6 +140,14 @@ export interface Stretch {
   failed?: string;
 }
 
+/**
+ * An attached file. It counts as delivered only once the worker reported after attaching it:
+ * fleet does not watch files, so before that the worker may still be writing it.
+ */
+export interface AttachedEntry extends AttachedFile {
+  reported: boolean;
+}
+
 export interface AgentView {
   name: string;
   role: Role;
@@ -174,7 +182,7 @@ export interface AgentView {
   /** Files the session wrote or edited, newest first. */
   outputs: string[];
   /** Files the worker attached for the user, newest first. */
-  attached: AttachedFile[];
+  attached: AttachedEntry[];
   /** What the current turn changed so far, per file. */
   turnEdits: FileEdit[];
   /** The latest handover to a fresh session, while it runs or if it failed. */
@@ -757,7 +765,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     case "agent_opened":
       return patch({ unseen: false });
     case "report":
-      return patch({ report: event.report });
+      return patch({
+        report: event.report,
+        attached: agent.attached.map((file) =>
+          file.reported ? file : { ...file, reported: true },
+        ),
+      });
     case "files_attached":
       return patch({ attached: trackAttached(agent.attached, event.files) });
     case "status":
@@ -1069,11 +1082,15 @@ function trackOutputs(outputs: string[], event: FleetEvent & { kind: "log" }): s
 /** Attached files kept per agent; the oldest go first. */
 export const ATTACHED_LIMIT = 50;
 
-/** New files go on top; attaching a path again moves it up and keeps its note unless a new one comes. */
-function trackAttached(attached: AttachedFile[], files: AttachedFile[]): AttachedFile[] {
+/**
+ * New files go on top, not yet reported; attaching a path again moves it up, keeps its note
+ * unless a new one comes, and takes it back out of the delivered files until the next report.
+ */
+function trackAttached(attached: AttachedEntry[], files: AttachedFile[]): AttachedEntry[] {
   const merged = files.map((file) => ({
     ...file,
     note: file.note ?? attached.find((a) => a.path === file.path)?.note,
+    reported: false,
   }));
   const paths = new Set(files.map((f) => f.path));
   return [...merged, ...attached.filter((a) => !paths.has(a.path))].slice(0, ATTACHED_LIMIT);

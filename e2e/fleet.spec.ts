@@ -383,6 +383,8 @@ test("files open from the edit card, the Outputs panel and the Report, also thos
   await attached.getByRole("button", { name: /-notes\.txt$/ }).click();
   await expect(drawer.locator(".file-content")).toContainText("Run the replay 50 times");
   await expect(drawer.locator(".files")).toContainText("Attached by");
+  // The report came after both attachments, so nothing is left pending.
+  await expect(drawer.locator(".files")).not.toContainText("may still change");
   await expect(drawer.locator(".files")).toContainText("Written elsewhere");
   await shot(page, "files");
 
