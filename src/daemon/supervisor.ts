@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { DIRECTOR_COLOR, SWATCHES } from "../shared/colors.ts";
@@ -2243,26 +2244,51 @@ export class Supervisor implements ToolHost {
 const isFree = (ws: WorkspaceStatus): boolean =>
   !ws.explicit && !ws.claim && ws.tasks.length === 0 && ws.queued === 0;
 
-/** A director plans and delegates; the only files it writes are its own notes. */
+/**
+ * The directory where Claude Code keeps a project's auto-memory: the CLI names the project
+ * folder after the working directory with every non-alphanumeric character turned into "-".
+ */
+function memoryDir(cwd: string, configDir: string): string {
+  let dir = cwd;
+  try {
+    dir = realpathSync(cwd);
+  } catch {
+    // A missing cwd has no memory to protect; the plain path still yields a valid slug.
+  }
+  return join(configDir, "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"), "memory");
+}
+
+const claudeConfigDir = (): string => process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+
+/**
+ * A director plans and delegates; the only files it writes are its own notes, the
+ * auto-memory Claude Code keeps for its project and the plan files of plan mode.
+ */
 export function directorPolicy(
   cwd: string,
   director: string,
   tool: string,
   input: Record<string, unknown>,
+  configDir: string = claudeConfigDir(),
 ): PermissionResult | undefined {
   if (!EDIT_TOOLS.has(tool)) return undefined;
   const notes = join(cwd, ".fleet", director);
-  try {
-    mkdirSync(notes, { recursive: true });
-    resolveInside(notes, String(input.file_path ?? input.notebook_path ?? ""));
-    return { behavior: "allow", updatedInput: input };
-  } catch (error) {
-    if (!(error instanceof OutsideWorkspaceError)) throw error;
-    return {
-      behavior: "deny",
-      message: "The director does not edit code. Delegate the change with spawn_task.",
-    };
+  const path = String(input.file_path ?? input.notebook_path ?? "");
+  mkdirSync(notes, { recursive: true });
+  for (const root of [notes, memoryDir(cwd, configDir), join(configDir, "plans")]) {
+    try {
+      resolveInside(root, path);
+      return { behavior: "allow", updatedInput: input };
+    } catch (error) {
+      if (!(error instanceof OutsideWorkspaceError)) throw error;
+    }
   }
+  return {
+    behavior: "deny",
+    message:
+      "The director does not edit code. Delegate the change with spawn_task. " +
+      "It may write only its notes under .fleet/, its Claude Code memory and its plans.",
+  };
 }
 
 /** Agents keep notes for the user under .fleet/; they never belong in a diff or a commit. */

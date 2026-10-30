@@ -171,6 +171,46 @@ describe("director", () => {
     ).toMatchObject({ behavior: "deny" });
     expect(directorPolicy(director, DIRECTOR, "Bash", { command: "ls" })).toBeUndefined();
   });
+
+  describe("memory", () => {
+    function memorySetup() {
+      const { director } = setup();
+      const configDir = mkdtempSync(join(tmpdir(), "fleet-claude-"));
+      const slug = realpathSync(director).replace(/[^a-zA-Z0-9]/g, "-");
+      const memory = join(configDir, "projects", slug, "memory");
+      const other = join(configDir, "projects", `${slug}-other`, "memory");
+      mkdirSync(memory, { recursive: true });
+      mkdirSync(other, { recursive: true });
+      const verdict = (tool: string, file_path: string) =>
+        directorPolicy(director, DIRECTOR, tool, { file_path }, configDir)?.behavior;
+      return { configDir, memory, other, verdict };
+    }
+
+    it("may write its own project's memory", () => {
+      const { memory, verdict } = memorySetup();
+      expect(verdict("Write", join(memory, "MEMORY.md"))).toBe("allow");
+      expect(verdict("Edit", join(memory, "topic.md"))).toBe("allow");
+    });
+
+    it("may write plan files, but not elsewhere in the config directory", () => {
+      const { configDir, verdict } = memorySetup();
+      expect(verdict("Write", join(configDir, "plans", "idea.md"))).toBe("allow");
+      expect(verdict("Write", join(configDir, "settings.json"))).toBe("deny");
+    });
+
+    it("may not write another project's memory or escape the directory", () => {
+      const { memory, other, verdict } = memorySetup();
+      expect(verdict("Write", join(other, "MEMORY.md"))).toBe("deny");
+      expect(verdict("Write", join(memory, "..", "settings.json"))).toBe("deny");
+      expect(verdict("Write", join(memory, "../../../settings.json"))).toBe("deny");
+    });
+
+    it("may not follow a symlink out of the memory directory", () => {
+      const { memory, verdict } = memorySetup();
+      symlinkSync(tmpdir(), join(memory, "escape"));
+      expect(verdict("Write", join(memory, "escape", "x.md"))).toBe("deny");
+    });
+  });
 });
 
 describe("worker tools", () => {
