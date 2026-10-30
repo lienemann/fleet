@@ -292,6 +292,8 @@ export type EventBody =
       title?: string;
       /** For the result of an edit: the lines it changed. */
       edit?: FileEdit;
+      /** For a tool result: the tool failed or was denied. */
+      failed?: boolean;
     }
   | { kind: "todos"; todos: Todo[] }
   /** The live tasks as older versions logged them; superseded by the events below. */

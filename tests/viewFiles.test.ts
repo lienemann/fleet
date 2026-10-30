@@ -49,14 +49,11 @@ function setup() {
       .find((t) => t.name === "attach_file")
       ?.handler({ files }, {});
   /** The agent wrote `path` with a tool, as the log records it. */
-  const wrote = (path: string, agent = "alpha") =>
-    log.append({
-      agent,
-      kind: "log",
-      role: "tool_use",
-      text: path,
-      toolName: "Write",
-    });
+  const wrote = (path: string, agent = "alpha") => {
+    const toolUseId = `write-${path}`;
+    log.append({ agent, kind: "log", role: "tool_use", text: path, toolName: "Write", toolUseId });
+    log.append({ agent, kind: "log", role: "tool_result", text: "ok", toolUseId });
+  };
   return { ...dirs, repo: join(root, "repo"), log, supervisor, write, read, attach, wrote };
 }
 

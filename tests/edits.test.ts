@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
-import { fileEdit } from "../src/daemon/translate.ts";
+import { fileEdit, translate } from "../src/daemon/translate.ts";
 import { echoing, fakeQuery, newSession, result, sdk, toolUse, until, worker } from "./helpers.ts";
 
 const patch = (...lines: string[]) => [
@@ -14,6 +14,23 @@ const edited = (id: string, filePath: string, lines: string[]) =>
     message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] },
     tool_use_result: { filePath, structuredPatch: patch(...lines) },
   });
+
+describe("Failed tool results", () => {
+  it("are marked, so a denied write is not taken for a file the agent made", () => {
+    const result = (isError: boolean) =>
+      translate(
+        sdk({
+          type: "user",
+          parent_tool_use_id: null,
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "t", content: "x", is_error: isError }],
+          },
+        }),
+      );
+    expect(result(true)).toMatchObject([{ role: "tool_result", failed: true }]);
+    expect(result(false)[0]).not.toHaveProperty("failed");
+  });
+});
 
 describe("Edited files", () => {
   it("counts the lines an Edit or Write changed", () => {

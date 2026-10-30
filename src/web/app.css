@@ -2409,6 +2409,10 @@ button.ln:hover {
 .file-link.active {
   color: var(--accent);
 }
+.file-link.missing {
+  color: var(--dim);
+  text-decoration: line-through;
+}
 .copy-path {
   display: inline-flex;
   flex: none;

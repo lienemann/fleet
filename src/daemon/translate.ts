@@ -9,6 +9,7 @@ interface Block {
   input?: unknown;
   tool_use_id?: string;
   content?: unknown;
+  is_error?: boolean;
 }
 
 /** Maps one SDK stream message to the events it contributes to the log (often none). */
@@ -84,6 +85,7 @@ export function translate(message: SDKMessage): AgentEvent[] {
         text: flatten(block.content),
         toolUseId: block.tool_use_id,
         parent: message.parent_tool_use_id,
+        ...(block.is_error && { failed: true }),
         ...(edit && { edit }),
       }));
     }

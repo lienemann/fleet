@@ -697,7 +697,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
           (event.role === "assistant" || event.role === "tool_use") && { offline: undefined }),
         log: appendLine(agent.log, event, event.role, event.text, event.toolName),
         subagents: trackSubagents(agent.subagents, event),
-        outputs: trackOutputs(agent.outputs, event),
+        outputs: trackOutputs(agent.outputs, agent.log, event),
         ...(event.edit && { turnEdits: addEdit(agent.turnEdits, event.edit, agent.cwd) }),
       });
     case "todos":
@@ -1076,11 +1076,18 @@ function addEdit(edits: FileEdit[], edit: FileEdit, cwd: string): FileEdit[] {
 const OUTPUT_LIMIT = 50;
 const WRITING_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
-function trackOutputs(outputs: string[], event: FleetEvent & { kind: "log" }): string[] {
-  if (event.role !== "tool_use" || !event.toolName || !WRITING_TOOLS.has(event.toolName))
-    return outputs;
-  const path = event.text;
-  return [path, ...outputs.filter((p) => p !== path)].slice(0, OUTPUT_LIMIT);
+/** A file counts once its Write or Edit came back without failing or being denied. */
+function trackOutputs(
+  outputs: string[],
+  log: LogLine[],
+  event: FleetEvent & { kind: "log" },
+): string[] {
+  if (event.role !== "tool_result" || event.failed || !event.toolUseId) return outputs;
+  const call = log.findLast(
+    (line) => line.toolUseId === event.toolUseId && line.role === "tool_use",
+  );
+  if (!call?.toolName || !WRITING_TOOLS.has(call.toolName)) return outputs;
+  return [call.text, ...outputs.filter((p) => p !== call.text)].slice(0, OUTPUT_LIMIT);
 }
 
 /** Attached files kept per agent; the oldest go first. */

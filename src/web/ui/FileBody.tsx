@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FileContent } from "../../shared/protocol.ts";
+import { isMissingFile } from "../files.ts";
 import { useFleet } from "../fleet.tsx";
 import { highlightBlock, languageOf } from "../review/highlight.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -14,22 +15,34 @@ export function FileBody({
   agent,
   path,
   className = "",
+  onExists,
 }: {
   agent: string;
   path: string;
   className?: string;
+  /** Told whether the file is on the disk, once the daemon answered. */
+  onExists?: (exists: boolean) => void;
 }) {
   const { call } = useFleet();
   const [file, setFile] = useState<FileContent>();
   const [error, setError] = useState<string>();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new callback is no reason to read again
   useEffect(() => {
     let current = true;
     setFile(undefined);
     setError(undefined);
     call({ type: "read_file", agent, path }).then(
-      (loaded) => current && setFile(loaded),
-      (e: Error) => current && setError(e.message),
+      (loaded) => {
+        if (!current) return;
+        setFile(loaded);
+        onExists?.(true);
+      },
+      (e: Error) => {
+        if (!current) return;
+        setError(e.message);
+        if (isMissingFile(e.message)) onExists?.(false);
+      },
     );
     return () => {
       current = false;

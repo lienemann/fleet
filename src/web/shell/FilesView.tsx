@@ -20,6 +20,8 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
   const [notes, setNotes] = useState<Note[]>();
   const [open, setOpen] = useState(request?.path);
   const [error, setError] = useState<string>();
+  // Files the viewer found gone from the disk; fleet does not watch files, so only opened ones show.
+  const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => setOpen(request?.path), [request]);
 
   // Refresh when the agent takes a step: that is when it writes.
@@ -40,7 +42,14 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
     agent.outputs.filter((p) => !attached.has(p) && !noteFiles.has(p)),
   );
   const link = (path: string, note?: string) => (
-    <FileLink cwd={agent.cwd} path={path} note={note} active={path === open} onOpen={setOpen} />
+    <FileLink
+      cwd={agent.cwd}
+      path={path}
+      note={note}
+      active={path === open}
+      missing={missing.has(path)}
+      onOpen={setOpen}
+    />
   );
   const nothing = notes?.length === 0 && agent.attached.length === 0 && agent.outputs.length === 0;
 
@@ -69,7 +78,19 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
           <h3>
             <code>{open}</code>
           </h3>
-          <FileBody agent={agent.name} path={open} />
+          <FileBody
+            agent={agent.name}
+            path={open}
+            onExists={(exists) =>
+              setMissing((now) => {
+                if (now.has(open) === !exists) return now;
+                const next = new Set(now);
+                if (exists) next.delete(open);
+                else next.add(open);
+                return next;
+              })
+            }
+          />
         </section>
       )}
     </div>

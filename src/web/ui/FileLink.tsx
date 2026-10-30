@@ -7,25 +7,29 @@ export function FileLink({
   path,
   note,
   active = false,
+  missing = false,
   onOpen,
 }: {
   cwd: string;
   path: string;
   note?: string;
   active?: boolean;
+  /** The viewer found the file gone from the disk. */
+  missing?: boolean;
   onOpen: (path: string) => void;
 }) {
   return (
     <>
       <button
         type="button"
-        className={`link file-link ${active ? "active" : ""}`}
-        title={path}
+        className={`link file-link ${active ? "active" : ""} ${missing ? "missing" : ""}`}
+        title={missing ? `${path} (deleted)` : path}
         onClick={() => onOpen(path)}
       >
         <code>{relativeTo(cwd, path)}</code>
       </button>
       <CopyPath path={absolutePath(cwd, path)} />
+      {missing && <span className="dim"> deleted</span>}
       {note && <span className="dim"> {note}</span>}
     </>
   );

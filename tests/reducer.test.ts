@@ -215,20 +215,46 @@ describe("usage", () => {
 
 describe("session panel", () => {
   it("keeps the files a session wrote, newest first and without repeats", () => {
-    const write = (path: string, toolName = "Write"): NewEvent => ({
+    const write = (path: string, toolName = "Write", failed = false): NewEvent[] => {
+      const toolUseId = `${path}-${toolName}-${failed}`;
+      return [
+        { kind: "log", agent: "a", role: "tool_use", text: path, toolName, toolUseId },
+        { kind: "log", agent: "a", role: "tool_result", text: "ok", toolUseId, failed },
+      ];
+    };
+    const agent = run(
+      ...write("/ws/a.py"),
+      ...write("/ws/b.py", "Edit"),
+      ...write("/ws/a.py", "Edit"),
+      ...write("/ws/c.py", "Read"),
+    );
+    expect(agent.outputs).toEqual(["/ws/a.py", "/ws/b.py"]);
+  });
+
+  it("does not count a write that was denied, failed or is still waiting for its result", () => {
+    const call = (path: string, toolUseId: string): NewEvent => ({
       kind: "log",
       agent: "a",
       role: "tool_use",
       text: path,
-      toolName,
+      toolName: "Write",
+      toolUseId,
     });
     const agent = run(
-      write("/ws/a.py"),
-      write("/ws/b.py", "Edit"),
-      write("/ws/a.py", "Edit"),
-      write("/ws/c.py", "Read"),
+      call("/ws/denied.md", "t1"),
+      {
+        kind: "log",
+        agent: "a",
+        role: "tool_result",
+        text: "denied",
+        toolUseId: "t1",
+        failed: true,
+      },
+      call("/ws/pending.md", "t2"),
+      call("/ws/done.md", "t3"),
+      { kind: "log", agent: "a", role: "tool_result", text: "ok", toolUseId: "t3" },
     );
-    expect(agent.outputs).toEqual(["/ws/a.py", "/ws/b.py"]);
+    expect(agent.outputs).toEqual(["/ws/done.md"]);
   });
 
   it("keeps the files the agent attached, newest first, a re-attached one on top with its note", () => {

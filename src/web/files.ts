@@ -2,6 +2,9 @@
 export const relativeTo = (cwd: string, path: string): string =>
   path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 
+/** Whether the daemon refused to read a file because it is not on the disk (see `readViewable`). */
+export const isMissingFile = (message: string): boolean => message.endsWith(" does not exist");
+
 /** The absolute path of `path`, which an agent's lists name relative to its workspace if it lies inside. */
 export const absolutePath = (cwd: string, path: string): string =>
   path.startsWith("/") ? path : `${cwd}/${path}`;

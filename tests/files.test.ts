@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { absolutePath, groupByLocation, notInDiff, relativeTo } from "../src/web/files.ts";
+import {
+  absolutePath,
+  groupByLocation,
+  isMissingFile,
+  notInDiff,
+  relativeTo,
+} from "../src/web/files.ts";
 
 describe("files of an agent", () => {
+  it("tells a file gone from the disk from other refusals", () => {
+    expect(isMissingFile("/ws/a.md does not exist")).toBe(true);
+    expect(isMissingFile("/x is outside what fleet shows of this agent's files")).toBe(false);
+  });
+
   it("makes a path absolute from the workspace unless it already is", () => {
     expect(absolutePath("/ws", "src/a.py")).toBe("/ws/src/a.py");
     expect(absolutePath("/ws", "/home/me/r.md")).toBe("/home/me/r.md");
