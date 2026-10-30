@@ -8,24 +8,29 @@ import {
   type RiskTag,
   type Usage,
 } from "../shared/events.ts";
-import { type AgentView, type Column, columnOf, needsUser } from "../shared/reducer.ts";
+import type { AgentView, Column, FleetState } from "../shared/reducer.ts";
+import { agentState, columnOf, needsUser, taskOf } from "../shared/tasks.ts";
 
+/** The board's columns; dropped tasks are not shown. */
 export const COLUMNS: Array<{ id: Column; label: string }> = [
   { id: "queued", label: "Queued" },
-  { id: "running", label: "Running" },
+  { id: "parked", label: "Parked" },
+  { id: "in_progress", label: "In progress" },
   { id: "needs_you", label: "Needs you" },
   { id: "review", label: "Review" },
   { id: "changes_requested", label: "Changes requested" },
-  { id: "accepted", label: "Accepted" },
+  { id: "done", label: "Done" },
 ];
 
 const COLUMN_LABELS: Record<Column, string> = {
   queued: "queued",
-  running: "working",
+  parked: "parked",
+  in_progress: "working",
   needs_you: "needs you",
   review: "in review",
   changes_requested: "changes requested",
-  accepted: "accepted",
+  done: "done",
+  dropped: "dropped",
 };
 
 export const columnLabel = (column: Column): string => COLUMN_LABELS[column];
@@ -51,26 +56,26 @@ export const MODE_LABELS: Record<PermissionMode, string> = {
 };
 
 /**
- * What an agent is up to in a word, and the status dot's color class. The director idles by
- * design, so its dot only warns when it asks for something.
+ * What an agent is up to in a word, and the status dot's color class: its task's column while it
+ * holds one. Directors idle by design, so their dot only warns when they ask for something.
  */
-export function agentStatus(agent: AgentView): { label: string; dot: Column | "idle" } {
-  const column = columnOf(agent);
+export function agentStatus(
+  state: FleetState,
+  agent: AgentView,
+): { label: string; dot: Column | "idle" } {
+  const task = taskOf(state, agent);
+  const column = task && columnOf(state, task);
+  const free = agent.role === "worker" && agentState(agent) === "free";
   const label = agent.reconnecting
     ? "reconnecting"
-    : agent.task === "queued"
-      ? "queued"
-      : agent.role !== "worker" || agent.activity === "stopped" || agent.activity === "detached"
-        ? ACTIVITY_LABELS[agent.activity]
-        : columnLabel(column);
+    : column !== undefined && agent.activity !== "stopped" && agent.activity !== "detached"
+      ? columnLabel(column)
+      : free && agent.activity !== "detached"
+        ? "free"
+        : ACTIVITY_LABELS[agent.activity];
   const dot =
-    agent.role === "worker"
-      ? column
-      : needsUser(agent)
-        ? "needs_you"
-        : agent.activity === "working"
-          ? "running"
-          : "idle";
+    column ??
+    (needsUser(state, agent) ? "needs_you" : agent.activity === "working" ? "in_progress" : "idle");
   return { label, dot };
 }
 
@@ -90,10 +95,10 @@ export function contextPercent(agent: AgentView): number | undefined {
   return agent.context && Math.round((100 * agent.context.tokens) / agent.context.window);
 }
 
-/** What the agent works on now, for the "▸" lines: its status, else its current to-do. */
-export function currentWork(agent: AgentView): string | undefined {
+/** What the agent works on now, for the "▸" lines: its task's status, else its current to-do. */
+export function currentWork(state: FleetState, agent: AgentView): string | undefined {
   const todo = agent.todos.find((t) => t.status === "in_progress");
-  return agent.status ?? todo?.activeForm ?? todo?.content;
+  return taskOf(state, agent)?.status ?? todo?.activeForm ?? todo?.content;
 }
 
 /** "6 s ago", "4 min ago", "2 h ago": how long ago something happened. */

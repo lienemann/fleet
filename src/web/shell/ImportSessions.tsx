@@ -134,7 +134,7 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
               <span>{s.title}</span>
               <small>
                 {duration(now - s.lastModified)} ago{s.branch && ` · ${s.branch}`}
-                {s.imported && " · already a task"}
+                {s.imported && " · already in fleet"}
               </small>
             </label>
           ))}
@@ -152,7 +152,7 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
         )}
         {single && !asDirector && (
           <label>
-            Title on the board
+            Title in the rail
             <input value={title ?? single.title} onChange={(e) => setTitle(e.target.value)} />
           </label>
         )}

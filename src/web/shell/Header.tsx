@@ -1,10 +1,5 @@
-import {
-  agentList,
-  costOn,
-  inboxCount,
-  needsUser,
-  unansweredPoints,
-} from "../../shared/reducer.ts";
+import { agentList, costOn, inboxCount, unansweredPoints } from "../../shared/reducer.ts";
+import { needsUser, taskList } from "../../shared/tasks.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { useProjectFilter, useProjects } from "../projects.tsx";
@@ -52,9 +47,14 @@ export function Header({
       color: "var(--run)",
       view: "grid",
     },
-    { n: agents.filter(needsUser).length, label: "need you", color: "var(--warn)", view: "inbox" },
     {
-      n: agents.filter((a) => a.task === "review").length,
+      n: agents.filter((a) => needsUser(state, a)).length,
+      label: "need you",
+      color: "var(--warn)",
+      view: "inbox",
+    },
+    {
+      n: taskList(state).filter((t) => t.state === "review").length,
       label: "in review",
       color: "var(--rev)",
       view: "board",

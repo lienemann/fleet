@@ -6,7 +6,8 @@ import { standIn } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { QueryFn } from "../src/daemon/session.ts";
 import { Supervisor, type SupervisorOptions } from "../src/daemon/supervisor.ts";
-import { columnOf, pendingDecisions } from "../src/shared/reducer.ts";
+import { pendingDecisions } from "../src/shared/reducer.ts";
+import { columnOf } from "../src/shared/tasks.ts";
 import {
   assistantText,
   DIRECTOR,
@@ -33,24 +34,46 @@ function setup(log = new EventLog(":memory:"), queryFn?: QueryFn, running = 4) {
     config: testConfig({ workspaces, running }),
   });
   supervisor.init();
-  const column = (name: string) => {
-    const agent = log.state.agents[name];
-    return agent && columnOf(agent);
+  const task = (id: string) => log.state.tasks[id];
+  const column = (id: string) => {
+    const found = task(id);
+    return found && columnOf(log.state, found);
   };
-  return { log, supervisor, calls: fake.calls, queries: fake.queries, column };
+  return { log, supervisor, calls: fake.calls, queries: fake.queries, task, column };
 }
 
 describe("Supervisor", () => {
-  it("starts a new task in its workspace and waits for the user after the turn", async () => {
-    const { log, supervisor, calls, column } = setup();
-    const name = supervisor.createTask("Fix the flaky test", "It fails 1 in 5.", "ws1");
+  it("starts a worker per workspace, free and without a session", () => {
+    const { log, calls } = setup();
+    const workers = Object.values(log.state.agents).filter((a) => a.role === "worker");
+    expect(workers.map((a) => [a.name, a.workspace, a.title, a.cwd, a.task])).toEqual([
+      ["alpha", "ws1", "ws1", "/work/ws1", undefined],
+      ["bravo", "ws2", "ws2", "/work/ws2", undefined],
+    ]);
+    expect(calls).toEqual([]);
+  });
 
-    expect(name).toBe("alpha");
-    expect(log.state.agents.alpha).toMatchObject({
-      cwd: "/work/ws1",
-      host: "mac",
-      task: "running",
+  it("keeps the workers it has after a restart", () => {
+    const { log } = setup();
+    setup(log);
+    expect(Object.keys(log.state.agents)).toEqual(["alpha", "bravo"]);
+  });
+
+  it("starts a new task on its workspace's worker and waits for the user after the turn", async () => {
+    const { log, supervisor, calls, column, task } = setup();
+    const id = supervisor.createTask("Fix the flaky test", "It fails 1 in 5.", "ws1");
+
+    expect(id).toBe("t1");
+    expect(task("t1")).toMatchObject({
+      title: "Fix the flaky test",
+      brief: "It fails 1 in 5.",
+      by: "you",
+      project: "test",
+      role: "worker",
+      state: "in_progress",
+      agent: "alpha",
     });
+    expect(log.state.agents.alpha?.task).toBe("t1");
     expect(calls[0]?.options?.allowedTools).toEqual([]);
     // The session hooks of the CLI recognise fleet's own sessions by this.
     expect(calls[0]?.options?.env?.FLEET_AGENT).toBe("alpha");
@@ -63,7 +86,7 @@ describe("Supervisor", () => {
       );
     await expect(ask("Read")).resolves.toMatchObject({ behavior: "allow" });
     await expect(ask("mcp__fleet__report_status")).resolves.toMatchObject({ behavior: "allow" });
-    await until(() => column("alpha") === "needs_you");
+    await until(() => column("t1") === "needs_you");
     expect(log.state.agents.alpha?.log[0]?.text).toBe("It fails 1 in 5.");
     expect(log.state.agents.alpha?.unseen).toBe(true);
   });
@@ -105,43 +128,119 @@ describe("Supervisor", () => {
     const { log, supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
     const lanes = log.state.agents.alpha?.history.map((s) => s.lane);
-    expect(lanes).toEqual(["queued", "running"]);
+    expect(lanes).toEqual(["idle", "in_progress"]);
     expect(log.state.agents.alpha?.unseen).toBe(false);
   });
 
-  it("queues a task until its workspace is free", async () => {
-    const { log, supervisor } = setup();
+  it("queues a second task for a busy workspace and starts it on the same worker once the first is accepted", async () => {
+    const { log, supervisor, calls, queries, task } = setup();
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws1");
-    expect(log.state.agents.bravo?.task).toBe("queued");
+    expect(task("t2")?.state).toBe("queued");
+    await until(() => log.state.agents.alpha?.activity === "idle");
 
-    supervisor.handle({ type: "move", agent: "alpha", to: "review" });
-    await until(() => log.state.agents.alpha?.task === "review");
-    expect(log.state.agents.bravo?.task).toBe("queued");
+    supervisor.handle({ type: "move", task: "t1", to: "review" });
+    expect(task("t1")?.state).toBe("review");
+    expect(task("t2")?.state).toBe("queued");
 
-    supervisor.handle({ type: "move", agent: "alpha", to: "accepted" });
-    await until(() => log.state.agents.bravo?.task === "running");
-    expect(log.state.agents.alpha?.activity).toBe("stopped");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    expect(task("t1")).toMatchObject({ state: "done", agent: undefined });
+    expect(task("t2")).toMatchObject({ state: "in_progress", agent: "alpha" });
+    // A fresh conversation: a new session without resume, the first task's log archived.
+    await until(() => calls.length === 2);
+    expect(calls[1]?.options?.resume).toBeUndefined();
+    expect(task("t1")?.conversations.map((c) => c.agent)).toEqual(["alpha"]);
+    expect(task("t1")?.conversations[0]?.log[0]?.text).toBe("one");
+    expect(log.state.agents.alpha?.log[0]?.text).toBe("two");
+    expect(queries[0]?.close).toHaveBeenCalled();
+  });
+
+  it("frees the worker on Accept without stopping its session", async () => {
+    const { log, supervisor, queries, task } = setup();
+    supervisor.createTask("first", "one", "ws1");
+    await until(() => log.state.agents.alpha?.activity === "idle");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    expect(task("t1")?.state).toBe("done");
+    expect(log.state.agents.alpha?.task).toBeUndefined();
+    expect(log.state.agents.alpha?.activity).toBe("idle");
+    expect(queries[0]?.interrupt).not.toHaveBeenCalled();
+    expect(queries[0]?.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps Done final", () => {
+    const { supervisor, task } = setup();
+    supervisor.createTask("first", "one", "ws1");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    supervisor.handle({ type: "move", task: "t1", to: "in_progress" });
+    supervisor.handle({ type: "remove", task: "t1" });
+    expect(task("t1")?.state).toBe("done");
+  });
+
+  it("drops a removed task and frees its worker for the next one", async () => {
+    const { log, supervisor, task } = setup();
+    supervisor.createTask("first", "one", "ws1");
+    supervisor.createTask("second", "two", "ws1");
+    supervisor.handle({ type: "remove", task: "t1" });
+    expect(task("t1")?.state).toBe("dropped");
+    await until(() => log.state.agents.alpha?.task === "t2");
+  });
+
+  it("gives a queued task to a worker busy with a ticketless prompt once it goes idle", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fake = fakeQuery(
+      async function* (params) {
+        let first = true;
+        for await (const _ of params.prompt as AsyncIterable<unknown>) {
+          if (first) await held;
+          first = false;
+          yield assistantText("ok");
+          yield result();
+        }
+      },
+      echoing(assistantText("ok"), result()),
+    );
+    const { log, supervisor, task } = setup(undefined, fake.queryFn);
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "What did you do?" });
+    expect(log.state.agents.alpha?.activity).toBe("working");
+    supervisor.createTask("first", "one", "ws1");
+    expect(task("t1")?.state).toBe("queued");
+
+    release();
+    await until(() => task("t1")?.state === "in_progress");
+    expect(task("t1")?.agent).toBe("alpha");
+  });
+
+  it("refuses the tools of a task to a worker that holds none", () => {
+    const { supervisor } = setup();
+    const report = { summary: "Done.", changes: [], openQuestions: [] };
+    expect(() => supervisor.report("alpha", report)).toThrow("You hold no task");
+    expect(() => supervisor.attachFiles("alpha", [{ path: "/work/x" }])).toThrow(
+      "You hold no task",
+    );
+    expect(() => supervisor.status("alpha", "busy")).toThrow("You hold no task");
+    expect(() => supervisor.replyThread("alpha", "th", "Yes.")).toThrow("You hold no task");
   });
 
   it("keeps to the WIP limit for running tasks", () => {
-    const { log, supervisor } = setup(undefined, undefined, 1);
+    const { supervisor, task } = setup(undefined, undefined, 1);
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws2");
-    expect(log.state.agents.alpha?.task).toBe("running");
-    expect(log.state.agents.bravo?.task).toBe("queued");
+    expect(task("t1")?.state).toBe("in_progress");
+    expect(task("t2")?.state).toBe("queued");
   });
 
   it("starts a queued task on request past the WIP limit, but not in a held workspace", () => {
-    const { log, supervisor } = setup(undefined, undefined, 1);
+    const { supervisor, task } = setup(undefined, undefined, 1);
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws1");
     supervisor.createTask("third", "three", "ws2");
-
-    supervisor.handle({ type: "start", agent: "bravo" });
-    expect(log.state.agents.bravo?.task).toBe("queued");
-    supervisor.handle({ type: "start", agent: "charlie" });
-    expect(log.state.agents.charlie?.task).toBe("running");
+    supervisor.handle({ type: "move", task: "t2", to: "in_progress" });
+    expect(task("t2")?.state).toBe("queued");
+    supervisor.handle({ type: "move", task: "t3", to: "in_progress" });
+    expect(task("t3")?.state).toBe("in_progress");
   });
 
   it("rejects tasks for unknown workspaces", () => {
@@ -152,7 +251,6 @@ describe("Supervisor", () => {
   it("after a restart, settles stale requests and resumes sessions that were live", async () => {
     const log = new EventLog(":memory:");
     log.append(worker("alpha", { cwd: "/work/ws1" }));
-    log.append({ kind: "task_state", agent: "alpha", state: "running" });
     log.append({ kind: "session_started", agent: "alpha", sessionId: "s-1" });
     log.append({ kind: "activity", agent: "alpha", activity: "working" });
     log.append({
@@ -176,6 +274,40 @@ describe("Supervisor", () => {
     await until(
       () => log.state.agents.alpha?.log.some((l) => l.text.includes("daemon restarted")) ?? false,
     );
+  });
+});
+
+describe("workspaces and their workers", () => {
+  const root = mkdtempSync(join(tmpdir(), "fleet-workers-"));
+  const dir = (name: string) => {
+    mkdirSync(join(root, name), { recursive: true });
+    return join(root, name);
+  };
+
+  it("gives the stand-in of a project without workspaces a worker, until a real workspace comes", async () => {
+    const config = testConfig({ director: dir("repo") });
+    const [project] = config.projects;
+    if (project) project.workspaces = [standIn(project)];
+    const log = new EventLog(":memory:");
+    const supervisor = new Supervisor({
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config,
+    });
+    supervisor.init();
+    expect(log.state.agents.alpha).toMatchObject({ role: "worker", workspace: "test" });
+
+    supervisor.addWorkspace("w1", dir("w1"), false, "test");
+    expect(log.state.agents.bravo).toMatchObject({ role: "worker", workspace: "w1" });
+    await until(() => log.state.agents.alpha === undefined);
+    expect(log.since(0).some((e) => e.kind === "agent_removed" && e.agent === "alpha")).toBe(true);
+  });
+
+  it("removes a workspace's worker with the workspace", async () => {
+    const { log, supervisor } = setup();
+    supervisor.handle({ type: "remove_workspace", workspace: "ws2" });
+    await until(() => log.state.agents.bravo === undefined);
+    expect(Object.keys(log.state.agents)).toEqual(["alpha"]);
   });
 });
 
@@ -230,7 +362,7 @@ describe("restart", () => {
     supervisor.createTask("Fix it", "Do it.", "ws1");
     const ask = () =>
       supervisor.call({ type: "side_question", id: "1", agent: "alpha", question: "why?" });
-    await until(() => column("alpha") === "needs_you");
+    await until(() => column("t1") === "needs_you");
     const lines = log.state.agents.alpha?.log.length;
 
     await expect(ask()).resolves.toBe("About: why?");
@@ -253,7 +385,7 @@ describe("agents of a project the config does not list", () => {
     stray(log);
     const { supervisor, calls } = setup(log);
     expect(calls).toEqual([]);
-    expect(supervisor.state.agents).toEqual({});
+    expect(Object.keys(supervisor.state.agents)).toEqual(["alpha", "bravo"]);
     expect(Object.keys(log.state.agents)).toContain("old");
   });
 
@@ -288,8 +420,8 @@ describe("projects", () => {
     const { log, supervisor } = twoProjects();
     supervisor.createTask("Fix the site", "x", "s1");
     supervisor.createTask("Fix fleet", "y", "ws1");
-    expect(log.state.agents.alpha?.project).toBe("site");
-    expect(log.state.agents.bravo?.project).toBe("test");
+    expect(log.state.tasks.t1).toMatchObject({ project: "site", agent: "charlie" });
+    expect(log.state.tasks.t2).toMatchObject({ project: "test", agent: "alpha" });
   });
 });
 
@@ -330,16 +462,18 @@ describe("a director per project", () => {
   it("hears the reports of its project's workers", () => {
     const { log, supervisor } = directed();
     supervisor.createTask("Fix the site", "x", "s1");
-    supervisor.report("alpha", { summary: "Fixed.", changes: [], openQuestions: [] });
-    const sent = log.since(0).filter((e) => e.kind === "message" && e.agent === "alpha");
+    supervisor.report("charlie", { summary: "Fixed.", changes: [], openQuestions: [] });
+    const sent = log.since(0).filter((e) => e.kind === "message" && e.agent === "charlie");
     expect(sent.map((e) => e.kind === "message" && e.to)).toEqual(["director-site"]);
   });
 
   it("spawns tasks only in its own project's workspaces", () => {
     const { log, supervisor } = directed();
     supervisor.createTask("Busy", "x", "s1");
-    expect(supervisor.spawn("director-site", { title: "Next", context: "y" })).toContain("in s2");
-    expect(log.state.agents.bravo?.project).toBe("site");
+    expect(supervisor.spawn("director-site", { title: "Next", context: "y" })).toContain(
+      "Spawned t2 in s2",
+    );
+    expect(log.state.tasks.t2).toMatchObject({ project: "site", by: "director-site" });
     expect(() =>
       supervisor.spawn("director-site", { title: "Elsewhere", context: "z", workspace: "ws1" }),
     ).toThrow("ws1 belongs to the project test");
@@ -369,9 +503,9 @@ describe("limits", () => {
     });
     supervisor.init();
     const tasks = (state: string) =>
-      Object.values(log.state.agents)
-        .filter((a) => a.role === "worker" && a.task === state)
-        .map((a) => a.title);
+      Object.values(log.state.tasks)
+        .filter((t) => t.state === state)
+        .map((t) => t.title);
     return { supervisor, tasks };
   }
 
@@ -385,7 +519,7 @@ describe("limits", () => {
     supervisor.createTask("first", "x", "a1");
     supervisor.createTask("second", "x", "a2");
     supervisor.createTask("site", "x", "s1");
-    expect(tasks("running")).toEqual(["first", "site"]);
+    expect(tasks("in_progress")).toEqual(["first", "site"]);
     expect(tasks("queued")).toEqual(["second"]);
   });
 
@@ -410,7 +544,7 @@ describe("limits", () => {
       projects: config.projects.map((p) => ({ ...p, wip: {} })),
     });
     for (const ws of ["n1", "n2", "n3", "n4", "n5"]) supervisor.createTask(ws, "x", ws);
-    expect(tasks("running")).toHaveLength(5);
+    expect(tasks("in_progress")).toHaveLength(5);
   });
 
   it("stops a director from spawning while its own project's review is full", () => {
@@ -445,7 +579,8 @@ describe("a project without workspaces", () => {
       "Name the workspace",
     );
     supervisor.createTask("Here", "x", "test");
-    expect(log.state.agents.alpha?.task).toBe("running");
+    expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
+    expect(log.state.agents.alpha?.cwd).toBe("/work/test");
   });
 });
 

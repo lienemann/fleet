@@ -31,7 +31,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
     send({
       type: "create_task",
       title: title.trim(),
-      prompt: prompt.trim() || title.trim(),
+      brief: prompt.trim() || title.trim(),
       workspace,
     });
     setTitle("");

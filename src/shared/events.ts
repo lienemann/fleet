@@ -1,13 +1,26 @@
 /** Event log rows. Every view in fleet is derived from a replay of these. */
 
-/** The fleet director coordinates the projects; each project's director plans its work. */
-export type Role = "fleet-director" | "director" | "worker";
+/**
+ * The fleet director coordinates the projects; each project's director plans its work. Workers
+ * change code in their workspace, investigators only read.
+ */
+export type Role = "fleet-director" | "director" | "worker" | "investigator";
+
+/** The kind of agent a task is for. */
+export type TaskRole = "worker" | "investigator";
 
 /**
- * Lifecycle of a worker's task, set by the daemon and by the user. "Needs you" is not
- * stored: it is derived from pending decisions and an idle session (see `columnOf`).
+ * Lifecycle of a task, set by the daemon and by the user. "Needs you" is not stored: it is
+ * derived from pending decisions and an idle session (see `columnOf`). Done and dropped are final.
  */
-export type TaskState = "queued" | "running" | "review" | "changes_requested" | "accepted";
+export type TaskState =
+  | "queued"
+  | "parked"
+  | "in_progress"
+  | "review"
+  | "changes_requested"
+  | "done"
+  | "dropped";
 
 /** What the session process is doing right now, independent of the task. */
 export type Activity = "stopped" | "working" | "idle" | "detached";
@@ -19,7 +32,7 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
 
 /** Moves the user can make on the board; the daemon owns every other transition. */
-export const USER_MOVES = ["running", "review", "changes_requested", "accepted"] as const;
+export const USER_MOVES = ["in_progress", "review", "changes_requested", "done"] as const;
 export type UserMove = (typeof USER_MOVES)[number];
 
 /** How strongly its project's color tints an agent's tile and card. */
@@ -47,6 +60,8 @@ export interface FinishedRun {
   truncated?: boolean;
   /** The log line the text came from, set when it was cut, so the whole text can be fetched. */
   textSeq?: number;
+  /** The task the agent held when the stretch ended. */
+  task?: string;
   /**
    * Set when the run ended without the user: "offline", the SDK's error subtype, "crashed" or
    * "stopped by <agent>" when another agent stopped it.
@@ -207,40 +222,81 @@ export type EventBody =
   | {
       kind: "agent_created";
       role: Role;
+      /** What the agent is: "Director", or a worker's workspace. */
       title: string;
       workspace: string;
       cwd: string;
       host: string;
       /** The project it works in; the fleet director has none. */
       project?: string;
-      /** The task as the user or the director stated it; the worker's first prompt. */
-      prompt?: string;
       /** An existing Claude Code session, briefed on its first turn in fleet. */
       imported?: boolean;
+      /** An imported session that shares a directory with another agent; it never takes tickets. */
+      guest?: boolean;
     }
+  /** The agent leaves fleet; the event's agent is the one that goes. */
+  | { kind: "agent_removed" }
+  /** A ticket, logged by the daemon. `by` is who created it: the user or a director. */
+  | {
+      kind: "task_created";
+      id: string;
+      title: string;
+      brief: string;
+      project: string;
+      role: TaskRole;
+      by: string;
+      /** The workspace it was created for. */
+      workspace?: string;
+      /** The worker it waits for; it takes no other. */
+      pin?: string;
+    }
+  /**
+   * A task moved, logged by the daemon. `holder` is the agent that takes it on entering In
+   * progress; Parked carries the handover `note` and the `change` that keeps the work.
+   */
+  | {
+      kind: "task_state";
+      task: string;
+      state: TaskState;
+      holder?: string;
+      note?: string;
+      change?: string;
+      /** Why a pinned task cannot start. */
+      pinNote?: string;
+    }
+  /** The task was changed after it was created; `pin: null` releases it to any worker. */
+  | {
+      kind: "task_updated";
+      task: string;
+      title?: string;
+      brief?: string;
+      workspace?: string;
+      pin?: string | null;
+    }
+  /**
+   * The event's agent starts a new conversation: for `task`, or none for a ticketless one. The
+   * one it had goes into the archive of the task it belonged to. `resume` continues a session of
+   * the task in place; `fork` continues one that another agent had, from another workspace.
+   */
+  | {
+      kind: "conversation_started";
+      task?: string;
+      resume?: string;
+      fork?: { session: string; from: string };
+    }
+  /** The user read these messages to them. */
+  | { kind: "messages_read"; seqs: number[] }
   /** An imported session was told that it now runs in fleet. */
   | { kind: "briefed" }
   /** The last transcript entry the tile shows; turns after it were made in another client. */
   | { kind: "transcript_mark"; uuid: string }
   /** Prompts waiting until fleet runs the detached session again; replaces the earlier list. */
   | { kind: "held"; texts: HeldText[] }
-  | { kind: "task_state"; state: TaskState }
-  /** The task was changed after it was created; the brief and workspace only while queued. */
-  | {
-      kind: "task_updated";
-      title?: string;
-      prompt?: string;
-      workspace?: string;
-      cwd?: string;
-      project?: string;
-    }
-  /** The task is off the board. Whatever it changed stays in its workspace. */
-  | { kind: "task_removed" }
   /**
-   * A director linked this task to one of another project, so that the two message each
-   * other. The link ends when either is accepted or removed.
+   * A director linked a task to one of another project, so that their agents message each
+   * other. The link ends when either is done or dropped.
    */
-  | { kind: "linked"; with: string }
+  | { kind: "linked"; task: string; with: string }
   | { kind: "activity"; activity: Activity }
   /**
    * Who holds a detached session: `null` nobody, absent when fleet cannot tell. `note` says why
@@ -369,34 +425,42 @@ export type EventBody =
    */
   | { kind: "resumed"; lastActive: number }
   | { kind: "agent_opened" }
-  | { kind: "report"; report: Report }
-  | { kind: "status"; text: string }
+  // What follows up to `review_sent` belongs to `task`; the event's agent is the one that held it.
+  | { kind: "report"; task: string; report: Report }
+  | { kind: "status"; task: string; text: string }
   /** Files the worker attached for the user, with `report_result` or on its own. */
-  | { kind: "files_attached"; files: AttachedFile[] }
+  | { kind: "files_attached"; task: string; files: AttachedFile[] }
+  /** The director's ledger note on a task. */
+  | { kind: "note"; task: string; text: string }
+  | { kind: "review_progress"; task: string; approved: number; total: number }
+  | { kind: "review_edited"; task: string; edit: ReviewEdit }
+  | {
+      kind: "thread_opened";
+      task: string;
+      thread: Omit<LineThread, "messages" | "resolved" | "unread">;
+      message: ThreadMessage;
+    }
+  | { kind: "thread_message"; task: string; threadId: string; message: ThreadMessage }
+  | {
+      kind: "thread_message_edited";
+      task: string;
+      threadId: string;
+      messageId: string;
+      body: string;
+    }
+  /** Removing a thread's last message removes the thread. */
+  | { kind: "thread_message_removed"; task: string; threadId: string; messageId: string }
+  /** The user looked at the agent's reply. */
+  | { kind: "thread_read"; task: string; threadId: string }
+  | { kind: "thread_resolved"; task: string; threadId: string; resolved: boolean }
+  /** The user's edits went to the agent along with a message. */
+  | { kind: "edits_reported"; task: string }
+  /** Held thread messages and edits went to the agent with a change request. */
+  | { kind: "review_sent"; task: string }
   /** A message from one agent (or the user) to another; the event's agent is the sender. */
   | { kind: "message"; to: string; body: string }
   | { kind: "open_points"; docId: string; path: string; points: OpenPoint[] }
   | { kind: "point_answered"; docId: string; pointId: string; answer: string }
-  /** The director's ledger note on a task. */
-  | { kind: "note"; text: string }
-  | { kind: "review_progress"; approved: number; total: number }
-  | { kind: "review_edited"; edit: ReviewEdit }
-  | {
-      kind: "thread_opened";
-      thread: Omit<LineThread, "messages" | "resolved" | "unread">;
-      message: ThreadMessage;
-    }
-  | { kind: "thread_message"; threadId: string; message: ThreadMessage }
-  | { kind: "thread_message_edited"; threadId: string; messageId: string; body: string }
-  /** Removing a thread's last message removes the thread. */
-  | { kind: "thread_message_removed"; threadId: string; messageId: string }
-  /** The user looked at the agent's reply. */
-  | { kind: "thread_read"; threadId: string }
-  | { kind: "thread_resolved"; threadId: string; resolved: boolean }
-  /** The user's edits went to the agent along with a message. */
-  | { kind: "edits_reported" }
-  /** Held thread messages and edits went to the agent with a change request. */
-  | { kind: "review_sent" }
   /** Moving a task to a fresh session: the old one writes a handover file, a new one reads it. */
   | { kind: "handover"; state: "writing" | "done" | "failed"; path: string; note?: string }
   /** A restart was asked for, and waits until no agent is mid-turn; logged by the daemon itself. */

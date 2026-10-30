@@ -279,7 +279,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await page.getByRole("button", { name: "Live" }).click();
 
   await reviewed.getByRole("button", { name: "Accept" }).click();
-  await expect(card(page, "Accepted", "Fix the flaky replay test")).toBeVisible();
+  await expect(card(page, "Done", "Fix the flaky replay test")).toBeVisible();
 });
 
 /** Approves the demo worker's permission and answers its question, both from the inbox. */
@@ -389,7 +389,7 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
   await group.getByRole("button", { name: /^Accept/ }).click();
   await expect(group).toHaveCount(0);
   await page.keyboard.press("Alt+1");
-  await expect(card(page, "Accepted", accepted)).toBeVisible();
+  await expect(card(page, "Done", accepted)).toBeVisible();
 
   // Request changes takes the comment along and the same agent revises.
   const sentBack = "Rename the replay fixtures";
@@ -689,7 +689,7 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
   // With two projects, each card names its own, and the board counts against the fleet's limit.
   const homepage = page.locator(".card", { hasText: "Polish the homepage" });
   await expect(homepage.locator(".project-chip")).toHaveText("site");
-  await expect(column(page, "Running").locator(".wip")).toContainText("/6");
+  await expect(column(page, "In progress").locator(".wip")).toContainText("/6");
 
   // f goes through the projects; a project's own limit counts then.
   const filter = page.getByLabel("Show project");
@@ -697,7 +697,7 @@ test("tasks of two projects show grouped in the rail, and the filter narrows the
   await expect(filter).toHaveValue("daemon");
   await expect(homepage).toBeHidden();
   await expect(page.locator(".card", { hasText: "Fix the flaky replay test" })).toBeVisible();
-  await expect(column(page, "Running").locator(".wip")).toContainText("/4");
+  await expect(column(page, "In progress").locator(".wip")).toContainText("/4");
   await page.keyboard.press("Alt+f");
   await expect(filter).toHaveValue("site");
   await expect(homepage).toBeVisible();
@@ -1031,23 +1031,25 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await search.fill("sched");
   await expect(dialog.getByLabel("Speed up the event log replay")).toBeHidden();
   await dialog.getByLabel("Explain the scheduler").check();
-  await expect(dialog.getByLabel("Title on the board")).toHaveValue("Explain the scheduler");
+  await expect(dialog.getByLabel("Title in the rail")).toHaveValue("Explain the scheduler");
   // A single session can instead hand its knowledge to a fresh director.
   const asDirector = dialog.getByLabel(/^Use as director/);
   await asDirector.check();
-  await expect(dialog.getByLabel("Title on the board")).toBeHidden();
+  await expect(dialog.getByLabel("Title in the rail")).toBeHidden();
   await asDirector.uncheck();
 
   // A second pick keeps both titles; only a single session can be renamed.
   await search.clear();
   await dialog.getByLabel("Speed up the event log replay").check();
-  await expect(dialog.getByLabel("Title on the board")).toBeHidden();
+  await expect(dialog.getByLabel("Title in the rail")).toBeHidden();
   await expect(asDirector).toBeHidden();
   await dialog.getByRole("button", { name: "Import 2", exact: true }).click();
 
-  await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeVisible();
-  const card = page.locator(".card", { hasText: "Speed up the event log replay" });
-  await card.locator(".card-main").click();
+  // Importing creates no ticket: the sessions join the rail as agents of their own.
+  const imported = (title: string) => page.locator(".rail .rail-item", { hasText: title });
+  await expect(imported("Explain the scheduler")).toBeVisible();
+  await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeHidden();
+  await imported("Speed up the event log replay").click();
   const drawer = page.locator(".drawer");
   await expect(drawer.locator(".log")).toContainText("parses every event twice");
   // No terminal has it open, so it runs in fleet at once and learns where it is now.
@@ -1058,7 +1060,7 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
 
   // A terminal still has the other one, in the middle of a turn: the tile says so, and Attach
   // asks before it ends the terminal.
-  await page.locator(".card", { hasText: "Explain the scheduler" }).locator(".card-main").click();
+  await imported("Explain the scheduler").click();
   await expect(drawer.locator(".banner")).toContainText("Open in a terminal");
   await expect(drawer.locator(".banner")).toContainText("working");
   // Saying no to ending the terminal keeps what was typed.
@@ -1078,28 +1080,31 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await page.keyboard.press("Escape");
   await page.keyboard.press("Alt+i");
   await expect(page.getByRole("dialog", { name: "Import sessions" })).toContainText(
-    "already a task",
+    "already in fleet",
   );
 });
 
-test("removing an agent asks first while its workspace holds its work", async ({ page }) => {
+test("removing a task asks first while its workspace holds its work", async ({ page }) => {
   await page.goto("/");
   const rail = page.locator(".rail");
-  await expect(rail).toContainText("Explain the scheduler");
-  const row = rail.locator(".rail-row", { hasText: "Explain the scheduler" });
+  const title = "Polish the homepage";
+  await expect(rail).toContainText(title);
+  const row = rail.locator(".rail-row", { hasText: title });
   const name = (await row.locator(".name").textContent()) ?? "";
 
   page.once("dialog", (dialog) => dialog.dismiss());
   await row.hover();
-  await row.getByRole("button", { name: `Remove ${name}` }).click();
-  await expect(rail).toContainText("Explain the scheduler");
+  await row.getByRole("button", { name: `Remove ${name}'s task` }).click();
+  await expect(rail).toContainText(title);
 
   page.once("dialog", (dialog) => dialog.accept());
   // Firefox forgets the hover once the confirmation closes.
   await row.hover();
-  await row.getByRole("button", { name: `Remove ${name}` }).click();
-  await expect(rail).not.toContainText("Explain the scheduler");
-  await expect(page.locator(".card", { hasText: "Explain the scheduler" })).toBeHidden();
+  await row.getByRole("button", { name: `Remove ${name}'s task` }).click();
+  await expect(rail).not.toContainText(title);
+  await expect(page.locator(".card", { hasText: title })).toBeHidden();
+  // The agent stays, free for the next task.
+  await expect(rail.locator(".rail-item", { hasText: name })).toBeVisible();
 });
 
 test("a workspace in use stays, and a free one can be removed", async ({ page }) => {

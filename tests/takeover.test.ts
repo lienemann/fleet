@@ -91,7 +91,8 @@ function setup(host?: HolderHost, log = new EventLog(":memory:")) {
     config: testConfig({ workspaces: [{ name: "ws1", path: "/work/ws1", allowedTools: [] }] }),
   });
   supervisor.init();
-  const agent = () => log.state.agents.alpha;
+  // The workspace's own worker is alpha; an imported session comes next.
+  const agent = () => log.state.agents.bravo;
   const importIt = async () => {
     supervisor.handle({ type: "import_session", sessionId: ID, workspace: "ws1", title: "Sweep" });
     await until(() => agent() !== undefined);
@@ -173,7 +174,7 @@ describe("watching who holds a session", () => {
     const { agent, calls, importIt, supervisor } = setup(host);
     await importIt();
     await until(() => calls.length === 1);
-    supervisor.handle({ type: "detach", agent: "alpha" });
+    supervisor.handle({ type: "detach", agent: "bravo" });
     await until(() => agent()?.activity === "detached");
 
     await supervisor.watchHolders();
@@ -253,7 +254,7 @@ describe("watching who holds a session", () => {
     await importIt();
     expect(agent()?.activity).toBe("detached");
     expect(log.since(0).some((e) => e.kind === "holder")).toBe(false);
-    supervisor.handle({ type: "start", agent: "alpha" });
+    supervisor.handle({ type: "start", agent: "bravo" });
     await until(() => calls.length === 1);
   });
 });
@@ -265,13 +266,13 @@ describe("telling a session where it is", () => {
     await importIt();
     await until(() => agent()?.activity === "idle");
     expect(userLines()).toHaveLength(1);
-    expect(userLines()[0]).toContain('You are "alpha"');
+    expect(userLines()[0]).toContain('You are "bravo"');
     expect(userLines()[0]).toContain(BRIEFING_ACK);
     expect(agent()?.briefing).toBe("done");
 
-    supervisor.handle({ type: "stop", agent: "alpha" });
+    supervisor.handle({ type: "stop", agent: "bravo" });
     await until(() => agent()?.activity === "stopped");
-    supervisor.handle({ type: "start", agent: "alpha" });
+    supervisor.handle({ type: "start", agent: "bravo" });
     await until(() => calls.length === 2);
     expect(userLines()).toHaveLength(1);
   });
@@ -281,7 +282,7 @@ describe("telling a session where it is", () => {
     hold(601);
     const { importIt, supervisor, userLines } = setup(host);
     await importIt();
-    supervisor.handle({ type: "prompt", agent: "alpha", text: "Go on" });
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Go on" });
     await until(() => userLines().length === 1);
     expect(userLines()[0]).toMatch(/^This conversation started in another Claude Code client/);
     expect(userLines()[0]).toMatch(/Go on$/);
@@ -293,7 +294,7 @@ describe("telling a session where it is", () => {
     hold(602);
     const { calls, importIt, supervisor, userLines, promptOrigins } = setup(host);
     await importIt();
-    supervisor.message("bravo", "alpha", "Rebase first");
+    supervisor.message("charlie", "bravo", "Rebase first");
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(calls).toHaveLength(0);
     expect(terminated).toEqual([]);
@@ -302,8 +303,8 @@ describe("telling a session where it is", () => {
     await supervisor.watchHolders();
     await supervisor.watchHolders();
     await until(() => userLines().length === 1);
-    expect(userLines()[0]).toContain('You are "alpha"');
-    expect(userLines()[0]).toContain("Message from bravo:\n\nRebase first");
+    expect(userLines()[0]).toContain('You are "bravo"');
+    expect(userLines()[0]).toContain("Message from charlie:\n\nRebase first");
     expect(promptOrigins()).toEqual(["fleet"]);
   });
 
@@ -312,7 +313,7 @@ describe("telling a session where it is", () => {
     const { agent, calls, importIt, supervisor, userLines } = setup(host);
     await importIt();
     await until(() => agent()?.activity === "idle");
-    supervisor.handle({ type: "detach", agent: "alpha" });
+    supervisor.handle({ type: "detach", agent: "bravo" });
     await until(() => agent()?.activity === "detached");
     hold(603);
     await supervisor.watchHolders();
@@ -323,7 +324,7 @@ describe("telling a session where it is", () => {
     expect(agent()?.activity).toBe("idle");
     expect(userLines()).toHaveLength(1);
 
-    supervisor.handle({ type: "prompt", agent: "alpha", text: "Next" });
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Next" });
     await until(() => userLines().length === 2);
     expect(userLines()[1]?.startsWith(BACK_IN_FLEET)).toBe(true);
     expect(userLines()[1]).toMatch(/Next$/);
@@ -336,7 +337,7 @@ describe("attach", () => {
     hold(701);
     const { calls, importIt, supervisor } = setup(host);
     await importIt();
-    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await until(() => calls.length === 1);
     expect(terminated).toEqual([701]);
     expect(calls[0]?.options?.resume).toBe(ID);
@@ -347,7 +348,7 @@ describe("attach", () => {
     hold(702);
     const { calls, importIt, supervisor, userLines } = setup(host);
     await importIt();
-    supervisor.handle({ type: "prompt", agent: "alpha", text: "Carry on" });
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Carry on" });
     await until(() => calls.length === 1);
     expect(terminated).toEqual([702]);
     expect(userLines()[0]).toMatch(/Carry on$/);
@@ -359,7 +360,7 @@ describe("attach", () => {
       hold(703, fields);
       const { agent, calls, importIt, supervisor } = setup(host);
       await importIt();
-      supervisor.handle({ type: "attach", agent: "alpha" });
+      supervisor.handle({ type: "attach", agent: "bravo" });
       await until(() => agent()?.holderNote !== undefined);
       expect(terminated).toEqual([]);
       expect(calls).toHaveLength(0);
@@ -372,7 +373,7 @@ describe("attach", () => {
     hold(704, {}, 1, "Fri Oct 23 18:06:19 2026");
     const { calls, importIt, supervisor } = setup(host);
     await importIt();
-    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await until(() => calls.length === 1);
     expect(terminated).toEqual([]);
   });
@@ -384,7 +385,7 @@ describe("attach", () => {
     const { agent, calls, importIt, supervisor } = setup(host);
     await importIt();
     vi.useFakeTimers();
-    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await vi.advanceTimersByTimeAsync(ATTACH_TIMEOUT_MS + 1000);
     expect(terminated).toEqual([705]);
     expect(agent()?.holderNote).toMatch(/SIGTERM/);
@@ -396,7 +397,7 @@ describe("attach", () => {
     const host: HolderHost = { ...clients().host, list: () => undefined };
     const { calls, importIt, supervisor } = setup(host);
     await importIt();
-    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await until(() => calls.length === 1);
   });
 });
@@ -410,7 +411,7 @@ describe("turns made elsewhere", () => {
     const { agent, calls, importIt, supervisor, transcript } = setup(host);
     await importIt();
     await until(() => agent()?.activity === "idle");
-    supervisor.handle({ type: "detach", agent: "alpha" });
+    supervisor.handle({ type: "detach", agent: "bravo" });
     await until(() => agent()?.activity === "detached");
     expect(agent()?.transcriptMark).toBe("a1");
     hold(801);
@@ -433,7 +434,7 @@ describe("turns made elsewhere", () => {
     const { agent, calls, importIt, supervisor, transcript } = setup(host);
     await importIt();
     await until(() => agent()?.activity === "idle");
-    supervisor.handle({ type: "detach", agent: "alpha" });
+    supervisor.handle({ type: "detach", agent: "bravo" });
     await until(() => agent()?.activity === "detached");
     hold(802);
     await supervisor.watchHolders();
@@ -588,7 +589,7 @@ describe("review fixes", () => {
     const { agent, calls, importIt, supervisor, transcript } = setup(host);
     await importIt();
     transcript.push(stored("u2", "user", "Rename the flag"));
-    supervisor.handle({ type: "prompt", agent: "alpha", text: "Go on" });
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Go on" });
     await until(() => calls.length === 1);
     expect(count(agent()?.log, "Rename the flag")).toBe(1);
   });
@@ -599,8 +600,8 @@ describe("review fixes", () => {
     const { agent, calls, importIt, supervisor, transcript, userLines } = setup(host);
     await importIt();
     transcript.push(stored("u2", "user", "Rename the flag"));
-    supervisor.handle({ type: "attach", agent: "alpha" });
-    supervisor.handle({ type: "attach", agent: "alpha" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await sleep(20);
     await supervisor.watchHolders();
     await supervisor.watchHolders();
@@ -616,15 +617,13 @@ describe("review fixes", () => {
     const { agent, calls, importIt, supervisor } = setup(host);
     await importIt();
     await until(() => agent()?.activity === "idle");
-    supervisor.handle({ type: "stop", agent: "alpha" });
+    supervisor.handle({ type: "stop", agent: "bravo" });
     await until(() => agent()?.activity === "stopped");
     hold(904);
     await supervisor.watchHolders();
     expect(agent()?.activity).toBe("detached");
     expect(agent()?.holder).toMatchObject({ pid: 904 });
-    supervisor.message("bravo", "alpha", "Rebase first");
-    supervisor.handle({ type: "move", agent: "alpha", to: "review" });
-    supervisor.handle({ type: "move", agent: "alpha", to: "running" });
+    supervisor.message("charlie", "bravo", "Rebase first");
     await sleep(20);
     expect(calls).toHaveLength(1);
   });
@@ -640,19 +639,15 @@ describe("review fixes", () => {
     expect(second.calls).toHaveLength(0);
   });
 
-  it("forgets a detached task once it is accepted", async () => {
-    const { host, hold, release } = clients();
+  it("leaves the workspace's tasks to its worker, not to an imported guest", async () => {
+    const { host, hold } = clients();
     hold(906);
-    const { agent, calls, importIt, supervisor } = setup(host);
+    const { log, agent, importIt, supervisor } = setup(host);
     await importIt();
-    supervisor.handle({ type: "move", agent: "alpha", to: "accepted" });
-    await until(() => agent()?.task === "accepted");
-    release(906);
-    await supervisor.watchHolders();
-    await supervisor.watchHolders();
-    await sleep(20);
-    expect(calls).toHaveLength(0);
-    expect(agent()?.activity).toBe("stopped");
+    expect(agent()).toMatchObject({ guest: true, workspace: "ws1" });
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
+    expect(agent()?.task).toBeUndefined();
   });
 
   it("keeps messages for a detached session across a restart", async () => {
@@ -660,14 +655,14 @@ describe("review fixes", () => {
     hold(907);
     const first = setup(host);
     await first.importIt();
-    first.supervisor.message("bravo", "alpha", "Rebase first");
+    first.supervisor.message("charlie", "bravo", "Rebase first");
     const second = setup(host, first.log);
     await second.supervisor.watchHolders();
     release(907);
     await second.supervisor.watchHolders();
     await second.supervisor.watchHolders();
     await until(() => second.userLines().length === 1);
-    expect(second.userLines()[0]).toContain("Message from bravo:\n\nRebase first");
+    expect(second.userLines()[0]).toContain("Message from charlie:\n\nRebase first");
   });
 
   it("keeps what the user typed when the take-over is refused", async () => {
@@ -675,7 +670,7 @@ describe("review fixes", () => {
     hold(908, { kind: "bg" });
     const { agent, importIt, supervisor, userLines, promptOrigins } = setup(host);
     await importIt();
-    supervisor.handle({ type: "prompt", agent: "alpha", text: "Hello there" });
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Hello there" });
     await until(() => agent()?.holderNote !== undefined);
     expect(agent()?.holderNote).toMatch(/waits/);
     release(908);

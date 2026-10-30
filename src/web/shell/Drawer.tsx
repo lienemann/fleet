@@ -1,10 +1,20 @@
-import { type AgentView, columnOf } from "../../shared/reducer.ts";
+import type { AgentView } from "../../shared/reducer.ts";
+import {
+  columnOf,
+  conversationsOf,
+  lastAgentOf,
+  type TaskView,
+  workspaceHolder,
+  workspaceOf,
+} from "../../shared/tasks.ts";
+import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
-import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
+import { agentStatus, columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { DiffView } from "../review/DiffView.tsx";
+import { Log } from "../tile/Log.tsx";
 import { Tile } from "../tile/Tile.tsx";
-import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
+import { AgentLabel, useProjectColor } from "../ui/AgentLabel.tsx";
 import { FileLink } from "../ui/FileLink.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
@@ -27,7 +37,10 @@ export const DRAWER_TABS = [
 export type DrawerTab = (typeof DRAWER_TABS)[number];
 
 interface Props {
-  agent: AgentView;
+  /** The selected agent, or the one that holds the selected task. */
+  agent?: AgentView;
+  /** The selected task, or the one the selected agent holds. */
+  task?: TaskView;
   tab: DrawerTab;
   /** The line thread the diff scrolls to and expands, when the drawer was opened for one. */
   thread?: { id: string };
@@ -49,9 +62,13 @@ interface Props {
   onToggleFull: () => void;
 }
 
-/** The selected task beside the board and inbox. */
+/**
+ * The selected task or agent beside the board and inbox: Live shows the agent, Files, Diff and
+ * Report the task. A task nobody holds shows the conversations that worked on it.
+ */
 export function Drawer({
   agent,
+  task,
   tab,
   thread,
   file,
@@ -68,16 +85,29 @@ export function Drawer({
   onToggleFull,
 }: Props) {
   const { state } = useFleet();
-  const style = useAgentStyle(agent);
+  // A task nobody holds shows what its last agent kept: its files, messages and session.
+  const last = task && lastAgentOf(state, task);
+  const worker = agent ?? (last === undefined ? undefined : state.agents[last]);
+  const style = agentStyle(
+    agent ?? { tint: "soft" },
+    useProjectColor(task?.project ?? agent?.project),
+  );
   const now = useNow();
-  const column = columnOf(agent);
-  const context = contextPercent(agent);
-  const work = currentWork(agent);
-  const messages = state.messages
-    .filter((m) => m.from === agent.name || m.to === agent.name)
-    .reverse();
+  const status = agent && agentStatus(state, agent);
+  const column = task ? columnOf(state, task) : status?.dot;
+  const pill = agent?.reconnecting
+    ? "reconnecting"
+    : task
+      ? columnLabel(columnOf(state, task))
+      : (status?.label ?? "");
+  const context = agent && contextPercent(agent);
+  const work = agent && currentWork(state, agent);
+  const since = task?.columnSince ?? agent?.history.at(-1)?.from ?? now;
+  const name = worker?.name;
+  const messages = state.messages.filter((m) => m.from === name || m.to === name).reverse();
   // Only tasks that run on their own can be forgotten, so only they count.
-  const running = agent.backgroundTasks.filter((t) => !t.end).length;
+  const running = agent?.backgroundTasks.filter((t) => !t.end).length ?? 0;
+  const progress = task?.reviewProgress;
   const tabs: Array<{ id: DrawerTab; label: string }> = [
     { id: "live", label: "Live" },
     { id: "session", label: "Session" },
@@ -85,9 +115,7 @@ export function Drawer({
     { id: "files", label: "Files" },
     {
       id: "diff",
-      label: agent.reviewProgress
-        ? `Diff · ${agent.reviewProgress.approved}/${agent.reviewProgress.total}`
-        : "Diff",
+      label: progress ? `Diff · ${progress.approved}/${progress.total}` : "Diff",
     },
     { id: "report", label: "Report" },
     { id: "messages", label: messages.length > 0 ? `Messages · ${messages.length}` : "Messages" },
@@ -114,17 +142,19 @@ export function Drawer({
       <header className="drawer-head">
         <div className="drawer-line">
           <span className="dot" />
-          <AgentLabel agent={agent.name} />
+          {task && <span className="task-id">{task.id}</span>}
+          {agent && <AgentLabel agent={agent.name} />}
           <span className="ws">
-            {agent.workspace} · {agent.host}
+            {(task && workspaceOf(state, task)) ?? agent?.workspace}
+            {worker && ` · ${worker.host}`}
           </span>
-          <span className={`pill col-${column}`}>
-            {agent.reconnecting ? "reconnecting" : columnLabel(column)}
-          </span>
+          <span className={`pill col-${column}`}>{pill}</span>
           <span className="spacer" />
-          <button type="button" className="link accent" onClick={onOpenInGrid}>
-            Open in grid
-          </button>
+          {agent && (
+            <button type="button" className="link accent" onClick={onOpenInGrid}>
+              Open in grid
+            </button>
+          )}
           <button
             type="button"
             className="close"
@@ -148,9 +178,9 @@ export function Drawer({
             <Icon name="close" />
           </button>
         </div>
-        <div className="drawer-title">{agent.title}</div>
+        <div className="drawer-title">{task?.title ?? agent?.title}</div>
         <div className="dim">
-          {duration(now - agent.columnSince)}
+          {duration(now - since)}
           {context !== undefined && ` · ctx ${context}%`}
           {work && ` · ▸ ${work}`}
         </div>
@@ -169,19 +199,47 @@ export function Drawer({
         ))}
       </nav>
       <div className="drawer-body">
-        {tab === "live" && (
-          <Tile
-            agent={agent}
-            selected
-            onOpenThread={onOpenThread}
-            onOpenDiffFile={onOpenDiffFile}
-          />
-        )}
-        {tab === "session" && <SessionView agent={agent} onOpenFile={onOpenFile} />}
-        {tab === "activity" && <ActivityView agent={agent} />}
-        {tab === "files" && <FilesView agent={agent} request={file} />}
-        {tab === "diff" && <DiffView agent={agent} thread={thread} file={diffFile} />}
-        {tab === "report" && <ReportView agent={agent} onOpenFile={onOpenFile} />}
+        {tab === "live" &&
+          (agent ? (
+            <Tile
+              agent={agent}
+              selected
+              onOpenThread={onOpenThread}
+              onOpenDiffFile={onOpenDiffFile}
+            />
+          ) : (
+            task && <PastConversations task={task} />
+          ))}
+        {tab === "session" &&
+          (worker ? (
+            <SessionView agent={worker} onOpenFile={onOpenFile} />
+          ) : (
+            <p className="empty">No agent has worked on this task yet.</p>
+          ))}
+        {tab === "activity" &&
+          (agent ? (
+            <ActivityView agent={agent} />
+          ) : (
+            <p className="empty">No agent works on this task now.</p>
+          ))}
+        {tab === "files" &&
+          (worker ? (
+            <FilesView agent={worker} task={task} request={file} />
+          ) : (
+            <p className="empty">No agent has worked on this task yet.</p>
+          ))}
+        {tab === "diff" &&
+          (task ? (
+            <DiffView task={task} agent={agent} thread={thread} file={diffFile} />
+          ) : (
+            <p className="empty">{agent?.name} holds no task, so there is no change to review.</p>
+          ))}
+        {tab === "report" &&
+          (task ? (
+            <ReportView task={task} cwd={worker?.cwd} onOpenFile={onOpenFile} />
+          ) : (
+            <p className="empty">{agent?.name} holds no task.</p>
+          ))}
         {tab === "messages" && (
           <div className="drawer-scroll">
             {messages.length === 0 && <p className="empty">No messages.</p>}
@@ -195,17 +253,69 @@ export function Drawer({
   );
 }
 
+/**
+ * A task nobody holds: why it waits, or who worked on it last, and the logs of the conversations
+ * that worked on it, oldest first.
+ */
+function PastConversations({ task }: { task: TaskView }) {
+  const { state, send } = useFleet();
+  const conversations = conversationsOf(state, task);
+  const last = lastAgentOf(state, task);
+  const workspace = workspaceOf(state, task);
+  const holder = workspace === undefined ? undefined : workspaceHolder(state, workspace, task.id);
+  return (
+    <div className="drawer-scroll past">
+      {task.state === "queued" ? (
+        <div className="queued">
+          <span title={holder && `${holder} holds ${workspace}`}>
+            Queued. Waits for {holder ? workspace : "its worker or a running slot"}.
+          </span>
+          <button
+            type="button"
+            className="primary"
+            disabled={holder !== undefined}
+            onClick={() => send({ type: "move", task: task.id, to: "in_progress" })}
+          >
+            Start now
+          </button>
+        </div>
+      ) : (
+        <p className="dim">
+          {last ? `${last} worked on this task last.` : "No agent has worked on this task."}
+        </p>
+      )}
+      {conversations.map((c, i) => (
+        <section key={`${c.agent}-${c.sessionId ?? i}`}>
+          <h3>
+            Conversation {i + 1} · {c.agent}
+          </h3>
+          <Log
+            agent={c.agent}
+            cwd={state.agents[c.agent]?.cwd ?? ""}
+            lines={c.log}
+            subagents={[]}
+            filter="all"
+          />
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function ReportView({
-  agent,
+  task,
+  cwd,
   onOpenFile,
 }: {
-  agent: AgentView;
+  task: TaskView;
+  /** Where the task's agent works, which relative paths are taken from. */
+  cwd: string | undefined;
   onOpenFile: (path: string) => void;
 }) {
-  const report = agent.report;
-  // Only files the worker reported after attaching: before that it may still be writing them.
-  const delivered = agent.attached.filter((file) => file.reported);
-  if (!report) return <p className="empty">{agent.name} has not reported a result yet.</p>;
+  const report = task.report;
+  // Only files the agent reported after attaching: before that it may still be writing them.
+  const delivered = task.attached.filter((file) => file.reported);
+  if (!report) return <p className="empty">No result has been reported for this task yet.</p>;
   return (
     <div className="drawer-scroll report">
       <h2>Summary</h2>
@@ -216,7 +326,7 @@ function ReportView({
           <ul className="attached">
             {delivered.map((file) => (
               <li key={file.path}>
-                <FileLink cwd={agent.cwd} path={file.path} note={file.note} onOpen={onOpenFile} />
+                <FileLink cwd={cwd ?? ""} path={file.path} note={file.note} onOpen={onOpenFile} />
               </li>
             ))}
           </ul>

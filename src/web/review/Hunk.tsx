@@ -1,10 +1,10 @@
 import { Fragment, type ReactNode, useState } from "react";
-import { type AgentView, QUOTE_LIMIT } from "../../shared/reducer.ts";
+import { QUOTE_LIMIT } from "../../shared/reducer.ts";
 import type { FileView, HunkView, LineRange, LineThread } from "../../shared/review.ts";
 import { keyLabel } from "../keys/keymap.tsx";
 import type { Layout } from "./DiffView.tsx";
 import { highlightLine } from "./highlight.ts";
-import { type FormState, NewThread, type Side, Thread } from "./Thread.tsx";
+import { type FormState, NewThread, type Reviewed, type Side, Thread } from "./Thread.tsx";
 
 /** Lines picked by their numbers, on one side of one hunk. */
 export interface Selection {
@@ -22,7 +22,7 @@ export interface PlacedThread {
 }
 
 interface Props {
-  agent: AgentView;
+  reviewed: Reviewed;
   file: FileView;
   hunk: HunkView;
   language: string | undefined;
@@ -62,7 +62,7 @@ const SIDES: Side[] = ["base", "head"];
 const AUTO_LABELS = { whitespace: "whitespace only", formatting: "formatting only" } as const;
 
 export function Hunk(props: Props) {
-  const { agent, file, hunk, language, layout, focused, composing, canEdit, threads } = props;
+  const { reviewed, file, hunk, language, layout, focused, composing, canEdit, threads } = props;
   const [open, setOpen] = useState(false);
   const collapsed =
     hunk.approved && !focused && !open && threads.every(({ thread }) => thread.resolved);
@@ -75,7 +75,7 @@ export function Hunk(props: Props) {
     node: (
       <Thread
         key={thread.id}
-        agent={agent}
+        reviewed={reviewed}
         thread={thread}
         expand={thread.id === props.focusThread}
       />
@@ -87,7 +87,7 @@ export function Hunk(props: Props) {
       node: (
         <NewThread
           key="new"
-          agent={agent}
+          reviewed={reviewed}
           path={file.path}
           side={asking.side}
           lines={asking.lines}

@@ -32,10 +32,10 @@ describe("files of an agent", () => {
   });
 
   it("says why an edited file has no place in the diff", () => {
-    const worker = { role: "worker", name: "alpha" };
+    const worker = { name: "alpha", task: "t1" };
     expect(notInDiff(worker, "src/a.py")).toBeUndefined();
     expect(notInDiff(worker, "/home/me/.claude/plans/r.md")).toMatch(/Outside the workspace/);
     expect(notInDiff(worker, ".fleet/alpha/notes.md")).toMatch(/notes stay out/);
-    expect(notInDiff({ role: "director", name: "dir" }, "src/a.py")).toMatch(/dir has no task/);
+    expect(notInDiff({ name: "dir" }, "src/a.py")).toMatch(/dir holds no task/);
   });
 });

@@ -11,7 +11,7 @@ import {
 } from "../src/shared/hosts.ts";
 import type { DaemonInfo } from "../src/shared/protocol.ts";
 import { reduceAll } from "../src/shared/reducer.ts";
-import { worker } from "./helpers.ts";
+import { taskCreated, taskState, worker } from "./helpers.ts";
 
 const events = (...bodies: NewEvent[]): FleetEvent[] =>
   bodies.map((body, i) => ({ parent: null, ...body, seq: i + 1, ts: i * 10 }) as FleetEvent);
@@ -42,7 +42,18 @@ const pod = reduceAll(
     },
     { kind: "disk", agent: "daemon", low: [{ names: ["ws3"], free: 1, total: 100 }] },
     worker("bravo", { workspace: "ws4", project: "site" }),
-    { kind: "linked", agent: "alpha", with: "bravo" },
+    taskCreated("t1", { workspace: "ws3" }),
+    taskCreated("t2", { project: "site", workspace: "ws4" }),
+    taskState("t1", "in_progress", { holder: "alpha" }),
+    { kind: "linked", agent: "daemon", task: "t1", with: "t2" },
+    { kind: "conversation_started", agent: "alpha", task: "t1" },
+    { kind: "log", agent: "alpha", role: "assistant", text: "on t1" },
+    { kind: "conversation_started", agent: "alpha" },
+    {
+      kind: "run_finished",
+      agent: "alpha",
+      item: { id: "f1", endedAt: 0, workMs: 0, text: "x", task: "t1", read: false },
+    },
   ),
 );
 
@@ -70,8 +81,20 @@ describe("mergeStates", () => {
     ]);
   });
 
-  it("keeps a remote's links between its own agents", () => {
-    expect(merged.links).toEqual([["pod1/alpha", "pod1/bravo"]]);
+  it("names remote tasks after their host, with their holder and what points at them", () => {
+    expect(Object.keys(merged.tasks).sort()).toEqual(["pod1/t1", "pod1/t2"]);
+    expect(merged.tasks["pod1/t1"]).toMatchObject({
+      id: "pod1/t1",
+      agent: "pod1/alpha",
+      workspace: "pod1/ws3",
+    });
+    expect(merged.tasks["pod1/t1"]?.conversations.map((c) => c.agent)).toEqual(["pod1/alpha"]);
+    expect(merged.agents["pod1/alpha"]).toMatchObject({ task: "pod1/t1" });
+    expect(merged.agents["pod1/alpha"]?.finished[0]?.task).toBe("pod1/t1");
+  });
+
+  it("keeps a remote's links between its own tasks", () => {
+    expect(merged.links).toEqual([["pod1/t1", "pod1/t2"]]);
   });
 
   it("names the host of a disk that runs low", () => {
@@ -103,7 +126,7 @@ describe("routing", () => {
     );
     expect(point[0]).toMatchObject({ host: "pod1", message: { docId: "d1" } });
     const task = routeCommand(
-      { type: "create_task", title: "t", prompt: "p", workspace: "pod1/ws3" },
+      { type: "create_task", title: "t", brief: "p", workspace: "pod1/ws3" },
       remotes,
     );
     expect(task[0]).toMatchObject({ host: "pod1", message: { workspace: "ws3" } });
@@ -126,10 +149,23 @@ describe("routing", () => {
     expect(routeCommand(color, remotes)).toEqual([{ host: LOCAL, message: color }]);
   });
 
-  it("routes calls by agent", () => {
-    expect(routeCall({ type: "review_load", agent: "pod1/alpha" }, remotes)).toEqual({
+  it("routes a command on a task to the daemon that owns the task", () => {
+    expect(routeCommand({ type: "move", task: "pod1/t3", to: "done" }, remotes)).toEqual([
+      { host: "pod1", message: { type: "move", task: "t3", to: "done" } },
+    ]);
+    expect(routeCommand({ type: "thread_read", task: "t3", threadId: "x" }, remotes)[0]?.host).toBe(
+      LOCAL,
+    );
+  });
+
+  it("routes calls by agent or by task", () => {
+    expect(routeCall({ type: "notes", agent: "pod1/alpha" }, remotes)).toEqual({
       host: "pod1",
-      call: { type: "review_load", agent: "alpha" },
+      call: { type: "notes", agent: "alpha" },
+    });
+    expect(routeCall({ type: "review_load", task: "pod1/t3" }, remotes)).toEqual({
+      host: "pod1",
+      call: { type: "review_load", task: "t3" },
     });
   });
 

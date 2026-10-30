@@ -57,7 +57,7 @@ export function useShownState(): FleetState {
   return useMemo(() => narrow(state, project), [state, project]);
 }
 
-/** `state` with only the agents of `project`, their traffic, and what waits on the user. */
+/** `state` with only the agents and tasks of `project`, their traffic, and what waits on the user. */
 export function narrow(state: FleetState, project: string | undefined): FleetState {
   if (project === undefined) return state;
   const agents = Object.fromEntries(
@@ -69,6 +69,7 @@ export function narrow(state: FleetState, project: string | undefined): FleetSta
   return {
     ...state,
     agents,
+    tasks: Object.fromEntries(Object.entries(state.tasks).filter(([, t]) => t.project === project)),
     decisions: Object.fromEntries(Object.entries(state.decisions).filter(([, d]) => asks(d.agent))),
     // A message between two projects shows in both.
     messages: state.messages.filter((m) => shown(m.from) || shown(m.to)),

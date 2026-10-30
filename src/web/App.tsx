@@ -1,14 +1,18 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { PERMISSION_MODES } from "../shared/events.ts";
 import { lastWorkspace } from "../shared/hosts.ts";
+import { agentList, pendingDecisions, unreadFinished } from "../shared/reducer.ts";
 import {
-  agentList,
+  CLOSED,
   HOLDS_WORKSPACE,
-  pendingDecisions,
-  unreadFinished,
+  isTaskId,
+  selectionOf,
+  taskList,
+  taskOf,
   workspaceInUse,
+  workspaceOf,
   workspaceUse,
-} from "../shared/reducer.ts";
+} from "../shared/tasks.ts";
 import { useFleet } from "./fleet.tsx";
 import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, focusPane, focusPaneNamed, PANES, useCommands } from "./keys/keymap.tsx";
@@ -67,7 +71,8 @@ export function App() {
   const projects = useProjects();
   const localProjects = useLocalProjects();
   const filter = useProjectFilter();
-  const agent = selected ? state.agents[selected] : undefined;
+  // The selection is an agent name or a task id; each brings the other along.
+  const { agent, task } = selectionOf(state, selected);
   const agents = agentList(state);
   const cutOff = agents.filter((a) => a.offline).map((a) => a.name);
 
@@ -101,7 +106,7 @@ export function App() {
   };
   const { font, setFont, cycleFont } = useFont();
   const tiles = useTilesPerRow();
-  const showsDrawer = agent !== undefined && view !== "grid";
+  const showsDrawer = (agent !== undefined || task !== undefined) && view !== "grid";
   const rail = useSidebarWidth(RAIL, showsDrawer ? DRAWER.min : 0);
   const drawer = useSidebarWidth(DRAWER, rail.size);
   // Over the whole window instead of beside the view; only while a drawer shows.
@@ -116,9 +121,9 @@ export function App() {
     drawer.toggle();
   };
   const notifications = useNotifications(state, select);
-  /** Opens the agent's diff at one of its line threads. */
-  const showThread = (name: string, id: string): void => {
-    setSelected(name);
+  /** Opens the task's diff at one of its line threads. */
+  const showThread = (taskId: string, id: string): void => {
+    setSelected(taskId);
     drawer.expand();
     setTab("diff");
     setThread({ id });
@@ -137,26 +142,31 @@ export function App() {
     forgetTargets();
     setDiffFile({ path });
   };
+  /** Opens an agent, or the agent that holds a task, enlarged in the grid. */
   const open = (name: string): void => {
-    select(name);
-    setEnlarged(name);
+    const target = isTaskId(name) ? selectionOf(state, name).agent?.name : name;
+    if (!target) return;
+    select(target);
+    setEnlarged(target);
     setView("grid");
   };
-  /** Takes a task off the board; one whose workspace still holds its work asks first. */
-  const remove = (name: string): void => {
-    const target = state.agents[name];
-    if (target?.role !== "worker") return;
-    const question = `Remove ${name}'s task "${target.title}"? Its changes stay in ${target.workspace}, and the next task there starts on top of them.`;
-    if (HOLDS_WORKSPACE.has(target.task) && !window.confirm(question)) return;
-    send({ type: "remove", agent: name });
-    if (selected === name) setSelected(undefined);
+  /** Removes a task; one whose workspace still holds its work asks first. */
+  const remove = (id: string): void => {
+    const target = state.tasks[id];
+    if (!target) return;
+    const where = workspaceOf(state, target);
+    const question = `Remove the task "${target.title}"? Its changes stay in ${where}, and the next task there starts on top of them.`;
+    if (HOLDS_WORKSPACE.has(target.state) && !window.confirm(question)) return;
+    send({ type: "remove", task: id });
+    if (selected === id) setSelected(undefined);
   };
 
   // An agent on screen counts as seen, even if its outcome changes while the user looks at it.
+  const seen = agent?.name;
   const unseen = agent?.unseen;
   useEffect(() => {
-    if (selected && unseen) send({ type: "open", agent: selected });
-  }, [selected, unseen, send]);
+    if (seen && unseen) send({ type: "open", agent: seen });
+  }, [seen, unseen, send]);
 
   // With read_while_watching, a run that ends while the user looks at the agent is read already.
   const readWhileWatching = info?.readWhileWatching ?? false;
@@ -173,7 +183,7 @@ export function App() {
     const seen = known.current;
     known.current = new Set(unread.flatMap((g) => g.runs.map((r) => r.id)));
     const open = {
-      agent: view === "grid" ? undefined : selected,
+      agent: view === "grid" ? undefined : selectionOf(state, selected).agent?.name,
       enlarged: view === "grid" ? enlarged : undefined,
     };
     if (!readWhileWatching) return;
@@ -228,7 +238,7 @@ export function App() {
     ),
     ...colorCommands(
       localProjects.map((p) => p.name),
-      filter.project ?? (selected ? state.agents[selected]?.project : undefined),
+      filter.project ?? task?.project ?? agent?.project,
       (project) => show("color", project),
     ),
     {
@@ -373,7 +383,7 @@ export function App() {
       selected,
       select,
     ),
-    ...agentCommands(selected),
+    ...agentCommands(agent?.name, task?.id),
     ...(info?.workspaces ?? [])
       .filter(
         (ws) =>
@@ -390,15 +400,25 @@ export function App() {
     ...agents.map(
       (a): Command => ({
         id: `open.${a.name}`,
-        label: `${a.name}: ${a.title}`,
+        label: `${a.name}: ${taskOf(state, a)?.title ?? a.title}`,
         group: "Agents",
         run: () => select(a.name),
       }),
     ),
+    ...taskList(state)
+      .filter((t) => !CLOSED.has(t.state))
+      .map(
+        (t): Command => ({
+          id: `open.task.${t.id}`,
+          label: `${t.id}: ${t.title}`,
+          group: "Tasks",
+          run: () => select(t.id),
+        }),
+      ),
   ]);
 
   /** Always registered, so the shortcut overlay lists them; without a selection they do nothing. */
-  function agentCommands(selection: string | undefined): Command[] {
+  function agentCommands(selection: string | undefined, taskId: string | undefined): Command[] {
     const name = selection ?? "";
     const current = state.agents[name];
     const live = current?.activity === "working" || current?.activity === "idle";
@@ -450,9 +470,7 @@ export function App() {
           ? "Stop the session"
           : current?.activity === "detached"
             ? "Attach the session"
-            : current?.task === "queued"
-              ? "Start the queued task now"
-              : "Start the session",
+            : "Start the session",
         group: "Selected agent",
         keys: ["alt+s"],
         run: () =>
@@ -507,12 +525,12 @@ export function App() {
         keys: ["alt+r"],
         run: answer("deny"),
       },
-      ...(["review", "changes", "accept", "reopen", "remove"] as const).map((m) => ({
+      ...(["review", "changes", "accept", "remove"] as const).map((m) => ({
         id: TASK_MOVES[m].id,
         label: TASK_MOVES[m].label,
         group: "Move the selected task",
         keys: [TASK_MOVES[m].keys],
-        run: () => (m === "remove" ? remove(name) : moves[m](name)),
+        run: () => taskId && (m === "remove" ? remove(taskId) : moves[m](taskId)),
       })),
       {
         id: "drawer.next",
@@ -536,7 +554,7 @@ export function App() {
         run: closeDrawer,
       },
     ];
-    return selection
+    return selection || taskId
       ? commands
       : commands.map((c) => ({ ...c, paletteHidden: true, run: () => {} }));
   }
@@ -641,21 +659,22 @@ export function App() {
           {view === "timeline" && <Timeline onOpen={select} />}
           {view === "history" && <History />}
         </main>
-        {agent && view !== "grid" && tab !== "diff" && !drawer.collapsed && !fullWindow && (
+        {showsDrawer && tab !== "diff" && !drawer.collapsed && !fullWindow && (
           <ResizeHandle label="Resize the drawer" sidebar={drawer} grows="left" />
         )}
-        {agent && view !== "grid" && (
+        {showsDrawer && (
           <Drawer
             agent={agent}
+            task={task}
             tab={tab}
             thread={thread}
             file={file}
             diffFile={diffFile}
             onTab={goTab}
-            onOpenThread={(id) => showThread(agent.name, id)}
+            onOpenThread={(id) => task && showThread(task.id, id)}
             onOpenFile={showFile}
             onOpenDiffFile={showDiffFile}
-            onOpenInGrid={() => open(agent.name)}
+            onOpenInGrid={() => agent && open(agent.name)}
             onClose={closeDrawer}
             collapsed={drawer.collapsed}
             onToggleCollapsed={toggleDrawer}

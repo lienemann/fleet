@@ -128,7 +128,7 @@ describe("importing a session", () => {
     ).rejects.toThrow();
   });
 
-  it("makes it a detached task with its transcript, and resumes it when taken back", async () => {
+  it("makes it a detached guest with its transcript, and resumes it when taken back", async () => {
     const { log, supervisor, calls } = setup();
     supervisor.handle({
       type: "import_session",
@@ -136,21 +136,23 @@ describe("importing a session", () => {
       workspace: "ws1",
       title: "Sweep speed",
     });
-    await until(() => log.state.agents.alpha?.activity === "detached");
-    expect(log.state.agents.alpha).toMatchObject({
+    // ws1's own worker is alpha; the imported session shares the workspace as a guest.
+    await until(() => log.state.agents.bravo?.activity === "detached");
+    expect(log.state.agents.bravo).toMatchObject({
       title: "Sweep speed",
       cwd: "/work/ws1",
       project: "test",
       sessionId: ID,
-      task: "running",
+      guest: true,
     });
-    expect(log.state.agents.alpha?.log.map((l) => l.text)).toContain("It re-uploads the waveform.");
-    expect(log.state.agents.alpha?.unseen).toBe(false);
+    expect(log.state.agents.bravo?.task).toBeUndefined();
+    expect(log.state.agents.bravo?.log.map((l) => l.text)).toContain("It re-uploads the waveform.");
+    expect(log.state.agents.bravo?.unseen).toBe(false);
 
     const listed = await supervisor.call({ type: "list_sessions", id: "1", workspace: "ws1" });
     expect(listed[0]?.imported).toBe(true);
 
-    supervisor.handle({ type: "start", agent: "alpha" });
+    supervisor.handle({ type: "start", agent: "bravo" });
     await until(() => calls.length === 1);
     expect(calls[0]?.options?.resume).toBe(ID);
     expect(calls[0]?.options?.cwd).toBe("/work/ws1");
@@ -161,8 +163,8 @@ describe("importing a session", () => {
     // The second arrives while the first is still reading the transcript.
     supervisor.handle({ type: "import_session", sessionId: ID, workspace: "ws1", title: "a" });
     supervisor.handle({ type: "import_session", sessionId: ID, workspace: "ws1", title: "b" });
-    await until(() => log.state.agents.alpha !== undefined);
+    await until(() => log.state.agents.bravo !== undefined);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(Object.keys(log.state.agents).filter((n) => n !== DIRECTOR)).toEqual(["alpha"]);
+    expect(Object.keys(log.state.agents).filter((n) => n !== DIRECTOR)).toEqual(["alpha", "bravo"]);
   });
 });

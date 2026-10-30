@@ -2,13 +2,8 @@ import { type CSSProperties, useState } from "react";
 import type { Usage } from "../../shared/events.ts";
 import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
-import {
-  type AgentView,
-  agentList,
-  needsUser,
-  workspaceInUse,
-  workspaceUse,
-} from "../../shared/reducer.ts";
+import { type AgentView, agentList } from "../../shared/reducer.ts";
+import { holderOf, needsUser, taskOf, workspaceInUse, workspaceUse } from "../../shared/tasks.ts";
 import { useFleet } from "../fleet.tsx";
 import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
@@ -79,7 +74,7 @@ export function Rail({
   const local = useLocalProjects();
   const colorOf = useProjectColors();
   const [folded, toggle] = useFolded();
-  const agents = agentList(state).filter((a) => a.task !== "accepted" || a.name === selected);
+  const agents = agentList(state);
   const grouped = projects.length > 1;
   useCommands(
     grouped
@@ -155,7 +150,7 @@ export function Rail({
                   {local.some((p) => p.name === name) && (
                     <ColorDot project={name} onColor={onColor} />
                   )}
-                  {!open && own.some(needsUser) && (
+                  {!open && own.some((a) => needsUser(state, a)) && (
                     <span className="dot col-needs_you" title={`An agent of ${name} needs you`} />
                   )}
                 </h2>
@@ -218,7 +213,7 @@ function ColorDot({ project, onColor }: { project: string; onColor: (project: st
   );
 }
 
-/** Agents with their running subagents; a worker can be removed from its row. */
+/** Agents with their running subagents; a worker's task can be removed from its row. */
 function AgentTree({
   agents,
   selected,
@@ -228,21 +223,22 @@ function AgentTree({
   agents: AgentView[];
   selected: string | undefined;
   onSelect: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: (task: string) => void;
 }) {
+  const { state } = useFleet();
   return (
     <ul className="tree">
       {agents.map((agent) => (
         <li key={agent.name}>
           <div className="rail-row">
             <AgentRow agent={agent} selected={agent.name === selected} onSelect={onSelect} />
-            {agent.role === "worker" && (
+            {agent.task !== undefined && (
               <button
                 type="button"
                 className="link remove-x"
-                aria-label={`Remove ${agent.name}`}
-                title={`Remove ${agent.name} from fleet; its transcript stays and can be imported again`}
-                onClick={() => onRemove(agent.name)}
+                aria-label={`Remove ${agent.name}'s task`}
+                title={`Remove ${agent.name}'s task "${taskOf(state, agent)?.title}"; ${agent.name} stays`}
+                onClick={() => agent.task !== undefined && onRemove(agent.task)}
               >
                 ×
               </button>
@@ -321,7 +317,9 @@ function AgentRow({
   selected: boolean;
   onSelect: (n: string) => void;
 }) {
-  const { label: status, dot } = agentStatus(agent);
+  const { state } = useFleet();
+  const { label: status, dot } = agentStatus(state, agent);
+  const task = taskOf(state, agent);
   return (
     <button
       type="button"
@@ -331,7 +329,7 @@ function AgentRow({
     >
       <span className={`dot col-${dot} act-${agent.activity}`} />
       <AgentLabel agent={agent.name} chip={false} />
-      <span className="rail-title">{agent.title}</span>
+      <span className="rail-title">{task?.title ?? agent.title}</span>
       {agent.unseen && <span className="new">new</span>}
     </button>
   );
@@ -357,7 +355,8 @@ function WorkspaceRow({
   const use = workspaceUse(state, name);
   const { claim } = use;
   const task = use.tasks[0];
-  const status = task && agentStatus(task);
+  const holder = task && holderOf(state, task);
+  const status = holder && agentStatus(state, holder);
   const kept = only ? "it is the only one" : workspaceInUse(use);
   const detail = claim ? claim.note : task?.title;
 
@@ -386,15 +385,15 @@ function WorkspaceRow({
                 release
               </button>
             </span>
-          ) : task && status ? (
+          ) : task && holder && status ? (
             <button
               type="button"
               className="link ws-agent"
-              title={`${task.name}: ${task.title}`}
-              onClick={() => onSelect(task.name)}
+              title={`${holder.name}: ${task.title}`}
+              onClick={() => onSelect(holder.name)}
             >
-              <span className={`dot col-${status.dot} act-${task.activity}`} />
-              <AgentLabel agent={task.name} chip={false} />
+              <span className={`dot col-${status.dot} act-${holder.activity}`} />
+              <AgentLabel agent={holder.name} chip={false} />
               <span className="dim">{status.label}</span>
             </button>
           ) : (

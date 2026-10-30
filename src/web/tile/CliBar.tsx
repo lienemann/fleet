@@ -116,7 +116,6 @@ export function CliBar({ agent }: { agent: AgentView }) {
           <button
             type="button"
             className="outline"
-            disabled={agent.task === "queued"}
             onClick={() => send({ type: "start", agent: name })}
           >
             Start

@@ -4,9 +4,9 @@ import {
   type AgentView,
   type FinishedRun,
   type FleetState,
-  needsUser,
   pendingDecisions,
 } from "../shared/reducer.ts";
+import { needsUser, taskOf } from "../shared/tasks.ts";
 import { agentText } from "./agentStyle.ts";
 import { columnLabel, firstLine, lowDiskText } from "./labels.ts";
 
@@ -85,7 +85,9 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
       continue;
     }
     if (old.unseen || !agent.unseen) continue;
-    if (needsUser(agent)) {
+    const task = taskOf(after, agent);
+    const title = task?.title ?? agent.title;
+    if (needsUser(after, agent)) {
       const what = decision
         ? decision.decision === "permission"
           ? `wants to use ${decision.toolName}`
@@ -96,19 +98,19 @@ export function notices(before: FleetState, after: FleetState): Notice[] {
       result.push({
         agent: agent.name,
         title: `${agentText(agent)} needs you`,
-        body: `${agent.title}: ${what}`,
+        body: `${title}: ${what}`,
       });
-    } else if (agent.task === "review") {
+    } else if (task?.state === "review") {
       result.push({
         agent: agent.name,
         title: `${agentText(agent)} is ${columnLabel("review")}`,
-        body: agent.report?.summary ?? agent.title,
+        body: task.report?.summary ?? title,
       });
     } else {
       result.push({
         agent: agent.name,
         title: `${agentText(agent)} wrote something for you`,
-        body: agent.title,
+        body: title,
       });
     }
   }

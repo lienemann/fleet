@@ -1,7 +1,7 @@
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
 import type { QueryFn } from "../src/daemon/session.ts";
-import { type AgentView, columnOf, pendingDecisions } from "../src/shared/reducer.ts";
+import { pendingDecisions } from "../src/shared/reducer.ts";
 import {
   assistantText,
   echoing,
@@ -210,7 +210,7 @@ describe("AgentSession", () => {
     await session.setPermissionMode("plan");
     await session.setModel("opus");
     expect(agent()).toMatchObject({ permissionMode: "plan", model: "opus" });
-    expect(columnOf(agent() as AgentView)).toBe("queued");
+    expect(agent()?.task).toBeUndefined();
     await session.stop();
   });
 });

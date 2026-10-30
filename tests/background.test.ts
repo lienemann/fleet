@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { OUTPUT_SAMPLE_MS, SHELL_BUSY_MS } from "../src/daemon/session.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
-import { type AgentView, BACKGROUND_LIMIT, columnOf } from "../src/shared/reducer.ts";
+import { BACKGROUND_LIMIT } from "../src/shared/reducer.ts";
 import {
+  agentColumn,
   echoing,
   fakeQuery,
+  heldTask,
   newSession,
   result,
   task,
@@ -139,14 +141,14 @@ describe("Background tasks", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const { queryFn } = fakeQuery(echoing(...devServer, result()));
     const { session, agent, log } = newSession(queryFn);
-    log.append({ kind: "task_state", agent: "a1", state: "running" });
+    for (const event of heldTask("t1", "a1")) log.append(event);
     session.start();
     session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
-    expect(columnOf(agent() as AgentView)).toBe("running");
+    expect(agentColumn(log.state, "a1")).toBe("in_progress");
 
     await vi.advanceTimersByTimeAsync(SHELL_BUSY_MS);
-    expect(columnOf(agent() as AgentView)).toBe("needs_you");
+    expect(agentColumn(log.state, "a1")).toBe("needs_you");
     await session.stop();
   });
 

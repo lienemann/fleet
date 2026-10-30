@@ -6,6 +6,8 @@ import { type FleetState, QUOTE_LIMIT } from "./reducer.ts";
 import type { ReviewModel } from "./review.ts";
 
 const agent = z.string().min(1);
+/** A task id, `t1`, `t2`, … */
+const task = z.string().regex(/^t\d+$/);
 
 /** Lines from `start` up to, not including, `endExclusive`: at least one. */
 const nonEmpty = [
@@ -80,7 +82,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_task"),
     title: z.string().trim().min(1),
-    prompt: z.string().trim().min(1),
+    brief: z.string().trim().min(1),
     workspace: z.string().min(1),
   }),
   z.object({ type: z.literal("start"), agent }),
@@ -88,9 +90,10 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("detach"), agent }),
   /** Ends the client that holds a detached session and runs the session in fleet. */
   z.object({ type: z.literal("attach"), agent }),
-  /** Takes a task off the board; its changes stay in the workspace. The browser asks first. */
-  z.object({ type: z.literal("remove"), agent }),
-  z.object({ type: z.literal("move"), agent, to: z.enum(USER_MOVES) }),
+  /** Drops a task; its changes stay in the workspace. The browser asks first. */
+  z.object({ type: z.literal("remove"), task }),
+  /** In progress for a queued task starts it now, past the limits. */
+  z.object({ type: z.literal("move"), task, to: z.enum(USER_MOVES) }),
   z.object({ type: z.literal("set_mode"), agent, mode: z.enum(PERMISSION_MODES) }),
   z.object({ type: z.literal("set_model"), agent, model: z.string().min(1) }),
   /** null goes back to the model's own default. */
@@ -107,7 +110,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   /** Opens a thread on selected lines; held ones wait for "Request changes", the others go to the agent at once. */
   z.object({
     type: z.literal("thread_open"),
-    agent,
+    task,
     path: z.string().min(1),
     side: z.enum(["head", "base"]),
     lines: z
@@ -124,7 +127,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("thread_reply"),
-    agent,
+    task,
     threadId: z.string().min(1),
     body: z.string().trim().min(1),
     held: z.boolean(),
@@ -133,14 +136,14 @@ export const CommandSchema = z.discriminatedUnion("type", [
   /** Only held messages can still be changed or taken back. */
   z.object({
     type: z.literal("thread_edit"),
-    agent,
+    task,
     threadId: z.string().min(1),
     messageId: z.string().min(1),
     body: z.string().trim().min(1),
   }),
   z.object({
     type: z.literal("thread_remove"),
-    agent,
+    task,
     threadId: z.string().min(1),
     messageId: z.string().min(1),
   }),
@@ -153,10 +156,10 @@ export const CommandSchema = z.discriminatedUnion("type", [
     ids: z.array(z.string().min(1)).min(1),
     text: z.string().trim().min(1),
   }),
-  z.object({ type: z.literal("thread_read"), agent, threadId: z.string().min(1) }),
+  z.object({ type: z.literal("thread_read"), task, threadId: z.string().min(1) }),
   z.object({
     type: z.literal("thread_resolve"),
-    agent,
+    task,
     threadId: z.string().min(1),
     resolved: z.boolean(),
   }),
@@ -180,7 +183,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
     workspace: z.string().min(1),
   }),
   /** Sends the held thread messages and the user's edits as one message and moves the task to "changes requested". */
-  z.object({ type: z.literal("request_changes"), agent, message: z.string().optional() }),
+  z.object({ type: z.literal("request_changes"), task, message: z.string().optional() }),
 ]);
 
 const id = z.string().min(1);
@@ -192,11 +195,11 @@ export const CallSchema = z.discriminatedUnion("type", [
    * place agents keep their documents. Relative paths are the workspace's.
    */
   z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
-  /** Loads the diff view; without a scope, the agent's whole change since trunk. */
+  /** Loads the diff view; without a scope, the task's whole change since trunk. */
   z.object({
     type: z.literal("review_load"),
     id,
-    agent,
+    task,
     scope: z
       .discriminatedUnion("kind", [
         z.object({ kind: z.literal("branch") }),
@@ -244,14 +247,14 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("review_approve"),
     id,
-    agent,
+    task,
     ids: z.array(z.string()),
     approved: z.boolean(),
   }),
   z.object({
     type: z.literal("review_edit"),
     id,
-    agent,
+    task,
     hunkId: z.string().min(1),
     lines: z.array(z.string()),
   }),
@@ -260,7 +263,7 @@ export const CallSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("review_origin"),
       id,
-      agent,
+      task,
       path: z.string().min(1),
       start: z.number().int().min(1),
       endExclusive: z.number().int().min(1),
@@ -334,7 +337,7 @@ export interface SessionSummary {
   title: string;
   lastModified: number;
   branch?: string;
-  /** Already a task in fleet. */
+  /** Already an agent in fleet. */
   imported: boolean;
 }
 

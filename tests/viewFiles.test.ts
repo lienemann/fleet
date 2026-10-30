@@ -9,7 +9,7 @@ import { DIRECTOR, echoing, fakeQuery, result, testConfig } from "./helpers.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
-/** A worker "alpha" in ws1, with Claude's config directory and fleet's home in the temp dir. */
+/** The worker "alpha" of ws1, holding the task t1, with Claude's config directory and fleet's home in the temp dir. */
 function setup() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-view-")));
   const dirs = {
@@ -148,7 +148,7 @@ describe("attach_file and report_result files", () => {
     expect(first?.content).toEqual([{ type: "text", text: "Attached 1 file." }]);
     await t.attach([{ path: diff }]);
     await t.attach([{ path: review }]);
-    expect(t.log.state.agents.alpha?.attached).toEqual([
+    expect(t.log.state.tasks.t1?.attached).toEqual([
       { path: review, note: "Review for Jan", reported: false },
       { path: diff, note: undefined, reported: false },
     ]);
@@ -158,7 +158,7 @@ describe("attach_file and report_result files", () => {
     const t = setup();
     t.write(join(t.ws, "out.md"));
     await t.attach([{ path: "out.md" }]);
-    expect(t.log.state.agents.alpha?.attached.map((f) => f.path)).toEqual([join(t.ws, "out.md")]);
+    expect(t.log.state.tasks.t1?.attached.map((f) => f.path)).toEqual([join(t.ws, "out.md")]);
 
     const refused = async (path: string, message: RegExp) => {
       const answer = await t.attach([{ path }]);
@@ -169,7 +169,7 @@ describe("attach_file and report_result files", () => {
     await refused(t.write(join(t.elsewhere, "x.txt")), /outside what fleet shows/);
     await refused(join(t.home, "secret"), /never shown/);
     await refused(t.ws, /not a file/);
-    expect(t.log.state.agents.alpha?.attached).toHaveLength(1);
+    expect(t.log.state.tasks.t1?.attached).toHaveLength(1);
   });
 
   it("report_result attaches its files before the report", async () => {
@@ -182,10 +182,10 @@ describe("attach_file and report_result files", () => {
       { summary: "Done.", changes: [], open_questions: [], files: [{ path: notes, note: "n" }] },
       {},
     );
-    const alpha = t.log.state.agents.alpha;
+    const task = t.log.state.tasks.t1;
     // The report came right after the attachment, so the file is delivered with it.
-    expect(alpha?.attached).toEqual([{ path: notes, note: "n", reported: true }]);
-    expect(alpha?.report?.summary).toBe("Done.");
+    expect(task?.attached).toEqual([{ path: notes, note: "n", reported: true }]);
+    expect(task?.report?.summary).toBe("Done.");
   });
 
   it("a report with an unreadable file fails without reporting", async () => {
@@ -198,6 +198,6 @@ describe("attach_file and report_result files", () => {
       {},
     );
     expect(answer?.isError).toBe(true);
-    expect(t.log.state.agents.alpha?.report).toBeUndefined();
+    expect(t.log.state.tasks.t1?.report).toBeUndefined();
   });
 });

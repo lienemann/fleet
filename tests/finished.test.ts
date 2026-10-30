@@ -59,7 +59,7 @@ function held(...finish: ReturnType<typeof result>[]) {
 }
 
 describe("Finished runs", () => {
-  it("puts a long run the user started into the inbox", async () => {
+  it("puts a long run the user started into the inbox, naming the task it was for", async () => {
     const { supervisor, alpha } = setup(echoing(assistantText("Done, nothing left."), result()));
     supervisor.createTask("Fix it", "Do it.", "ws1");
     await until(() => alpha()?.finished.length === 1);
@@ -67,6 +67,7 @@ describe("Finished runs", () => {
       text: "Done, nothing left.",
       read: false,
       stopped: undefined,
+      task: "t1",
     });
   });
 
@@ -165,19 +166,21 @@ describe("Finished runs", () => {
     expect(alpha()?.finished).toEqual([]);
   });
 
-  it("leaves out a working task the user accepted or removed", async () => {
-    for (const type of ["move", "remove"] as const) {
-      const { script, release } = held();
+  it("leaves out the run of a task the user removed; an accepted one runs on to its end", async () => {
+    const finishedAfter = async (to: "done" | "dropped") => {
+      const { script, release } = held(result());
       const { supervisor, alpha, log } = setup(script);
-      supervisor.createTask("Fix it", "Do it.", "ws1");
+      const task = supervisor.createTask("Fix it", "Do it.", "ws1") ?? "";
       await until(() => alpha()?.stretch?.text === "Halfway there.");
-      supervisor.handle(
-        type === "move" ? { type, agent: "alpha", to: "accepted" } : { type, agent: "alpha" },
-      );
+      supervisor.handle(to === "done" ? { type: "move", task, to } : { type: "remove", task });
+      expect(log.state.tasks[task]?.state).toBe(to);
       release();
-      await until(() => alpha()?.activity === "stopped" || alpha() === undefined);
-      expect(log.since(0).filter((e) => e.kind === "run_finished")).toEqual([]);
-    }
+      await until(idle(alpha));
+      return log.since(0).filter((e) => e.kind === "run_finished");
+    };
+    expect(await finishedAfter("dropped")).toEqual([]);
+    // Accepting frees the worker but leaves its session be, so its run ends as runs do.
+    expect(await finishedAfter("done")).toHaveLength(1);
   });
 
   it("does not report a run that a daemon restart interrupted", async () => {

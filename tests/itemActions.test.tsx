@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { movesOf } from "../src/web/taskMoves.ts";
+import { movesOf, removable } from "../src/web/taskMoves.ts";
 import { ItemActions } from "../src/web/ui/ItemActions.tsx";
 
 const labels = (html: string): string[] =>
@@ -46,14 +46,21 @@ describe("ItemActions", () => {
 
 describe("task moves", () => {
   it("offer the verdict while a task waits for one, in Review and after a revision", () => {
-    for (const task of ["review", "changes_requested"] as const)
-      expect(movesOf({ role: "worker", task })).toEqual(["accept", "changes"]);
+    for (const state of ["review", "changes_requested"] as const)
+      expect(movesOf({ state })).toEqual(["accept", "changes"]);
   });
 
-  it("offer what the board offers in the other states, and nothing for directors", () => {
-    expect(movesOf({ role: "worker", task: "running" })).toEqual(["review"]);
-    expect(movesOf({ role: "worker", task: "accepted" })).toEqual(["reopen"]);
-    expect(movesOf({ role: "worker", task: "queued" })).toEqual([]);
-    expect(movesOf({ role: "director", task: "running" })).toEqual([]);
+  it("offer what the board offers in the other states, and nothing once a task is final", () => {
+    expect(movesOf({ state: "in_progress" })).toEqual(["review"]);
+    for (const state of ["queued", "parked", "done", "dropped"] as const) {
+      expect(movesOf({ state })).toEqual([]);
+    }
+  });
+
+  it("let a task be removed until it is done or dropped", () => {
+    expect(removable({ state: "review" })).toBe(true);
+    expect(removable({ state: "queued" })).toBe(true);
+    expect(removable({ state: "done" })).toBe(false);
+    expect(removable({ state: "dropped" })).toBe(false);
   });
 });

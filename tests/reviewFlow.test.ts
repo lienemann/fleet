@@ -7,8 +7,9 @@ import { changeRequest, threadMessage } from "../src/daemon/changeRequest.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { CallSchema, type Command, CommandSchema } from "../src/shared/protocol.ts";
-import { type AgentView, heldMessages, QUOTE_LIMIT } from "../src/shared/reducer.ts";
+import { type AgentView, QUOTE_LIMIT } from "../src/shared/reducer.ts";
 import type { LineThread, ReviewEdit, ThreadMessage } from "../src/shared/review.ts";
+import { heldMessages, type TaskView } from "../src/shared/tasks.ts";
 import { echoing, fakeQuery, result, testConfig, until } from "./helpers.ts";
 
 const thread: LineThread = {
@@ -127,7 +128,7 @@ describe("line ranges and quotes from the browser", () => {
 
   it("refuse empty line ranges", () => {
     expect(valid({ ...open(false), lines: { start: 3, endExclusive: 3 } })).toBe(false);
-    const origin = { type: "review_origin", id: "1", agent: "alpha", path: "lib.py", start: 3 };
+    const origin = { type: "review_origin", id: "1", task: "t1", path: "lib.py", start: 3 };
     expect(CallSchema.safeParse({ ...origin, endExclusive: 4 }).success).toBe(true);
     expect(CallSchema.safeParse({ ...origin, endExclusive: 3 }).success).toBe(false);
   });
@@ -157,13 +158,13 @@ function setup() {
 
 function review() {
   const flow = setup();
-  flow.supervisor.handle({ type: "move", agent: "alpha", to: "review" });
+  flow.supervisor.handle({ type: "move", task: "t1", to: "review" });
   return flow;
 }
 
 const open = (held: boolean): Extract<Command, { type: "thread_open" }> => ({
   type: "thread_open",
-  agent: "alpha",
+  task: "t1",
   path: "lib.py",
   side: "head",
   lines: { start: 1, endExclusive: 2 },
@@ -172,37 +173,40 @@ const open = (held: boolean): Extract<Command, { type: "thread_open" }> => ({
   held,
 });
 
+/** The task the tests review. */
+const t1 = (log: EventLog) => log.state.tasks.t1 as TaskView;
+
 const promptsOf = (log: EventLog) =>
   log.state.agents.alpha?.log.filter((l) => l.role === "user" && l.text !== "Fix it") ?? [];
 
 describe("review flow", () => {
   it("records progress for the card when the diff view loads", async () => {
     const { log, supervisor } = setup();
-    const model = await supervisor.call({ type: "review_load", id: "1", agent: "alpha" });
-    expect(model).toMatchObject({ progress: { approved: 0, total: 1 } });
-    expect(log.state.agents.alpha?.reviewProgress).toEqual({ approved: 0, total: 1 });
+    const model = await supervisor.call({ type: "review_load", id: "1", task: "t1" });
+    expect(model).toMatchObject({ task: "t1", progress: { approved: 0, total: 1 } });
+    expect(t1(log).reviewProgress).toEqual({ approved: 0, total: 1 });
   });
 
   it("sends a thread message at once without moving the card", async () => {
     const { log, supervisor } = review();
-    await until(() => log.state.agents.alpha?.task === "review");
+    await until(() => t1(log).state === "review");
     const before = log.state.messages.length;
     supervisor.handle(open(false));
-    const [created] = log.state.agents.alpha?.threads ?? [];
-    expect(log.state.agents.alpha?.task).toBe("review");
+    const [created] = t1(log).threads;
+    expect(t1(log).state).toBe("review");
     expect(log.state.messages).toHaveLength(before);
     await until(() =>
       promptsOf(log).some(
         (l) => l.thread === created?.id && l.text.includes("Answer with the reply_thread tool"),
       ),
     );
-    expect(log.state.agents.alpha?.task).toBe("review");
+    expect(t1(log).state).toBe("review");
   });
 
   it("keeps only the thread's own fields in the log", () => {
     const { log, supervisor } = review();
     supervisor.handle({ ...open(true), commit: "zmplwqrs" });
-    const [created] = log.state.agents.alpha?.threads ?? [];
+    const [created] = t1(log).threads;
     expect(created).toEqual({
       id: expect.stringMatching(/^[0-9a-f]{8}$/),
       path: "lib.py",
@@ -226,10 +230,10 @@ describe("review flow", () => {
 
   it("links the prompt that flushes a held thread message to its thread", async () => {
     const { log, supervisor } = review();
-    await until(() => log.state.agents.alpha?.task === "review");
+    await until(() => t1(log).state === "review");
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
     supervisor.handle(open(false));
-    const [created] = log.state.agents.alpha?.threads ?? [];
+    const [created] = t1(log).threads;
     log.append({ kind: "activity", agent: "alpha", activity: "idle" });
     supervisor.handle({ type: "prompt", agent: "alpha", text: "Back again" });
     await until(() => promptsOf(log).length > 0);
@@ -240,38 +244,35 @@ describe("review flow", () => {
   it("reports pending edits with a message held for a detached agent", () => {
     const { log, supervisor } = review();
     log.append({ kind: "activity", agent: "alpha", activity: "detached" });
-    log.append({ kind: "review_edited", agent: "alpha", edit });
+    log.append({ kind: "review_edited", agent: "alpha", task: "t1", edit });
     supervisor.handle(open(false));
     const agent = log.state.agents.alpha as AgentView;
-    expect(agent.edits).toEqual([]);
+    expect(t1(log).edits).toEqual([]);
     expect(agent.held?.at(-1)?.text).toContain("I edited these lines myself");
   });
 
-  it("keeps a thread message for a queued task until the change request", () => {
+  it("keeps a thread message for a task nobody holds until the change request", () => {
     const { log, supervisor } = setup();
-    log.append({ kind: "task_state", agent: "alpha", state: "queued" });
-    log.append({
-      kind: "review_edited",
-      agent: "alpha",
-      edit,
-    });
-    supervisor.handle(open(false));
-    const agent = log.state.agents.alpha as AgentView;
-    expect(heldMessages(agent)).toBe(1);
-    expect(agent.edits).toEqual([edit]);
+    supervisor.createTask("Next", "Then this", "ws1");
+    log.append({ kind: "review_edited", agent: "daemon", task: "t2", edit });
+    supervisor.handle({ ...open(false), task: "t2" });
+    const queued = log.state.tasks.t2 as TaskView;
+    expect(queued.state).toBe("queued");
+    expect(heldMessages(queued)).toBe(1);
+    expect(queued.edits).toEqual([edit]);
     expect(promptsOf(log)).toHaveLength(0);
   });
 
   it("carries pending edits with the next thread message, once", async () => {
     const { log, supervisor } = review();
-    await until(() => log.state.agents.alpha?.task === "review");
-    log.append({ kind: "review_edited", agent: "alpha", edit });
+    await until(() => t1(log).state === "review");
+    log.append({ kind: "review_edited", agent: "alpha", task: "t1", edit });
     supervisor.handle(open(false));
-    expect(log.state.agents.alpha?.edits).toEqual([]);
+    expect(t1(log).edits).toEqual([]);
     await until(() => promptsOf(log).some((l) => l.text.includes("I edited these lines myself")));
 
     supervisor.handle(open(true));
-    supervisor.handle({ type: "request_changes", agent: "alpha" });
+    supervisor.handle({ type: "request_changes", task: "t1" });
     const bus = log.state.messages.at(-1)?.body ?? "";
     expect(bus).toContain("thread ");
     expect(bus).not.toContain("I edited these lines myself");
@@ -279,16 +280,15 @@ describe("review flow", () => {
 
   it("sends held thread messages as one change request", async () => {
     const { log, supervisor } = review();
-    await until(() => log.state.agents.alpha?.task === "review");
+    await until(() => t1(log).state === "review");
     supervisor.handle(open(true));
     supervisor.handle({ ...open(true), path: "other.py" });
-    expect(heldMessages(log.state.agents.alpha as AgentView)).toBe(2);
+    expect(heldMessages(t1(log))).toBe(2);
     expect(promptsOf(log)).toHaveLength(0);
 
-    supervisor.handle({ type: "request_changes", agent: "alpha" });
-    const agent = log.state.agents.alpha as AgentView;
-    expect(agent.task).toBe("changes_requested");
-    expect(heldMessages(agent)).toBe(0);
+    supervisor.handle({ type: "request_changes", task: "t1" });
+    expect(t1(log).state).toBe("changes_requested");
+    expect(heldMessages(t1(log))).toBe(0);
     const body = log.state.messages.at(-1)?.body ?? "";
     expect(body).toContain("thread ");
     expect(body).toContain("other.py:1");
@@ -299,14 +299,14 @@ describe("review flow", () => {
     const { log, supervisor } = review();
     supervisor.handle(open(false));
     supervisor.handle(open(true));
-    const [sent, draft] = log.state.agents.alpha?.threads ?? [];
+    const [sent, draft] = t1(log).threads;
     for (const t of [sent, draft]) {
       const messageId = t?.messages[0]?.id ?? "";
       const threadId = t?.id ?? "";
-      supervisor.handle({ type: "thread_edit", agent: "alpha", threadId, messageId, body: "New" });
-      supervisor.handle({ type: "thread_remove", agent: "alpha", threadId, messageId });
+      supervisor.handle({ type: "thread_edit", task: "t1", threadId, messageId, body: "New" });
+      supervisor.handle({ type: "thread_remove", task: "t1", threadId, messageId });
     }
-    const after = log.state.agents.alpha?.threads ?? [];
+    const after = t1(log).threads;
     expect(after.map((t) => t.id)).toEqual([sent?.id]);
     expect(after[0]?.messages[0]?.body).toBe("Why 1?");
   });
@@ -314,8 +314,8 @@ describe("review flow", () => {
   it("marks a reply read once, however many tabs report it", () => {
     const { log, supervisor } = review();
     supervisor.handle(open(true));
-    const threadId = log.state.agents.alpha?.threads[0]?.id ?? "";
-    const read = { type: "thread_read", agent: "alpha", threadId } as const;
+    const threadId = t1(log).threads[0]?.id ?? "";
+    const read = { type: "thread_read", task: "t1", threadId } as const;
     const reads = () => log.since(0).filter((e) => e.kind === "thread_read").length;
     supervisor.handle(read);
     expect(reads()).toBe(0);
@@ -323,35 +323,37 @@ describe("review flow", () => {
     log.append({
       kind: "thread_message",
       agent: "alpha",
+      task: "t1",
       threadId,
       message: { id: "a1", from: "agent", body: "Because.", ts: 2 },
     });
     supervisor.handle(read);
     supervisor.handle(read);
     expect(reads()).toBe(1);
-    expect(log.state.agents.alpha?.threads[0]?.unread).toBe(false);
+    expect(t1(log).threads[0]?.unread).toBe(false);
   });
 
-  it("ignores thread commands for unknown agents and threads", () => {
+  it("ignores thread commands for unknown tasks and threads", () => {
     const { log, supervisor } = review();
-    supervisor.handle({ ...open(true), agent: "nobody" });
+    supervisor.handle({ ...open(true), task: "t9" });
     supervisor.handle({
       type: "thread_reply",
-      agent: "alpha",
+      task: "t1",
       threadId: "nope",
       body: "x",
       held: true,
     });
-    supervisor.handle({ type: "thread_resolve", agent: "alpha", threadId: "nope", resolved: true });
-    expect(log.state.agents.alpha?.threads).toEqual([]);
+    supervisor.handle({ type: "thread_resolve", task: "t1", threadId: "nope", resolved: true });
+    expect(t1(log).threads).toEqual([]);
+    expect(log.state.tasks.t9).toBeUndefined();
   });
 
   it("refuses edits while the agent works in the workspace", async () => {
     const { log, supervisor } = setup();
-    await supervisor.call({ type: "review_load", id: "1", agent: "alpha" });
+    await supervisor.call({ type: "review_load", id: "1", task: "t1" });
     log.append({ kind: "activity", agent: "alpha", activity: "working" });
     await expect(
-      supervisor.call({ type: "review_edit", id: "2", agent: "alpha", hunkId: "x", lines: [] }),
+      supervisor.call({ type: "review_edit", id: "2", task: "t1", hunkId: "x", lines: [] }),
     ).rejects.toThrow(/working/);
   });
 

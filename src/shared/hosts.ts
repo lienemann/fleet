@@ -1,12 +1,13 @@
 /**
  * One UI for several daemons. Each remote daemon (a Coder pod) keeps its own event log; the
  * browser builds a state from each daemon's events and merges them, naming remote agents
- * `<host>/<agent>`. Commands go back to the daemon that owns the agent, with the prefix
- * stripped again.
+ * `<host>/<agent>` and remote tasks `<host>/<task>`. Commands go back to the daemon that owns
+ * the agent or task, with the prefix stripped again.
  */
 import { USER } from "./events.ts";
 import type { Call, Command, DaemonInfo } from "./protocol.ts";
 import type { AgentView, FleetState } from "./reducer.ts";
+import type { TaskView } from "./tasks.ts";
 
 /** Name of the local daemon in routing results. */
 export const LOCAL = "";
@@ -22,12 +23,33 @@ export function locate(name: string, remotes: readonly string[]): { host: string
 function renameAgents(state: FleetState, host: string): FleetState {
   if (host === LOCAL) return state;
   const q = (name: string) => qualify(host, name);
+  const qq = (name: string | undefined) => (name === undefined ? undefined : q(name));
   const agents: Record<string, AgentView> = {};
-  for (const agent of Object.values(state.agents))
-    agents[q(agent.name)] = { ...agent, name: q(agent.name), workspace: q(agent.workspace) };
+  for (const agent of Object.values(state.agents)) {
+    agents[q(agent.name)] = {
+      ...agent,
+      name: q(agent.name),
+      workspace: q(agent.workspace),
+      task: qq(agent.task),
+      conversationTask: qq(agent.conversationTask),
+      finished: agent.finished.map((run) => ({ ...run, task: qq(run.task) })),
+    };
+  }
+  const tasks: Record<string, TaskView> = {};
+  for (const task of Object.values(state.tasks)) {
+    tasks[q(task.id)] = {
+      ...task,
+      id: q(task.id),
+      agent: qq(task.agent),
+      workspace: qq(task.workspace),
+      pin: qq(task.pin),
+      conversations: task.conversations.map((c) => ({ ...c, agent: q(c.agent) })),
+    };
+  }
   return {
     ...state,
     agents,
+    tasks,
     decisions: Object.fromEntries(
       Object.values(state.decisions).map((d) => [
         q(d.requestId),
@@ -62,6 +84,7 @@ export function mergeStates(
     merged = {
       ...merged,
       agents: { ...merged.agents, ...renamed.agents },
+      tasks: { ...merged.tasks, ...renamed.tasks },
       decisions: { ...merged.decisions, ...renamed.decisions },
       messages: [...merged.messages, ...renamed.messages].sort((a, b) => a.ts - b.ts),
       openPoints: { ...merged.openPoints, ...renamed.openPoints },
@@ -148,6 +171,18 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
     }
+    case "remove":
+    case "move":
+    case "thread_open":
+    case "thread_reply":
+    case "thread_edit":
+    case "thread_remove":
+    case "thread_read":
+    case "thread_resolve":
+    case "request_changes": {
+      const { host, name } = locate(message.task, remotes);
+      return [{ host, message: { ...message, task: name } }];
+    }
     default: {
       const { host, name } = locate(message.agent, remotes);
       return [{ host, message: { ...message, agent: name } }];
@@ -155,11 +190,15 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
   }
 }
 
-/** Calls go to the daemon owning the agent, or, for workspace calls, the workspace. */
+/** Calls go to the daemon owning the agent or task, or, for workspace calls, the workspace. */
 export function routeCall<C extends DistributiveOmit<Call, "id">>(
   call: C,
   remotes: readonly string[],
 ): { host: string; call: C } {
+  if ("task" in call) {
+    const { host, name } = locate(call.task, remotes);
+    return { host, call: { ...call, task: name } };
+  }
   if (!("agent" in call) && !("workspace" in call)) return { host: LOCAL, call };
   if ("workspace" in call) {
     const { host, name } = locate(call.workspace, remotes);

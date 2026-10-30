@@ -1,16 +1,11 @@
 import { useState } from "react";
 import { TINTS } from "../../shared/events.ts";
-import {
-  type AgentView,
-  columnOf,
-  dayOf,
-  pendingDecisions,
-  workspaceHolder,
-} from "../../shared/reducer.ts";
+import { type AgentView, dayOf, pendingDecisions } from "../../shared/reducer.ts";
+import { columnOf, taskOf } from "../../shared/tasks.ts";
 import { TINT_LABELS } from "../agentStyle.ts";
 import { notInDiff } from "../files.ts";
 import { useFleet } from "../fleet.tsx";
-import { columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
+import { agentStatus, columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
 import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { Icon } from "../ui/Icon.tsx";
@@ -51,8 +46,9 @@ export function Tile({
   const [tinting, setTinting] = useState(false);
   const style = useAgentStyle(agent);
   const decisions = pendingDecisions(state).filter((d) => d.agent === agent.name);
-  const column = columnOf(agent);
-  const queued = agent.task === "queued";
+  const task = taskOf(state, agent);
+  const column = task ? columnOf(state, task) : undefined;
+  const status = agentStatus(state, agent);
   const side = useSideChat(agent.name);
 
   return (
@@ -76,11 +72,11 @@ export function Tile({
         <AgentLabel agent={agent.name} />
         <span className="ws">{agent.workspace}</span>
         <span className="host-chip">{agent.host}</span>
-        <span className={`pill col-${column}`}>
-          {agent.reconnecting ? "reconnecting" : columnLabel(column)}
+        <span className={`pill col-${status.dot}`}>
+          {agent.reconnecting ? "reconnecting" : column ? columnLabel(column) : status.label}
         </span>
-        <span className="title" title={agent.title}>
-          {agent.title}
+        <span className="title" title={task?.title ?? agent.title}>
+          {task?.title ?? agent.title}
         </span>
         <fieldset className="segmented" aria-label="Output filter">
           {LOG_FILTERS.map((f) => (
@@ -115,24 +111,20 @@ export function Tile({
           Handover failed: {agent.handover.note} This session carries on.
         </div>
       )}
-      {queued ? (
-        <Queued agent={agent} />
-      ) : (
-        <Log
-          agent={agent.name}
-          cwd={agent.cwd}
-          lines={agent.log}
-          subagents={agent.subagents}
-          filter={filter}
-          onOpenThread={onOpenThread}
-          diff={
-            onOpenDiffFile && {
-              open: onOpenDiffFile,
-              unavailable: (path) => notInDiff(agent, path),
-            }
+      <Log
+        agent={agent.name}
+        cwd={agent.cwd}
+        lines={agent.log}
+        subagents={agent.subagents}
+        filter={filter}
+        onOpenThread={onOpenThread}
+        diff={
+          onOpenDiffFile && {
+            open: onOpenDiffFile,
+            unavailable: (path) => notInDiff(agent, path),
           }
-        />
-      )}
+        }
+      />
       {decisions.map((decision) => (
         <DecisionCard
           key={decision.requestId}
@@ -146,14 +138,7 @@ export function Tile({
         name={agent.name}
         commands={["btw", ...agent.slashCommands.filter((c) => c !== "btw")]}
         loadFiles={() => call({ type: "list_files", agent: agent.name })}
-        disabled={queued}
-        hint={
-          queued
-            ? `${agent.name} is queued: it starts when ${agent.workspace} is free`
-            : agent.activity === "detached"
-              ? detachedHint(agent)
-              : undefined
-        }
+        hint={agent.activity === "detached" ? detachedHint(agent) : undefined}
         onSend={(text, attachments) => {
           if (side.ask(text)) return true;
           if (agent.activity === "detached" && !confirmTakeover(agent)) return false;
@@ -211,8 +196,9 @@ const detachedHint = (agent: AgentView): string =>
 function StatusRow({ agent }: { agent: AgentView }) {
   const now = useNow();
   const [open, setOpen] = useState(false);
+  const { state } = useFleet();
   const done = agent.todos.filter((t) => t.status === "completed").length;
-  const doing = currentWork(agent) ?? "no to-do list";
+  const doing = currentWork(state, agent) ?? "no to-do list";
   const context = contextPercent(agent);
   const running = agent.subagents.filter((s) => !s.done).length;
   const background = agent.backgroundTasks.filter((t) => t.backgrounded && !t.end);
@@ -230,7 +216,7 @@ function StatusRow({ agent }: { agent: AgentView }) {
           {agent.todos.length > 0 && ` (${done}/${agent.todos.length})`}
         </button>
         {context !== undefined && <span>ctx {context}%</span>}
-        <span>{duration(now - agent.columnSince)}</span>
+        <span>{duration(now - (agent.history.at(-1)?.from ?? now))}</span>
         <span title={`$${agent.costUsd.toFixed(2)} in total`}>
           ${(agent.costByDay[dayOf(now)] ?? 0).toFixed(2)} today
         </span>
@@ -249,27 +235,6 @@ function StatusRow({ agent }: { agent: AgentView }) {
         </ul>
       )}
     </>
-  );
-}
-
-/** A task that waits for its workspace or for a running slot; it can skip the WIP limit. */
-function Queued({ agent }: { agent: AgentView }) {
-  const { state, send } = useFleet();
-  const holder = workspaceHolder(state, agent.workspace, agent.name);
-  return (
-    <div className="queued">
-      <span title={holder && `${holder} holds ${agent.workspace}`}>
-        Queued. Waits for {holder ? agent.workspace : "a running slot"}.
-      </span>
-      <button
-        type="button"
-        className="primary"
-        disabled={holder !== undefined}
-        onClick={() => send({ type: "start", agent: agent.name })}
-      >
-        Start now
-      </button>
-    </div>
   );
 }
 

@@ -21,6 +21,8 @@ interface Props {
   variant?: "card" | "strip" | "compact";
   /** Named on cards, with its task and a way to open it; a tile already says whose it is. */
   agent?: AgentView;
+  /** What the agent works on: its task's title, else its own. */
+  title?: string;
   onOpen?: () => void;
   focused?: boolean;
   onAnswer: (answer: Answer) => void;
@@ -37,6 +39,7 @@ export function DecisionCard({
   decision,
   variant = "card",
   agent,
+  title = agent?.title,
   onOpen,
   focused,
   onAnswer,
@@ -55,7 +58,7 @@ export function DecisionCard({
         {agent && (
           <>
             <AgentLabel agent={agent.name} />
-            <span className="dim">{agent.title}</span>
+            <span className="dim">{title}</span>
             <span className="dim host">· {agent.host}</span>
             <span className="spacer" />
             <span className="dim">waiting {duration(now - decision.ts)}</span>

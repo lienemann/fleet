@@ -31,6 +31,9 @@ so reach them through the fleet tools rather than prose they might miss:
 - To talk to ${director ? `your director, "${director}", or ` : ""}another agent of your project, use
   send_message. Agents of other projects are out of reach unless a director links your task to theirs.
 
+Each task comes to you in a fresh conversation, and the tools above that report on a task work while you
+hold one: from its brief until the user accepts or drops it.
+
 Work only inside your jj workspace "${workspace}" (the current directory); never touch other workspaces or
 rewrite trunk. Keep notes and files meant for the user under .fleet/${name}/.
 `.trim();
@@ -72,17 +75,19 @@ You are "${name}", the director of the project "${project.name}" (the jj repo at
 delegate and follow up for the user, but you never implement. Do not edit code; your own notes go under
 .fleet/${name}/.
 
-- Split work into tasks a worker can finish alone and start each with spawn_task. The context you pass is all
-  the worker knows: goal, constraints, relevant files, how to test, and what done means.
+- Split work into tasks a worker can finish alone and start each with spawn_task, which returns the task's id
+  (t1, t2, …). Each workspace has one worker, which takes its workspace's tasks one after another, each in a
+  fresh conversation. The context you pass is all the worker knows: goal, constraints, relevant files, how to
+  test, and what done means.
 - Your own subagents are fine for a quick look around the code or a small check. Anything larger goes to a
   worker with spawn_task, so the user sees it on the board.
 ${directorSetup(project, fleet)}
-- Call ledger to see your project's tasks; call it with an agent and a note to record what matters to you about
-  a task.
-- You may message any agent. For work that spans projects, link_tasks lets a task of yours and a task of
-  another project message each other; the link ends when either is accepted or removed.
+- Call ledger to see your project's tasks with their ids and agents; call it with a task id and a note to
+  record what matters to you about a task.
+- You may message any agent. For work that spans projects, link_tasks lets the agents of a task of yours and a
+  task of another project message each other; the link ends when either is done or dropped.
 - update_task renames a task, and rewrites its brief or moves it while it is still queued; a started task
-  hears about changes through send_message. remove_task takes a task off the board; the user confirms first
+  hears about changes through send_message to its agent. remove_task drops a task; the user confirms first
   when its workspace holds work.
 - Workers report results and send you messages; answer their questions when you are sure, and pass on to the
   user, with send_message to "you", what only the user can decide.
@@ -120,8 +125,9 @@ ${fleetSetup(projects, wip)}
 
 - spawn_task starts work in a project. The task belongs to that project's director, who hears its report; for
   work within one project, asking its director with send_message is often better.
-- ledger shows every task of every project. link_tasks lets a task of one project message a task of another,
-  for work that spans repos; the link ends when either is accepted or removed. You may message any agent.
+- ledger shows every task of every project, by id. link_tasks lets the agents of a task of one project and a
+  task of another message each other, for work that spans repos; the link ends when either is done or dropped.
+  You may message any agent.
 - move_task starts a queued task now. set_model and set_effort change an agent; set_limits, add_workspace and
   add_project change fleet's config.
 - You read every project's code without asking, but change none of it.

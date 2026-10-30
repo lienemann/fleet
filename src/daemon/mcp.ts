@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { VERSION } from "../shared/version.ts";
 import type { Supervisor, WorkspaceStatus } from "./supervisor.ts";
-import { REMOVE_TASK, run, TASK_CHANGES, UPDATE_TASK } from "./tools.ts";
+import { REMOVE_TASK, run, TASK_CHANGES, TASK_ID, UPDATE_TASK } from "./tools.ts";
 
 /** What the MCP tools need from the supervisor. */
 export type McpHost = Pick<
@@ -113,15 +113,15 @@ function mcpServer(host: McpHost): McpServer {
   server.registerTool(
     "update_task",
     { description: UPDATE_TASK, inputSchema: TASK_CHANGES },
-    ({ agent, ...changes }) => run(() => host.updateTask(agent, changes)),
+    ({ task, ...changes }) => run(() => host.updateTask(task, changes)),
   );
   server.registerTool(
     "remove_task",
     {
       description: `${REMOVE_TASK} Returns at once; the user's answer is not reported back.`,
-      inputSchema: { agent: z.string().describe("The task's agent name"), holder },
+      inputSchema: { task: TASK_ID, holder },
     },
-    ({ agent, holder }) => run(() => host.removeTask(agent, holder)),
+    ({ task, holder }) => run(() => host.removeTask(task, holder)),
   );
   server.registerTool(
     "send_message",
@@ -143,7 +143,7 @@ function describeWorkspace(ws: WorkspaceStatus): string {
     ...(ws.claim
       ? [`claimed by ${ws.claim.holder}${ws.claim.note ? ` (${ws.claim.note})` : ""}`]
       : []),
-    ...(ws.tasks.length > 0 ? [`work of ${ws.tasks.join(", ")}`] : []),
+    ...(ws.tasks.length > 0 ? [`work of the task ${ws.tasks.join(", ")}`] : []),
     ...(ws.queued > 0 ? [`${ws.queued} task(s) waiting`] : []),
   ];
   return `- ${ws.name}: ${ws.path}, ${holders.length > 0 ? holders.join("; ") : "free"}`;

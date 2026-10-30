@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useState } from "react";
 import type { AgentView, FinishedRun } from "../../shared/reducer.ts";
+import { taskOf } from "../../shared/tasks.ts";
 import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
@@ -49,11 +50,14 @@ function RunText({ run, agent }: { run: FinishedRun; agent: string }) {
   );
 }
 
-function AgentName({ agent }: { agent: AgentView }) {
+/** The agent and what the run was about: the task it held then, else the agent's own title. */
+function AgentName({ agent, run }: { agent: AgentView; run: FinishedRun }) {
+  const { state } = useFleet();
+  const task = run.task === undefined ? undefined : state.tasks[run.task];
   return (
     <>
       <AgentLabel agent={agent.name} />
-      <span className="dim">{agent.title}</span>
+      <span className="dim">{task?.title ?? agent.title}</span>
     </>
   );
 }
@@ -77,7 +81,7 @@ function FoldedRun({
       <div className="run-line">
         <button type="button" className="fold" aria-expanded={open} onClick={() => setOpen(!open)}>
           <Tag run={run} />
-          {agent && <AgentName agent={agent} />}
+          {agent && <AgentName agent={agent} run={run} />}
           <Span run={run} />
           {!open && <span className="first-line">{firstLine(run.text)}</span>}
         </button>
@@ -97,8 +101,8 @@ type Tab = "diff" | "report";
 
 /**
  * One agent's unread runs, newest first: the newest unfolded, the earlier ones as lines that
- * unfold too. The comment box and the buttons act on all of them. When the agent's task waits
- * for a verdict, the item is also the task's review: it offers the board's moves.
+ * unfold too. The comment box and the buttons act on all of them. When the task the agent holds
+ * waits for a verdict, the item is also the task's review: it offers the board's moves.
  */
 export function FinishedGroup({
   agent,
@@ -118,8 +122,9 @@ export function FinishedGroup({
   onRemove: () => void;
   onFocus: () => void;
 }) {
-  const { send } = useFleet();
+  const { state, send } = useFleet();
   const moves = useTaskMoves();
+  const task = taskOf(state, agent);
   // The same draft as the agent's message box: a comment on a run is a message to the agent.
   const [comment, setComment] = useAgentDraft(agent.name, "prompt");
   const [newest, ...earlier] = runs;
@@ -129,16 +134,16 @@ export function FinishedGroup({
   // A verdict deals with the run, as the buttons do, so the item leaves with the review.
   const verdict = {
     accept: () => {
-      moves.accept(agent.name);
+      if (task) moves.accept(task.id);
       read();
     },
     changes: () => {
-      moves.changes(agent.name, text || undefined);
+      if (task) moves.changes(task.id, text || undefined);
       read();
       setComment("");
     },
   };
-  const reviewable = movesOf(agent).includes("accept");
+  const reviewable = task !== undefined && movesOf(task).includes("accept");
   const stopped = newest?.stopped !== undefined && agent.activity === "stopped";
   const submit = () => {
     if (text) send({ type: "finished_reply", agent: agent.name, ids, text });
@@ -204,7 +209,7 @@ export function FinishedGroup({
     <article className="finished" data-agent={agent.name} onFocus={onFocus}>
       <header>
         <Tag run={newest} />
-        <AgentName agent={agent} />
+        <AgentName agent={agent} run={newest} />
         <span className="spacer" />
         <Span run={newest} />
         <button type="button" className="link accent" onClick={onOpen}>

@@ -170,7 +170,7 @@ h2 {
 }
 
 /* Board columns and their colors, shared by pills, dots and cards. */
-.col-running {
+.col-in_progress {
   --c: var(--run);
   --cbg: var(--runbg);
   --cfg: var(--runfg);
@@ -190,12 +190,14 @@ h2 {
   --cbg: var(--chgbg);
   --cfg: var(--chg);
 }
-.col-accepted {
+.col-done {
   --c: var(--ok);
   --cbg: var(--okbg);
   --cfg: var(--okfg);
 }
-.col-queued {
+.col-queued,
+.col-parked,
+.col-dropped {
   --c: var(--dim);
   --cbg: var(--btn);
   --cfg: var(--muted);
@@ -739,6 +741,16 @@ button.link.accent {
 .card-ws {
   color: var(--muted);
   font: 11px var(--font-mono);
+}
+/* A task's id, where no agent holds it to name it by. */
+.task-id {
+  color: var(--muted);
+  font: 12px var(--font-mono);
+}
+.past h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .since {
   color: var(--muted);
@@ -2302,7 +2314,7 @@ button.ln:hover {
 .axis-range span:last-child {
   transform: translateX(-100%);
 }
-.lane-running {
+.lane-in_progress {
   background: var(--run);
 }
 .lane-needs_you {
@@ -2314,10 +2326,12 @@ button.ln:hover {
 .lane-changes_requested {
   background: var(--chg);
 }
-.lane-accepted {
+.lane-done {
   background: var(--ok);
 }
 .lane-queued,
+.lane-parked,
+.lane-dropped,
 .lane-idle {
   background: var(--track);
 }

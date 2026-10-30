@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
-import { worker } from "./helpers.ts";
+import { heldTask, taskState, worker } from "./helpers.ts";
 
 const created = worker("a");
 
@@ -9,7 +9,7 @@ describe("EventLog", () => {
     const log = new EventLog(":memory:");
     log.append(created);
     const second = log.append({ kind: "user_prompt", agent: "a", by: "user", text: "hi" });
-    log.append({ kind: "task_state", agent: "a", state: "running" });
+    log.append(taskState("t1", "in_progress"));
 
     expect(log.since(second.seq).map((e) => e.kind)).toEqual(["task_state"]);
     expect(log.since(0)).toHaveLength(3);
@@ -21,11 +21,11 @@ describe("EventLog", () => {
     const off = log.subscribe(listener);
     log.append(created);
     off();
-    log.append({ kind: "task_state", agent: "a", state: "running" });
+    for (const event of heldTask("t1", "a")) log.append(event);
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(log.state.agents.a?.task).toBe("running");
-    expect(log.lastSeq).toBe(2);
+    expect(log.state.agents.a?.task).toBe("t1");
+    expect(log.lastSeq).toBe(3);
   });
 
   it("delivers events appended by a listener after the current one, in order", () => {

@@ -72,14 +72,14 @@ describe("director", () => {
   it("spawns tasks into a free workspace and writes their context.md", () => {
     const { log, supervisor, workspaces } = setup();
     expect(supervisor.spawn(DIRECTOR, { title: "One", context: "Do one." })).toBe(
-      "Spawned alpha in ws1; it is running.",
+      "Spawned t1 in ws1; it is in_progress on alpha.",
     );
     expect(supervisor.spawn(DIRECTOR, { title: "Two", context: "Do two." })).toBe(
-      "Spawned bravo in ws2; it is running.",
+      "Spawned t2 in ws2; it is in_progress on bravo.",
     );
-    expect(log.state.agents.bravo?.prompt).toBe("Do two.");
+    expect(log.state.tasks.t2).toMatchObject({ brief: "Do two.", by: DIRECTOR, agent: "bravo" });
     expect(
-      readFileSync(join(workspaces[1]?.path ?? "", ".fleet/bravo/context.md"), "utf8"),
+      readFileSync(join(workspaces[1]?.path ?? "", ".fleet/bravo/t2/context.md"), "utf8"),
     ).toContain("Do two.");
   });
 
@@ -93,10 +93,11 @@ describe("director", () => {
   it("reads the ledger and keeps notes on tasks", () => {
     const { supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "Fix it", context: "x" });
-    supervisor.note("alpha", "blocked on CI");
+    supervisor.note("t1", "blocked on CI");
     supervisor.status("alpha", "Running the tests");
     const ledger = supervisor.ledger();
-    expect(ledger).toContain("## alpha: Fix it");
+    expect(ledger).toContain("## t1: Fix it");
+    expect(ledger).toContain("held by alpha");
     expect(ledger).toContain("status: Running the tests");
     expect(ledger).toContain("director's note: blocked on CI");
   });
@@ -105,27 +106,30 @@ describe("director", () => {
     const { log, supervisor, workspaces } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "Do one.", workspace: "ws1" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "Do two.", workspace: "ws1" });
-    expect(log.state.agents.bravo?.task).toBe("queued");
+    expect(log.state.tasks.t2?.state).toBe("queued");
 
-    supervisor.updateTask("alpha", { title: "One, renamed" });
-    expect(log.state.agents.alpha?.title).toBe("One, renamed");
-    expect(() => supervisor.updateTask("alpha", { context: "Do more." })).toThrow(ToolError);
+    supervisor.updateTask("t1", { title: "One, renamed" });
+    expect(log.state.tasks.t1?.title).toBe("One, renamed");
+    expect(() => supervisor.updateTask("t1", { context: "Do more." })).toThrow(ToolError);
 
     // Moved to a free workspace, the queued task starts there with its new brief.
-    expect(supervisor.updateTask("bravo", { context: "Do two better.", workspace: "ws2" })).toBe(
-      "Updated bravo; it is running in ws2.",
+    expect(supervisor.updateTask("t2", { context: "Do two better.", workspace: "ws2" })).toBe(
+      "Updated t2; it is in_progress in ws2.",
     );
     const ws2 = workspaces[1]?.path ?? "";
-    expect(log.state.agents.bravo).toMatchObject({ prompt: "Do two better.", cwd: ws2 });
-    expect(readFileSync(join(ws2, ".fleet/bravo/context.md"), "utf8")).toContain("Do two better.");
+    expect(log.state.tasks.t2).toMatchObject({ brief: "Do two better.", agent: "bravo" });
+    expect(log.state.agents.bravo?.cwd).toBe(ws2);
+    expect(readFileSync(join(ws2, ".fleet/bravo/t2/context.md"), "utf8")).toContain(
+      "Do two better.",
+    );
   });
 
   it("removes a queued task at once, and work only once the user agrees", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", workspace: "ws1" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "y", workspace: "ws1" });
-    expect(await supervisor.removeTask("bravo", DIRECTOR)).toBe("Removed bravo.");
-    expect(log.state.agents.bravo).toBeUndefined();
+    expect(await supervisor.removeTask("t2", DIRECTOR)).toBe("Dropped t2.");
+    expect(log.state.tasks.t2?.state).toBe("dropped");
 
     const answer = async (choice: string) => {
       await until(() => pendingDecisions(log.state).length > 0);
@@ -141,23 +145,24 @@ describe("director", () => {
     };
 
     // The director waits for the answer.
-    const removing = supervisor.removeTask("alpha", DIRECTOR);
+    const removing = supervisor.removeTask("t1", DIRECTOR);
     expect((await answer("Keep"))?.agent).toBe(DIRECTOR);
-    expect(await removing).toBe("The user keeps alpha.");
+    expect(await removing).toBe("The user keeps t1.");
 
-    // A session outside fleet does not; the task itself asks.
-    expect(await supervisor.removeTask("alpha", "outside")).toContain("decides in the inbox");
+    // A session outside fleet does not; the task's agent asks.
+    expect(await supervisor.removeTask("t1", "outside")).toContain("decides in the inbox");
     expect((await answer("Remove"))?.agent).toBe("alpha");
-    await until(() => log.state.agents.alpha === undefined);
+    await until(() => log.state.tasks.t1?.state === "dropped");
+    expect(log.state.agents.alpha).toBeDefined();
   });
 
-  it("removes a task the user takes off the board, but never the director", async () => {
+  it("drops a task the user removes from the board, and leaves its agent", () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", workspace: "ws1" });
-    supervisor.handle({ type: "remove", agent: "alpha" });
-    supervisor.handle({ type: "remove", agent: DIRECTOR });
-    await until(() => log.state.agents.alpha === undefined);
-    expect(log.state.agents[DIRECTOR]).toBeDefined();
+    supervisor.handle({ type: "remove", task: "t1" });
+    supervisor.handle({ type: "remove", task: "t9" });
+    expect(log.state.tasks.t1?.state).toBe("dropped");
+    expect(log.state.agents.alpha?.task).toBeUndefined();
   });
 
   it("may write its notes but no code", () => {
@@ -287,8 +292,8 @@ describe("worker tools", () => {
       changes: ["zmplwqrs"],
       openQuestions: [],
     });
-    expect(log.state.agents.alpha?.task).toBe("review");
-    expect(log.state.agents.alpha?.report?.changes).toEqual(["zmplwqrs"]);
+    expect(log.state.tasks.t1?.state).toBe("review");
+    expect(log.state.tasks.t1?.report?.changes).toEqual(["zmplwqrs"]);
     await until(
       () =>
         log.state.agents[DIRECTOR]?.log.some((l) => l.text.includes("Fixed the tolerance.")) ??
@@ -303,7 +308,7 @@ describe("worker tools", () => {
       flow.supervisor.spawn(DIRECTOR, { title: "Two", context: "y" });
       flow.supervisor.handle({
         type: "thread_open",
-        agent: "alpha",
+        task: "t1",
         path: "lib.py",
         side: "head",
         lines: { start: 1, endExclusive: 2 },
@@ -311,7 +316,7 @@ describe("worker tools", () => {
         body: "Why 2?",
         held: true,
       });
-      const threadId = flow.log.state.agents.alpha?.threads[0]?.id;
+      const threadId = flow.log.state.tasks.t1?.threads[0]?.id;
       if (!threadId) throw new Error("the thread was not opened");
       const reply = (agent: string, thread: string, body = "Because.") => {
         const tools = toolsOf(fleetServer(agent, "worker", flow.supervisor));
@@ -324,7 +329,7 @@ describe("worker tools", () => {
       const { log, threadId, reply } = withThread();
       const result = await reply("alpha", threadId, "Because the test wants it.");
       expect(result?.content).toEqual([{ type: "text", text: "Posted." }]);
-      const thread = log.state.agents.alpha?.threads[0];
+      const thread = log.state.tasks.t1?.threads[0];
       expect(thread?.messages.at(-1)).toMatchObject({
         from: "agent",
         body: "Because the test wants it.",
@@ -334,12 +339,12 @@ describe("worker tools", () => {
 
     it("refuses a thread of another agent", async () => {
       const { log, threadId, reply } = withThread();
-      const before = structuredClone(log.state.agents.alpha?.threads);
+      const before = structuredClone(log.state.tasks.t1?.threads);
       const result = await reply("bravo", threadId);
       expect(result?.isError).toBe(true);
       expect(result?.content[0]).toMatchObject({ text: expect.stringMatching(/No thread/) });
-      expect(log.state.agents.alpha?.threads).toEqual(before);
-      expect(log.state.agents.bravo?.threads).toEqual([]);
+      expect(log.state.tasks.t1?.threads).toEqual(before);
+      expect(log.state.tasks.t2?.threads).toEqual([]);
     });
 
     it("refuses an unknown thread", async () => {
@@ -351,9 +356,9 @@ describe("worker tools", () => {
 
     it("stays resolved after an answer", async () => {
       const { log, supervisor, threadId, reply } = withThread();
-      supervisor.handle({ type: "thread_resolve", agent: "alpha", threadId, resolved: true });
+      supervisor.handle({ type: "thread_resolve", task: "t1", threadId, resolved: true });
       await reply("alpha", threadId);
-      expect(log.state.agents.alpha?.threads[0]).toMatchObject({ resolved: true, unread: true });
+      expect(log.state.tasks.t1?.threads[0]).toMatchObject({ resolved: true, unread: true });
     });
 
     it("is for workers only", () => {
@@ -412,23 +417,25 @@ describe("scheduling and policy", () => {
       queryFn: fakeQuery(echoing(result())).queryFn,
       config: testConfig({ workspaces, running: 1 }),
     });
+    supervisor.init();
     supervisor.createTask("one", "x", "ws1");
     supervisor.createTask("two", "y", "ws2");
-    expect(log.state.agents.bravo?.task).toBe("queued");
+    expect(log.state.tasks.t2?.state).toBe("queued");
     supervisor.report("alpha", { summary: "done", changes: [], openQuestions: [] });
-    expect(log.state.agents.bravo?.task).toBe("running");
+    expect(log.state.tasks.t2).toMatchObject({ state: "in_progress", agent: "bravo" });
   });
 
-  it("queues a reopened task whose workspace went to another task", async () => {
+  it("gives the next task of a workspace to the worker that finished the last, and keeps Done final", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "first", context: "x", workspace: "ws1" });
-    supervisor.handle({ type: "move", agent: "alpha", to: "accepted" });
-    await until(() => log.state.agents.alpha?.task === "accepted");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
     supervisor.spawn(DIRECTOR, { title: "second", context: "y", workspace: "ws1" });
-    expect(log.state.agents.bravo?.task).toBe("running");
+    // The worker takes it once it has ended its turn on the first.
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(log.state.tasks.t2?.agent).toBe("alpha");
 
-    supervisor.handle({ type: "move", agent: "alpha", to: "running" });
-    await until(() => log.state.agents.alpha?.task === "queued");
+    supervisor.handle({ type: "move", task: "t1", to: "in_progress" });
+    expect(log.state.tasks.t1?.state).toBe("done");
   });
 
   it("keeps the director from editing code in every permission mode", async () => {
@@ -472,6 +479,7 @@ describe("attachments", () => {
       queryFn: fake.queryFn,
       config: testConfig({ workspaces: [{ name: "ws1", path: root, allowedTools: [] }] }),
     });
+    supervisor.init();
     supervisor.createTask("t", "go", "ws1");
     const text = (s: string) => Buffer.from(s).toString("base64");
     supervisor.handle({
@@ -589,84 +597,85 @@ describe("messages between projects", () => {
 
   it("keeps a worker's messages within its project, and names whom to ask", () => {
     const { supervisor } = twoProjects();
-    expect(() => supervisor.message("alpha", "bravo", "hi")).toThrow(
-      "bravo works in the project site; ask director-test to link your tasks.",
+    expect(() => supervisor.message("alpha", "charlie", "hi")).toThrow(
+      "charlie works in the project site; ask director-test to link your tasks.",
     );
     expect(() => supervisor.message("alpha", "nobody", "hi")).toThrow(
-      'No agent "nobody". You reach: director-test, director-site, charlie.',
+      'No agent "nobody". You reach: director-test, director-site, bravo.',
     );
-    expect(supervisor.message("alpha", "charlie", "hi")).toBe("Sent to charlie.");
+    expect(supervisor.message("alpha", "bravo", "hi")).toBe("Sent to bravo.");
   });
 
   it("lets a project's director change only its own project's tasks", async () => {
     const { log, supervisor } = twoProjects();
-    const refusal = "alpha works in the project test; ask director-test or the fleet director.";
-    expect(() => supervisor.updateTask("alpha", { title: "Mine" }, "director-site")).toThrow(
-      refusal,
+    const refusal = (name: string) =>
+      `${name} is of the project test; ask director-test or the fleet director.`;
+    expect(() => supervisor.updateTask("t1", { title: "Mine" }, "director-site")).toThrow(
+      refusal("t1"),
     );
-    expect(() => supervisor.note("alpha", "x", "director-site")).toThrow(refusal);
-    await expect(supervisor.stopTask("alpha", "director-site")).rejects.toThrow(refusal);
-    await expect(supervisor.removeTask("alpha", "director-site")).rejects.toThrow(refusal);
+    expect(() => supervisor.note("t1", "x", "director-site")).toThrow(refusal("t1"));
+    await expect(supervisor.stopTask("alpha", "director-site")).rejects.toThrow(refusal("alpha"));
+    await expect(supervisor.removeTask("t1", "director-site")).rejects.toThrow(refusal("t1"));
     // Nor move a task of its own into another project's workspace.
     supervisor.spawn("director-site", { title: "Queued", context: "w" });
-    expect(log.state.agents.delta?.task).toBe("queued");
-    expect(() => supervisor.updateTask("delta", { workspace: "ws2" }, "director-site")).toThrow(
+    expect(log.state.tasks.t4?.state).toBe("queued");
+    expect(() => supervisor.updateTask("t4", { workspace: "ws2" }, "director-site")).toThrow(
       "ws2 belongs to the project test",
     );
 
     // The tools pass their director along.
     const tools = toolsOf(fleetServer("director-site", "director", supervisor));
     const update = tools.find((t) => t.name === "update_task");
-    const reply = await update?.handler({ agent: "alpha", title: "Mine" }, {});
+    const reply = await update?.handler({ task: "t1", title: "Mine" }, {});
     expect(reply?.isError).toBe(true);
-    expect(log.state.agents.alpha?.title).toBe("Fleet side");
-    expect(supervisor.updateTask("alpha", { title: "Renamed" }, FLEET_DIRECTOR)).toContain(
-      "Updated alpha",
+    expect(log.state.tasks.t1?.title).toBe("Fleet side");
+    expect(supervisor.updateTask("t1", { title: "Renamed" }, FLEET_DIRECTOR)).toContain(
+      "Updated t1",
     );
   });
 
   it("tells both linked workers whom they reach, and shows directors the other projects' tasks", () => {
     const { log, supervisor } = twoProjects();
     expect(supervisor.ledger(DIRECTOR)).toContain(
-      "Other projects' open tasks, to link with yours:\n- bravo: Site side (project site, running)",
+      "Other projects' open tasks, to link with yours:\n- t2: Site side (project site, in_progress)",
     );
-    supervisor.linkTasks(DIRECTOR, "alpha", "bravo");
+    supervisor.linkTasks(DIRECTOR, "t1", "t2");
     const told = log.state.messages.filter((m) => m.from === DIRECTOR).map((m) => [m.to, m.body]);
     expect(told).toEqual([
       [
         "alpha",
-        'Your task is linked with bravo ("Site side", project site); message it with send_message.',
+        'Your task is linked with t2 ("Site side", project site, held by charlie); message its agent with send_message.',
       ],
       [
-        "bravo",
-        'Your task is linked with alpha ("Fleet side", project test); message it with send_message.',
+        "charlie",
+        'Your task is linked with t1 ("Fleet side", project test, held by alpha); message its agent with send_message.',
       ],
     ]);
   });
 
   it("lets directors message anyone", () => {
     const { supervisor } = twoProjects();
-    expect(supervisor.message(DIRECTOR, "bravo", "hi")).toBe("Sent to bravo.");
+    expect(supervisor.message(DIRECTOR, "charlie", "hi")).toBe("Sent to charlie.");
     expect(supervisor.message("director-site", "alpha", "hi")).toBe("Sent to alpha.");
   });
 
   it("opens messages between two tasks a director links, until one is accepted", async () => {
     const { log, supervisor } = twoProjects();
-    expect(() => supervisor.linkTasks(DIRECTOR, "alpha", "charlie")).toThrow(
-      "both work in the project test",
+    expect(() => supervisor.linkTasks(DIRECTOR, "t1", "t3")).toThrow(
+      "are both of the project test",
     );
-    expect(() => supervisor.linkTasks("director-site", "alpha", "bravo")).toThrow(
-      "alpha is not a task of your project",
+    expect(() => supervisor.linkTasks("director-site", "t1", "t2")).toThrow(
+      "t1 is not a task of your project",
     );
-    expect(supervisor.linkTasks(DIRECTOR, "alpha", "bravo")).toBe(
-      "Linked alpha and bravo; they can message each other now.",
+    expect(supervisor.linkTasks(DIRECTOR, "t1", "t2")).toBe(
+      "Linked t1 and t2; their agents can message each other now.",
     );
-    expect(supervisor.message("alpha", "bravo", "hi")).toBe("Sent to bravo.");
-    expect(supervisor.message("bravo", "alpha", "hi back")).toBe("Sent to alpha.");
+    expect(supervisor.message("alpha", "charlie", "hi")).toBe("Sent to charlie.");
+    expect(supervisor.message("charlie", "alpha", "hi back")).toBe("Sent to alpha.");
 
-    supervisor.handle({ type: "move", agent: "bravo", to: "accepted" });
+    supervisor.handle({ type: "move", task: "t2", to: "done" });
     await until(() => log.state.links.length === 0);
-    expect(() => supervisor.message("alpha", "bravo", "still there?")).toThrow(
+    expect(() => supervisor.message("alpha", "charlie", "still there?")).toThrow(
       "works in the project site",
     );
   });
@@ -674,12 +683,12 @@ describe("messages between projects", () => {
   it("shows a director the ledger of its project and the tasks linked to it", () => {
     const { supervisor } = twoProjects();
     // Other projects' tasks show as one line each, to link with, and no more.
-    expect(supervisor.ledger("director-site")).not.toContain("## alpha");
-    supervisor.linkTasks(DIRECTOR, "alpha", "bravo");
+    expect(supervisor.ledger("director-site")).not.toContain("## t1");
+    supervisor.linkTasks(DIRECTOR, "t1", "t2");
     const ledger = supervisor.ledger("director-site");
-    expect(ledger).toContain("## bravo: Site side");
-    expect(ledger).toContain("## alpha: Fleet side (project test, linked to bravo)");
-    expect(ledger).not.toContain("## charlie");
+    expect(ledger).toContain("## t2: Site side");
+    expect(ledger).toContain("## t1: Fleet side (project test, linked to t2)");
+    expect(ledger).not.toContain("## t3");
   });
 });
 
@@ -737,8 +746,8 @@ describe("fleet director", () => {
       ["director-test", "test"],
       ["director-site", "site"],
     ]);
-    const alpha = log.state.agents.alpha;
-    expect(alpha && again.directorFor(alpha)).toBe("director-site");
+    const worker = log.state.agents[log.state.tasks.t1?.agent ?? ""];
+    expect(worker && again.directorFor(worker)).toBe("director-site");
   });
 
   it("starts in fleet's own directory and reads every project", async () => {
@@ -800,9 +809,9 @@ describe("fleet director", () => {
     expect(
       supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Fix it", context: "x" }),
     ).toContain("in s1");
-    expect(log.state.agents.alpha?.project).toBe("site");
-    supervisor.report("alpha", { summary: "Fixed.", changes: [], openQuestions: [] });
-    expect(log.state.messages.at(-1)).toMatchObject({ from: "alpha", to: "director-site" });
+    expect(log.state.tasks.t1).toMatchObject({ project: "site", agent: "bravo" });
+    supervisor.report("bravo", { summary: "Fixed.", changes: [], openQuestions: [] });
+    expect(log.state.messages.at(-1)).toMatchObject({ from: "bravo", to: "director-site" });
     expect(() => supervisor.spawn(FLEET_DIRECTOR, { title: "Where?", context: "y" })).toThrow(
       "Name the project: test, site.",
     );
@@ -812,13 +821,13 @@ describe("fleet director", () => {
     const { log, supervisor } = fleet();
     supervisor.spawn(FLEET_DIRECTOR, { project: "test", title: "One", context: "x" });
     supervisor.report("alpha", { summary: "Done.", changes: [], openQuestions: [] });
-    expect(() => supervisor.moveTask("alpha", "accepted")).toThrow(
+    expect(() => supervisor.moveTask("t1", "done")).toThrow(
       "Review, Accept and Request changes are the user's",
     );
     supervisor.spawn(FLEET_DIRECTOR, { project: "test", title: "Two", context: "y" });
     supervisor.spawn(FLEET_DIRECTOR, { project: "test", title: "Three", context: "z" });
-    expect(log.state.agents.charlie?.task).toBe("queued");
-    expect(() => supervisor.moveTask("charlie", "running")).toThrow("ws1 is held by alpha");
+    expect(log.state.tasks.t3?.state).toBe("queued");
+    expect(() => supervisor.moveTask("t3", "in_progress")).toThrow("ws1 is held by alpha");
   });
 
   it("changes the limits and writes them to the config", () => {

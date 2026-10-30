@@ -19,6 +19,7 @@ import {
   type SessionHolder,
   type TaskState,
   USER,
+  type UserMove,
 } from "../shared/events.ts";
 import type {
   Answer,
@@ -35,18 +36,26 @@ import {
   type AgentView,
   agentList,
   type Claim,
-  columnOf,
   type FleetState,
-  HOLDS_WORKSPACE,
-  holdsWorkspace,
-  linksOf,
   stretchEnded,
   withoutProjects,
-  workspaceHolder,
-  workspaceInUse,
-  workspaceUse,
 } from "../shared/reducer.ts";
 import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
+import {
+  CLOSED,
+  columnOf,
+  HOLDS_WORKSPACE,
+  holderOf,
+  holdsWorkspace,
+  linksOf,
+  type TaskView,
+  taskList,
+  taskOf,
+  workspaceHolder,
+  workspaceInUse,
+  workspaceOf,
+  workspaceUse,
+} from "../shared/tasks.ts";
 import { secretFile } from "./auth.ts";
 import { changeRequest, threadMessage } from "./changeRequest.ts";
 import {
@@ -145,7 +154,10 @@ const NAMES = [
   "zulu",
 ];
 
-const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
+const ACTIVE: ReadonlySet<TaskState> = new Set(["in_progress", "changes_requested"]);
+
+const NO_TASK =
+  "You hold no task; this tool reports on a task you work on. Answer with send_message instead.";
 const EDIT_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 const RESTART_NOTE =
@@ -155,7 +167,7 @@ const RESTART_NOTE =
 export interface WorkspaceStatus {
   name: string;
   path: string;
-  /** Agents whose work lives in the workspace. */
+  /** Tasks whose work lives in the workspace, by id. */
   tasks: string[];
   /** Tasks waiting for the workspace. */
   queued: number;
@@ -292,6 +304,33 @@ export class Supervisor implements ToolHost {
     return this.state.agents[name];
   }
 
+  private task(id: string): TaskView | undefined {
+    return this.state.tasks[id];
+  }
+
+  /** The task `agent` holds; a ToolError for an agent that holds none. */
+  private heldTask(agent: string): TaskView {
+    const view = this.agent(agent);
+    const task = view && taskOf(this.state, view);
+    if (!task) throw new ToolError(NO_TASK);
+    return task;
+  }
+
+  /** The worker that lives in a workspace; guests share it without taking its tasks. */
+  private workerOf(workspace: string): AgentView | undefined {
+    return this.agents.find((a) => a.role === "worker" && !a.guest && a.workspace === workspace);
+  }
+
+  /** Whether an agent may take a task now: it holds none, rests, and nothing waits on the user. */
+  private isFree(agent: AgentView): boolean {
+    return (
+      agent.task === undefined &&
+      agent.activity !== "working" &&
+      agent.activity !== "detached" &&
+      agent.pending === 0
+    );
+  }
+
   private shown?: { source: FleetState; projects: string; state: FleetState };
 
   /**
@@ -378,9 +417,33 @@ export class Supervisor implements ToolHost {
     });
   }
 
+  /** Creates the workspace's worker, unless it has one. */
+  private startWorker(ws: Workspace): void {
+    if (this.workerOf(ws.name)) return;
+    this.append(this.freshName(), {
+      kind: "agent_created",
+      role: "worker",
+      title: ws.name,
+      workspace: ws.name,
+      cwd: ws.path,
+      host: this.config.host,
+      project: ws.project,
+    });
+  }
+
+  /** The workspace's worker leaves fleet with it. */
+  private async removeWorker(workspace: string): Promise<void> {
+    const worker = this.workerOf(workspace);
+    if (!worker) return;
+    await this.sessions.get(worker.name)?.stop();
+    this.sessions.delete(worker.name);
+    this.forgetHolder(worker.name);
+    this.append(worker.name, { kind: "agent_removed" });
+  }
+
   /**
    * Whether one more task of `project` may run, or wait in review: both its project's limit and
-   * the fleet's must leave room. Directors count toward neither.
+   * the fleet's must leave room.
    */
   hasRoom(project: string | undefined, kind: keyof Limits): boolean {
     return this.fullLimit(project, kind) === undefined;
@@ -388,8 +451,8 @@ export class Supervisor implements ToolHost {
 
   /** The limit that leaves no room, as "count/limit" and where it applies. */
   private fullLimit(project: string | undefined, kind: keyof Limits): string | undefined {
-    const counted = this.agents.filter(
-      (a) => a.role === "worker" && (kind === "running" ? ACTIVE.has(a.task) : a.task === "review"),
+    const counted = taskList(this.state).filter((t) =>
+      kind === "running" ? ACTIVE.has(t.state) : t.state === "review",
     );
     const own = counted.filter((a) => a.project === project).length;
     const ownLimit = this.config.projects.find((p) => p.name === project)?.wip[kind];
@@ -421,9 +484,10 @@ export class Supervisor implements ToolHost {
       });
     } else if (!this.fleetDir && this.agent(FLEET_DIRECTOR)) {
       // Switched off since the last run: reports go to the user then, not to an idle director.
-      this.append(FLEET_DIRECTOR, { kind: "task_removed" });
+      this.append(FLEET_DIRECTOR, { kind: "agent_removed" });
     }
     for (const project of this.config.projects) this.startDirector(project);
+    for (const ws of this.workspaces) this.startWorker(ws);
     for (const decision of Object.values(this.state.decisions)) {
       this.append(decision.agent, {
         kind: "decision_resolved",
@@ -524,14 +588,12 @@ export class Supervisor implements ToolHost {
           if (agent.unseen) this.append(agent.name, { kind: "agent_opened" });
         return;
       case "create_task":
-        this.createTask(message.title, message.prompt, message.workspace);
+        this.createTask(message.title, message.brief, message.workspace);
         return;
       case "start": {
-        // A queued task starts past the WIP limit, but never in a workspace someone else holds.
         const agent = this.agent(message.agent);
         if (agent?.activity === "detached") this.background(this.attach(agent.name));
-        else if (agent?.task !== "queued") this.session(message.agent)?.start();
-        else if (this.workspaceFree(agent.workspace, agent.name)) this.begin(agent);
+        else if (agent) this.session(agent.name)?.start();
         return;
       }
       case "stop":
@@ -542,11 +604,10 @@ export class Supervisor implements ToolHost {
         this.background(this.detach(message.agent));
         return;
       case "remove":
-        if (this.agent(message.agent)?.role === "worker")
-          this.background(this.remove(message.agent));
+        this.drop(message.task);
         return;
       case "move":
-        this.background(this.move(message.agent, message.to));
+        this.move(message.task, message.to);
         return;
       case "set_mode":
         this.background(this.session(message.agent)?.setPermissionMode(message.mode));
@@ -576,42 +637,46 @@ export class Supervisor implements ToolHost {
         this.openThread(message);
         return;
       case "thread_reply": {
-        const { agent: name, threadId, body, held, fold } = message;
-        if (this.workerThread(name, threadId))
-          this.postThread(name, threadId, { body, held, fold });
+        const { task, threadId, body, held, fold } = message;
+        if (this.hasThread(task, threadId)) this.postThread(task, threadId, { body, held, fold });
         return;
       }
       case "thread_edit": {
-        const { agent: name, threadId, messageId, body } = message;
-        if (this.heldMessage(name, threadId, messageId))
-          this.append(name, { kind: "thread_message_edited", threadId, messageId, body });
-        return;
-      }
-      case "thread_remove": {
-        const { agent: name, threadId, messageId } = message;
-        if (this.heldMessage(name, threadId, messageId))
-          this.append(name, { kind: "thread_message_removed", threadId, messageId });
-        return;
-      }
-      case "thread_read": {
-        const { agent: name, threadId } = message;
-        // Every tab that shows the reply reports it; the first one is enough.
-        const unread = this.agent(name)?.threads.some((t) => t.id === threadId && t.unread);
-        if (unread && this.workerThread(name, threadId))
-          this.append(name, { kind: "thread_read", threadId });
-        return;
-      }
-      case "thread_resolve":
-        if (this.workerThread(message.agent, message.threadId)) {
-          this.append(message.agent, {
-            kind: "thread_resolved",
-            threadId: message.threadId,
-            resolved: message.resolved,
+        const { task, threadId, messageId, body } = message;
+        if (this.heldMessage(task, threadId, messageId)) {
+          this.appendForTask(task, {
+            kind: "thread_message_edited",
+            task,
+            threadId,
+            messageId,
+            body,
           });
         }
         return;
+      }
+      case "thread_remove": {
+        const { task, threadId, messageId } = message;
+        if (this.heldMessage(task, threadId, messageId)) {
+          this.appendForTask(task, { kind: "thread_message_removed", task, threadId, messageId });
+        }
+        return;
+      }
+      case "thread_read": {
+        const { task, threadId } = message;
+        // Every tab that shows the reply reports it; the first one is enough.
+        const unread = this.task(task)?.threads.some((t) => t.id === threadId && t.unread);
+        if (unread) this.appendForTask(task, { kind: "thread_read", task, threadId });
+        return;
+      }
+      case "thread_resolve": {
+        const { task, threadId, resolved } = message;
+        if (this.hasThread(task, threadId)) {
+          this.appendForTask(task, { kind: "thread_resolved", task, threadId, resolved });
+        }
+        return;
+      }
       case "request_changes":
-        this.requestChanges(message.agent, message.message);
+        this.requestChanges(message.task, message.message);
         return;
       case "import_session":
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
@@ -651,6 +716,14 @@ export class Supervisor implements ToolHost {
     if (call.type === "list_jj_workspaces") return this.listJjWorkspaces(call.project);
     if (call.type === "add_project") return { name: this.createProject(call.path, call.name).name };
     if (call.type === "inspect_directory") return this.inspectDirectory(call.path);
+    if (
+      call.type === "review_load" ||
+      call.type === "review_approve" ||
+      call.type === "review_edit" ||
+      call.type === "review_origin"
+    ) {
+      return this.respondReview(call);
+    }
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
@@ -671,40 +744,57 @@ export class Supervisor implements ToolHost {
         if (!session?.isRunning) throw new Error(`Start ${agent.name} to ask about its session.`);
         return session.askSideQuestion(call.question);
       }
+    }
+  }
+
+  /** The diff view of a task: its workspace's change, with its threads. */
+  private async respondReview(
+    call: Extract<
+      Call,
+      { type: "review_load" | "review_approve" | "review_edit" | "review_origin" }
+    >,
+  ): Promise<ReviewModel | { change: string; short: string } | null> {
+    const task = this.task(call.task);
+    const cwd = task && this.taskCwd(task);
+    if (!task || !cwd) throw new Error(`No task "${call.task}".`);
+    switch (call.type) {
       case "review_load":
         return this.trackProgress(
-          await this.reviews.load(
-            agent.name,
-            agent.cwd,
-            agent.report?.walkthrough,
-            call.scope,
-            agent.threads,
-          ),
+          await this.reviews.load(task.id, cwd, task.report?.walkthrough, call.scope, task.threads),
         );
       case "review_approve":
         return this.trackProgress(
-          await this.reviews.approve(agent.name, call.ids, call.approved, agent.threads),
+          await this.reviews.approve(task.id, call.ids, call.approved, task.threads),
         );
       case "review_edit": {
         // Writing files while the agent works would race with its own edits.
-        if (agent.activity === "working" || agent.pending > 0) {
-          throw new Error(`${agent.name} is working; interrupt it or wait before editing.`);
+        const holder = holderOf(this.state, task);
+        if (holder && (holder.activity === "working" || holder.pending > 0)) {
+          throw new Error(`${holder.name} is working; interrupt it or wait before editing.`);
         }
         const { model, edit } = await this.reviews.edit(
-          agent.name,
+          task.id,
           call.hunkId,
           call.lines,
-          agent.threads,
+          task.threads,
         );
-        this.append(agent.name, { kind: "review_edited", edit });
+        this.appendForTask(task.id, { kind: "review_edited", task: task.id, edit });
         return this.trackProgress(model);
       }
       case "review_origin":
-        return this.reviews.origin(agent.name, call.path, {
+        return this.reviews.origin(task.id, call.path, {
           start: call.start,
           endExclusive: call.endExclusive,
         });
     }
+  }
+
+  /** Where a task's work lives: its holder's directory, else its workspace's. */
+  private taskCwd(task: TaskView): string | undefined {
+    const holder = holderOf(this.state, task);
+    if (holder) return holder.cwd;
+    const workspace = workspaceOf(this.state, task);
+    return workspace === undefined ? undefined : this.workspaceDir(workspace);
   }
 
   /** A running task's output comes from its session, a finished one's from its file. */
@@ -750,11 +840,18 @@ export class Supervisor implements ToolHost {
     const { allowedTools } = project;
     // A project's own checkout is its director's too: tasks go there only when they name it.
     const checkout = this.config.projects.some((p) => p.path === path);
-    project.workspaces = [
-      ...project.workspaces.filter((ws) => !unused(ws)),
-      { name, path, project: project.name, allowedTools, explicit: explicit || checkout },
-    ];
+    const added = {
+      name,
+      path,
+      project: project.name,
+      allowedTools,
+      explicit: explicit || checkout,
+    };
+    const gone = project.workspaces.filter(unused);
+    project.workspaces = [...project.workspaces.filter((ws) => !unused(ws)), added];
     this.configChanged([project]);
+    for (const ws of gone) this.background(this.removeWorker(ws.name));
+    this.startWorker(added);
     this.schedule();
     return `Added the workspace ${name} to ${project.name}.`;
   }
@@ -834,6 +931,7 @@ export class Supervisor implements ToolHost {
     if (reason) throw new Error(`${name} stays: ${reason}.`);
     project.workspaces = project.workspaces.filter((ws) => ws.name !== name);
     this.configChanged([project]);
+    this.background(this.removeWorker(name));
   }
 
   /** Writes the config, and tells the pages and the directors of `projects` what changed. */
@@ -901,8 +999,9 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Makes an existing session a task, with its transcript in the tile. It stays detached
-   * until the user takes it back: the CLI may still have it open.
+   * Makes an existing session an agent, with its transcript in the tile. It is a guest of the
+   * workspace: it takes no tickets. It stays detached until the user takes it back: the CLI may
+   * still have it open.
    */
   private async importSession(sessionId: string, workspace: string, title: string): Promise<void> {
     const dir = this.workspaceDir(workspace);
@@ -926,12 +1025,12 @@ export class Supervisor implements ToolHost {
       host: this.config.host,
       project: projectOf(this.config, workspace)?.name,
       imported: true,
+      guest: true,
     });
     this.append(name, { kind: "session_started", sessionId });
     for (const event of transcriptEvents(messages)) this.append(name, event);
     const last = messages.at(-1)?.uuid;
     if (last) this.append(name, { kind: "transcript_mark", uuid: last });
-    this.append(name, { kind: "task_state", state: "running" });
     this.append(name, { kind: "activity", activity: "detached" });
 
     const holders = await this.scan();
@@ -994,7 +1093,7 @@ export class Supervisor implements ToolHost {
       const holders = await this.scan();
       if (!holders) return;
       for (const agent of this.agents) {
-        if (this.attaching.has(agent.name) || agent.task === "accepted") continue;
+        if (this.attaching.has(agent.name)) continue;
         const holder = agent.sessionId ? holders.get(agent.sessionId) : undefined;
         if (agent.activity === "detached") await this.followDetached(agent, holder);
         else if (holder && this.sessions.get(agent.name)?.isRunning)
@@ -1194,22 +1293,23 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  createTask(title: string, prompt: string, workspace: string): string | undefined {
+  /** Queues a worker task for a workspace and returns its id; `by` is who asks. */
+  createTask(title: string, brief: string, workspace: string, by = USER): string | undefined {
     const ws = this.workspace(workspace);
     if (!ws) return undefined;
-    const name = this.freshName();
-    this.append(name, {
-      kind: "agent_created",
-      role: "worker",
+    const id = `t${this.log.state.taskCount + 1}`;
+    this.append(DAEMON, {
+      kind: "task_created",
+      id,
       title,
-      prompt,
-      workspace: ws.name,
-      cwd: ws.path,
-      host: this.config.host,
+      brief,
       project: ws.project,
+      role: "worker",
+      by,
+      workspace: ws.name,
     });
     this.schedule();
-    return name;
+    return id;
   }
 
   /**
@@ -1243,13 +1343,14 @@ export class Supervisor implements ToolHost {
       return;
     }
 
-    await this.continueFrom(name, path, handoverStart(path, agent.title));
+    const title = taskOf(this.state, agent)?.title ?? agent.title;
+    await this.continueFrom(name, path, handoverStart(path, title));
     const director = this.directorFor(agent);
     if (director) {
       this.message(
         name,
         director,
-        `I continue "${agent.title}" in a fresh session; the handover is in ${path}.`,
+        `I continue "${title}" in a fresh session; the handover is in ${path}.`,
       );
     }
   }
@@ -1411,21 +1512,23 @@ export class Supervisor implements ToolHost {
   }
 
   report(agent: string, report: Report): string {
-    this.append(agent, { kind: "report", report });
-    const view = this.agent(agent);
-    if (view && ACTIVE.has(view.task)) {
-      this.append(agent, { kind: "task_state", state: "review" });
+    const task = this.heldTask(agent);
+    this.append(agent, { kind: "report", task: task.id, report });
+    if (ACTIVE.has(task.state)) {
+      this.append(DAEMON, { kind: "task_state", task: task.id, state: "review" });
       this.schedule(); // review frees a running slot
     }
+    const view = this.agent(agent);
     const director = view && this.directorFor(view);
-    if (director) this.message(agent, director, `Result of "${view.title}":\n\n${report.summary}`);
+    if (director) this.message(agent, director, `Result of "${task.title}":\n\n${report.summary}`);
     return "Reported. The task is in review; the user's verdict arrives as a message.";
   }
 
-  /** Puts files the worker made for the user into its Files and Report; nothing is copied. */
+  /** Puts files the agent made for the user into its task's Files and Report; nothing is copied. */
   attachFiles(agent: string, files: AttachedFile[]): string {
     const view = this.agent(agent);
     if (!view) throw new ToolError(`No agent "${agent}".`);
+    const task = this.heldTask(agent);
     const attached = files.map((file) => ({ ...file, path: resolve(view.cwd, file.path) }));
     const scope = { ...this.readScope(view), listed: attached.map((f) => f.path) };
     for (const { path } of attached) {
@@ -1435,16 +1538,17 @@ export class Supervisor implements ToolHost {
         throw new ToolError(`Cannot attach ${path}: ${attachFailure(error)}`);
       }
     }
-    this.append(agent, { kind: "files_attached", files: attached });
+    this.append(agent, { kind: "files_attached", task: task.id, files: attached });
     return `Attached ${attached.length === 1 ? "1 file" : `${attached.length} files`}.`;
   }
 
   status(agent: string, text: string): void {
-    this.append(agent, { kind: "status", text });
+    this.append(agent, { kind: "status", task: this.heldTask(agent).id, text });
   }
 
   replyThread(agent: string, threadId: string, body: string): string {
-    if (!this.workerThread(agent, threadId))
+    const task = this.heldTask(agent);
+    if (!task.threads.some((t) => t.id === threadId))
       throw new ToolError(`No thread ${threadId}. Use the id from the user's message.`);
     const message: ThreadMessage = {
       id: randomUUID().slice(0, 8),
@@ -1452,7 +1556,7 @@ export class Supervisor implements ToolHost {
       body,
       ts: Date.now(),
     };
-    this.append(agent, { kind: "thread_message", threadId, message });
+    this.append(agent, { kind: "thread_message", task: task.id, threadId, message });
     return "Posted.";
   }
 
@@ -1473,7 +1577,6 @@ export class Supervisor implements ToolHost {
           `${to} works in the project ${recipient.project}; ask ${director} to link your tasks.`,
         );
       }
-      if (recipient.task === "queued") throw new ToolError(`${to} has not started yet.`);
     }
     this.append(from, { kind: "message", to, body });
     if (to !== USER) this.deliver(to, from, body);
@@ -1482,31 +1585,35 @@ export class Supervisor implements ToolHost {
 
   /**
    * Whether `from` may message `to`: workers reach the agents of their own project and the
-   * tasks linked to theirs; directors reach and are reached by anyone, and so is the user.
+   * agents of tasks linked to theirs; directors reach and are reached by anyone, and so is the
+   * user.
    */
   reaches(from: string, to: string): boolean {
     const sender = this.agent(from);
     const recipient = this.agent(to);
     // Sessions outside fleet are not workers of a project.
-    if (sender?.role !== "worker" || recipient?.role !== "worker") return true;
-    return sender.project === recipient.project || linksOf(this.state, from).includes(to);
+    if (!sender || !recipient || !isWorker(sender) || !isWorker(recipient)) return true;
+    if (sender.project === recipient.project) return true;
+    return (
+      sender.task !== undefined &&
+      recipient.task !== undefined &&
+      linksOf(this.state, sender.task).includes(recipient.task)
+    );
   }
 
   /**
    * Lets a task of the director's project and a task of another project message each other,
-   * until either is accepted or removed.
+   * until either is done or dropped.
    */
   linkTasks(director: string, task: string, other: string): string {
-    const [a, b] = [task, other].map((name) => {
-      const agent = this.agent(name);
-      if (agent?.role !== "worker" || agent.task === "accepted") {
-        throw new ToolError(`No open task "${name}".`);
-      }
-      return agent;
-    }) as [AgentView, AgentView];
+    const [a, b] = [task, other].map((id) => {
+      const found = this.task(id);
+      if (!found || CLOSED.has(found.state)) throw new ToolError(`No open task "${id}".`);
+      return found;
+    }) as [TaskView, TaskView];
     if (a.project === b.project) {
       throw new ToolError(
-        `${task} and ${other} both work in the project ${a.project}; they reach each other already.`,
+        `${task} and ${other} are both of the project ${a.project}; their agents reach each other already.`,
       );
     }
     const linker = this.agent(director);
@@ -1516,19 +1623,21 @@ export class Supervisor implements ToolHost {
         `${task} is not a task of your project ${own}; name your project's task first.`,
       );
     }
-    this.append(task, { kind: "linked", with: other });
-    const pairs: Array<[AgentView, AgentView]> = [
+    this.append(DAEMON, { kind: "linked", task, with: other });
+    const pairs: Array<[TaskView, TaskView]> = [
       [a, b],
       [b, a],
     ];
     for (const [one, partner] of pairs) {
+      if (one.agent === undefined) continue;
+      const by = partner.agent === undefined ? "" : `, held by ${partner.agent}`;
       this.message(
         director,
-        one.name,
-        `Your task is linked with ${partner.name} ("${partner.title}", project ${partner.project}); message it with send_message.`,
+        one.agent,
+        `Your task is linked with ${partner.id} ("${partner.title}", project ${partner.project}${by}); message its agent with send_message.`,
       );
     }
-    return `Linked ${task} and ${other}; they can message each other now.`;
+    return `Linked ${task} and ${other}; their agents can message each other now.`;
   }
 
   /** A director starts a task in its own project; the fleet director names the project. */
@@ -1543,14 +1652,18 @@ export class Supervisor implements ToolHost {
     if (full) {
       throw new ToolError(`Review is full (${full}); spawn again once the user has reviewed.`);
     }
-    return this.startTask(request, project);
+    return this.startTask(request, project, director);
   }
 
   /**
    * Creates a worker task with its brief written to the workspace; the director's limits aside.
-   * With a project, the task goes to one of its workspaces.
+   * With a project, the task goes to one of its workspaces. `by` is who asks.
    */
-  startTask({ title, context, workspace }: SpawnRequest, project?: Project): string {
+  startTask(
+    { title, context, workspace }: SpawnRequest,
+    project?: Project,
+    by: string = USER,
+  ): string {
     const names = this.workspaceNames(project);
     const ws = workspace ?? this.pickWorkspace(project);
     if (!ws)
@@ -1559,10 +1672,12 @@ export class Supervisor implements ToolHost {
     if (project && owner && owner !== project) {
       throw new ToolError(`${ws} belongs to the project ${owner.name}. Workspaces: ${names}.`);
     }
-    const name = this.createTask(title, context, ws);
-    if (!name) throw new ToolError(`No workspace "${ws}". Workspaces: ${names}.`);
-    this.writeContextPack(name, context);
-    return `Spawned ${name} in ${ws}; it is ${this.agent(name)?.task}.`;
+    const id = this.createTask(title, context, ws, by);
+    if (!id) throw new ToolError(`No workspace "${ws}". Workspaces: ${names}.`);
+    this.writeContextPack(id);
+    const task = this.task(id);
+    const holder = task?.agent === undefined ? "" : ` on ${task.agent}`;
+    return `Spawned ${id} in ${ws}; it is ${task?.state}${holder}.`;
   }
 
   /**
@@ -1573,141 +1688,146 @@ export class Supervisor implements ToolHost {
   ledger(director?: string, of?: Project): string {
     const viewer = director === undefined ? undefined : this.agent(director);
     const project = viewer?.role === "director" ? viewer.project : of?.name;
-    const links = (a: AgentView) => linksOf(this.state, a.name);
-    const ours = (a: AgentView) => project === undefined || a.project === project;
-    const workers = this.agents.filter(
-      (a) =>
-        a.role === "worker" &&
-        (ours(a) || links(a).some((name) => this.agent(name)?.project === project)),
+    const links = (t: TaskView) => linksOf(this.state, t.id);
+    const ours = (t: TaskView) => project === undefined || t.project === project;
+    const tasks = taskList(this.state).filter(
+      (t) => ours(t) || links(t).some((id) => this.task(id)?.project === project),
     );
     // A project's director links its tasks to these; it sees nothing else of them.
     const elsewhere =
       viewer?.role === "director"
-        ? this.agents
-            .filter((a) => a.role === "worker" && a.task !== "accepted" && !workers.includes(a))
-            .map((a) => `- ${a.name}: ${a.title} (project ${a.project}, ${columnOf(a)})`)
+        ? taskList(this.state)
+            .filter((t) => !CLOSED.has(t.state) && !tasks.includes(t))
+            .map((t) => `- ${t.id}: ${t.title} (project ${t.project}, ${columnOf(this.state, t)})`)
         : [];
     const others =
       elsewhere.length > 0
         ? [`Other projects' open tasks, to link with yours:\n${elsewhere.join("\n")}`]
         : [];
-    if (workers.length === 0) return ["No tasks yet.", ...others].join("\n\n");
-    const entries = workers.map((a) => {
-      const linked = links(a).join(", ");
-      const where = project === undefined ? ` (project ${a.project})` : "";
+    if (tasks.length === 0) return ["No tasks yet.", ...others].join("\n\n");
+    const entries = tasks.map((t) => {
+      const linked = links(t).join(", ");
+      const where = project === undefined ? ` (project ${t.project})` : "";
+      const holder = holderOf(this.state, t);
       const lines = [
-        ours(a)
-          ? `## ${a.name}: ${a.title}${where}`
-          : `## ${a.name}: ${a.title} (project ${a.project}, linked to ${linked})`,
-        `- state: ${columnOf(a)} (${a.activity}), workspace ${a.workspace}`,
+        ours(t)
+          ? `## ${t.id}: ${t.title}${where}`
+          : `## ${t.id}: ${t.title} (project ${t.project}, linked to ${linked})`,
+        `- state: ${columnOf(this.state, t)}${holder ? `, held by ${holder.name} (${holder.activity})` : ""}, workspace ${workspaceOf(this.state, t)}`,
       ];
-      if (ours(a) && linked) lines.push(`- linked to ${linked}`);
-      if (a.status) lines.push(`- status: ${a.status}`);
-      if (a.pending > 0) lines.push(`- waiting on ${a.pending} user decision(s)`);
-      if (a.report) lines.push(`- report: ${a.report.summary}`);
-      if (a.note) lines.push(`- director's note: ${a.note}`);
+      if (ours(t) && linked) lines.push(`- linked to ${linked}`);
+      if (t.status) lines.push(`- status: ${t.status}`);
+      if (holder && holder.pending > 0) {
+        lines.push(`- waiting on ${holder.pending} user decision(s)`);
+      }
+      if (t.report) lines.push(`- report: ${t.report.summary}`);
+      if (t.ledgerNote) lines.push(`- director's note: ${t.ledgerNote}`);
       return lines.join("\n");
     });
     return [...entries, ...others].join("\n\n");
   }
 
   /**
-   * A project's director acts on its own project's tasks only; the fleet director, the user and
-   * sessions outside fleet act on any. `by` is who asks.
+   * A project's director acts on its own project's tasks and agents only; the fleet director,
+   * the user and sessions outside fleet act on any. `by` is who asks.
    */
-  private checkReach(by: string | undefined, task: AgentView): void {
+  private checkReach(by: string | undefined, name: string, project: string | undefined): void {
     const actor = by === undefined ? undefined : this.agent(by);
-    if (actor?.role !== "director" || task.project === actor.project) return;
-    const own = this.directorFor(task);
-    const ask =
-      own && own !== FLEET_DIRECTOR ? `${own} or the fleet director` : "the fleet director";
-    throw new ToolError(`${task.name} works in the project ${task.project}; ask ${ask}.`);
+    if (actor?.role !== "director" || project === actor.project) return;
+    const own = this.config.projects.find((p) => p.name === project);
+    const director = own?.director ? this.directorName(own) : undefined;
+    const ask = director ? `${director} or the fleet director` : "the fleet director";
+    throw new ToolError(`${name} is of the project ${project}; ask ${ask}.`);
   }
 
-  note(agent: string, text: string, by?: string): string {
-    const task = this.agent(agent);
-    if (!task) throw new ToolError(`No agent "${agent}".`);
-    this.checkReach(by, task);
-    this.append(agent, { kind: "note", text });
-    return `Noted on ${agent}.`;
+  /** A task by id, as a tool names it; a ToolError for one that does not exist. */
+  private namedTask(id: string): TaskView {
+    const task = this.task(id);
+    if (!task)
+      throw new ToolError(`No task "${id}". Task ids look like t1; the ledger lists them.`);
+    return task;
+  }
+
+  note(task: string, text: string, by?: string): string {
+    const found = this.namedTask(task);
+    this.checkReach(by, task, found.project);
+    this.append(by ?? DAEMON, { kind: "note", task, text });
+    return `Noted on ${task}.`;
   }
 
   /**
    * Renames a task, or rewrites its brief or moves it to another workspace while it is queued.
    * Once a task has started, its brief is in the conversation; changes go to it as a message.
    */
-  updateTask(name: string, { title, context, workspace }: TaskChanges, by?: string): string {
-    const agent = this.agent(name);
-    if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
-    this.checkReach(by, agent);
-    if ((context !== undefined || workspace !== undefined) && agent.task !== "queued") {
-      throw new ToolError(
-        `${name} has started; send it a message to change its brief, and stop it before moving it.`,
-      );
+  updateTask(id: string, { title, context, workspace }: TaskChanges, by?: string): string {
+    const task = this.namedTask(id);
+    this.checkReach(by, id, task.project);
+    if ((context !== undefined || workspace !== undefined) && task.state !== "queued") {
+      throw new ToolError(`${id} has started; send its agent a message to change its brief.`);
     }
     const ws = workspace === undefined ? undefined : this.workspace(workspace);
     if (workspace !== undefined && !ws) {
       throw new ToolError(`No workspace "${workspace}". Workspaces: ${this.workspaceNames()}.`);
     }
-    // Moving a task to another project is the fleet director's call, or the user's.
-    if (ws && ws.project !== agent.project && this.agent(by ?? "")?.role === "director") {
-      throw new ToolError(
-        `${ws.name} belongs to the project ${ws.project}; ask the fleet director.`,
-      );
+    // A task stays in its project.
+    if (ws && ws.project !== task.project) {
+      throw new ToolError(`${ws.name} belongs to the project ${ws.project}, not ${task.project}.`);
     }
-    this.append(name, {
+    this.append(DAEMON, {
       kind: "task_updated",
+      task: id,
       title,
-      prompt: context,
+      brief: context,
       workspace: ws?.name,
-      cwd: ws?.path,
-      project: ws?.project,
     });
-    if (context !== undefined) this.writeContextPack(name, context);
+    if (context !== undefined) this.writeContextPack(id);
     if (ws) this.schedule();
-    return `Updated ${name}; it is ${this.agent(name)?.task} in ${this.agent(name)?.workspace}.`;
+    const now = this.task(id);
+    return `Updated ${id}; it is ${now?.state} in ${now && workspaceOf(this.state, now)}.`;
   }
 
   /**
-   * Takes a task off the board. A task whose workspace holds its work goes only once the user
-   * agrees: the director waits for the answer, a session outside fleet does not.
+   * Drops a task. A task whose workspace holds its work goes only once the user agrees: the
+   * director waits for the answer, a session outside fleet does not.
    */
-  async removeTask(name: string, requester: string): Promise<string> {
-    const agent = this.agent(name);
-    if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
-    this.checkReach(requester, agent);
-    if (!HOLDS_WORKSPACE.has(agent.task)) {
-      await this.remove(name);
-      return `Removed ${name}.`;
+  async removeTask(id: string, requester: string): Promise<string> {
+    const task = this.namedTask(id);
+    if (CLOSED.has(task.state)) throw new ToolError(`${id} is ${task.state} already.`);
+    this.checkReach(requester, id, task.project);
+    const holder = task.agent;
+    if (!holdsWorkspace(task) || holder === undefined) {
+      this.drop(id);
+      return `Dropped ${id}.`;
     }
-    const question = `Remove ${name}'s task "${agent.title}"?`;
-    // The director asks in its own name; for a session outside fleet, the task itself asks.
+    const question = `Remove the task ${id} "${task.title}"?`;
+    // The director asks in its own name; for a session outside fleet, the task's agent asks.
     const fromFleet = this.agent(requester) !== undefined;
-    const asker = fromFleet ? requester : name;
+    const asker = fromFleet ? requester : holder;
     this.session(asker);
+    const workspace = workspaceOf(this.state, task);
     const confirmation = this.ask(asker, {
       decision: "question",
       toolName: "remove_task",
       input: {},
-      explanation: `${requester} asks to remove it. Its changes stay in ${agent.workspace}, and the next task there starts on top of them.`,
+      explanation: `${requester} asks to remove it. Its changes stay in ${workspace}, and the next task there starts on top of them.`,
       risk: [],
       questions: [{ question, options: [{ label: "Remove" }, { label: "Keep" }] }],
-    }).then(async (answer) => {
+    }).then((answer) => {
       if (answer.behavior !== "answers" || answer.answers[question] !== "Remove") {
-        return `The user keeps ${name}.`;
+        return `The user keeps ${id}.`;
       }
-      await this.remove(name);
-      return `Removed ${name}.`;
+      this.drop(id);
+      return `Dropped ${id}.`;
     });
     if (fromFleet) return confirmation;
     confirmation.catch((error: unknown) => console.error("fleet:", error));
-    return `${name} holds work in ${agent.workspace}; the user decides in the inbox whether it goes.`;
+    return `${id} holds work in ${workspace}; the user decides in the inbox whether it goes.`;
   }
 
   async stopTask(agent: string, by?: string): Promise<string> {
-    const task = this.agent(agent);
-    if (task && task.role !== "worker") throw new ToolError("Directors keep running.");
-    if (task) this.checkReach(by, task);
+    const target = this.agent(agent);
+    if (target && !isWorker(target)) throw new ToolError("Directors keep running.");
+    if (target) this.checkReach(by, agent, target.project);
     const session = this.sessions.get(agent);
     if (!session?.isRunning) return `${agent} is not running.`;
     if (by) this.stoppedBy.set(agent, `stopped by ${by}`);
@@ -1723,23 +1843,20 @@ export class Supervisor implements ToolHost {
    * Starts a queued task now, past the limits, as Start does on the board; never in a workspace
    * that another task or session holds. Every other move is the user's.
    */
-  moveTask(name: string, to: string): string {
-    if (to !== "running") {
+  moveTask(id: string, to: string): string {
+    if (to !== "in_progress") {
       throw new ToolError(
         "Review, Accept and Request changes are the user's; you may only start a queued task.",
       );
     }
-    const agent = this.agent(name);
-    if (agent?.role !== "worker") throw new ToolError(`No task "${name}".`);
-    if (agent.task !== "queued") throw new ToolError(`${name} is ${columnOf(agent)}, not queued.`);
-    const holder = workspaceHolder(this.state, agent.workspace, name);
-    if (holder) {
-      throw new ToolError(
-        `${agent.workspace} is held by ${holder}; ${name} starts once it is free.`,
-      );
+    const task = this.namedTask(id);
+    if (task.state !== "queued") {
+      throw new ToolError(`${id} is ${columnOf(this.state, task)}, not queued.`);
     }
-    this.begin(agent);
-    return `Started ${name}.`;
+    const blocked = this.blocker(task);
+    if (blocked) throw new ToolError(`${blocked}; ${id} starts once it is free.`);
+    this.startNow(task);
+    return `Started ${id}.`;
   }
 
   setModel(agent: string, model: string): string {
@@ -1789,7 +1906,7 @@ export class Supervisor implements ToolHost {
   workspaceList(project?: Project): WorkspaceStatus[] {
     return (project?.workspaces ?? this.workspaces).map(({ name, path, explicit }) => {
       const use = workspaceUse(this.state, name);
-      return { name, path, explicit, ...use, tasks: use.tasks.map((a) => a.name) };
+      return { name, path, explicit, ...use, tasks: use.tasks.map((t) => t.id) };
     });
   }
 
@@ -1863,9 +1980,9 @@ export class Supervisor implements ToolHost {
     const claimHint = `claim a free workspace of ${project.name}${free.length > 0 ? ` (${free.join(", ")})` : ""} with fleet's claim_workspace tool as ${holder}, giving your working directory as cwd; the claim ends with this session`;
     const ws = project.workspaces.find((w) => isWithin(cwd, w.path));
     if (!ws) return `fleet: to work apart from fleet's agents, ${claimHint}.`;
-    const tasks = this.agents
-      .filter((a) => a.workspace === ws.name && holdsWorkspace(a))
-      .map((a) => `${a.name} ("${a.title}")`);
+    const tasks = workspaceUse(this.state, ws.name).tasks.map(
+      (t) => `${t.agent ?? t.id} ("${t.title}")`,
+    );
     if (tasks.length > 0) {
       return `fleet: ${ws.name} holds the work of ${tasks.join(", ")}; your edits here would collide with it. Ask the user, or ${claimHint}.`;
     }
@@ -1901,12 +2018,19 @@ export class Supervisor implements ToolHost {
     return this.message(from, to, body);
   }
 
-  private async remove(name: string): Promise<void> {
-    this.endByUser(name, "stop");
-    await this.sessions.get(name)?.stop();
-    this.sessions.delete(name);
-    this.forgetHolder(name);
-    this.append(name, { kind: "task_removed" });
+  /**
+   * Closes a task as dropped. Its agent is free again: one at work on it is interrupted, and the
+   * next task there starts on top of whatever it changed.
+   */
+  private drop(id: string): void {
+    const task = this.task(id);
+    if (!task || CLOSED.has(task.state)) return;
+    const holder = holderOf(this.state, task);
+    this.append(DAEMON, { kind: "task_state", task: id, state: "dropped" });
+    if (holder?.activity === "working") {
+      this.endByUser(holder.name, "interrupt");
+      this.background(this.sessions.get(holder.name)?.interrupt());
+    }
     this.schedule(); // its workspace may be free now
   }
 
@@ -1931,62 +2055,82 @@ export class Supervisor implements ToolHost {
   private trackProgress(model: ReviewModel): ReviewModel {
     if (model.scope.kind !== "branch") return model;
     const { approved, total } = model.progress;
-    const known = this.agent(model.agent)?.reviewProgress;
+    const known = this.task(model.task)?.reviewProgress;
     if (known?.approved !== approved || known.total !== total) {
-      this.append(model.agent, { kind: "review_progress", approved, total });
+      this.appendForTask(model.task, {
+        kind: "review_progress",
+        task: model.task,
+        approved,
+        total,
+      });
     }
     return model;
   }
 
-  /** Sends the held thread messages and edits as one message, and the task goes back to work. */
-  private requestChanges(name: string, note: string | undefined): void {
-    const agent = this.agent(name);
-    if (agent?.role !== "worker") return;
-    const body = changeRequest(agent, note);
-    this.append(name, { kind: "review_sent" });
-    if (agent.task !== "changes_requested")
-      this.append(name, { kind: "task_state", state: "changes_requested" });
-    this.append(USER, { kind: "message", to: name, body });
-    this.deliver(name, USER, body);
+  /**
+   * Logs an event of a task with the agent that holds it, or with the daemon while nobody
+   * does: the user's actions on a task are the agent's business.
+   */
+  private appendForTask(id: string, event: AgentEvent): void {
+    this.append(this.task(id)?.agent ?? DAEMON, event);
   }
 
-  private workerThread(name: string, threadId: string): boolean {
-    const agent = this.agent(name);
-    return agent?.role === "worker" && agent.threads.some((t) => t.id === threadId);
+  /** Sends the held thread messages and edits as one message, and the task goes back to work. */
+  private requestChanges(id: string, note: string | undefined): void {
+    const task = this.task(id);
+    const holder = task?.agent;
+    if (!task || holder === undefined) return;
+    const body = changeRequest(task, note);
+    this.append(holder, { kind: "review_sent", task: id });
+    if (task.state !== "changes_requested") {
+      this.append(DAEMON, { kind: "task_state", task: id, state: "changes_requested" });
+    }
+    this.append(USER, { kind: "message", to: holder, body });
+    this.deliver(holder, USER, body);
+  }
+
+  private hasThread(task: string, threadId: string): boolean {
+    return this.task(task)?.threads.some((t) => t.id === threadId) ?? false;
   }
 
   /** Only a message still in the draft can be changed or taken back. */
-  private heldMessage(name: string, threadId: string, messageId: string): boolean {
-    const thread = this.agent(name)?.threads.find((t) => t.id === threadId);
-    return (
-      this.agent(name)?.role === "worker" &&
-      (thread?.messages.some((m) => m.id === messageId && m.held) ?? false)
-    );
+  private heldMessage(task: string, threadId: string, messageId: string): boolean {
+    const thread = this.task(task)?.threads.find((t) => t.id === threadId);
+    return thread?.messages.some((m) => m.id === messageId && m.held) ?? false;
+  }
+
+  /** Whether the user's thread messages on `task` wait: nobody holds it to read them now. */
+  private holdsBack(task: TaskView): boolean {
+    return task.agent === undefined;
   }
 
   private openThread(command: Extract<Command, { type: "thread_open" }>): void {
-    if (this.agent(command.agent)?.role !== "worker") return;
-    const { agent: name, body, fold, path, side, lines, quote, commit } = command;
-    const held = command.held || this.agent(name)?.task === "queued";
+    const task = this.task(command.task);
+    if (!task) return;
+    const { body, fold, path, side, lines, quote, commit } = command;
+    const held = command.held || this.holdsBack(task);
     const id = randomUUID().slice(0, 8);
-    this.append(name, {
+    this.appendForTask(task.id, {
       kind: "thread_opened",
+      task: task.id,
       thread: { id, path, side, lines, quote, ...(commit && { commit }) },
       message: this.threadEntry(body, held, fold),
     });
-    if (!held) this.sendThreadMessage(name, id);
+    if (!held) this.sendThreadMessage(task.id, id);
   }
 
   private postThread(
-    name: string,
+    id: string,
     threadId: string,
     { body, fold, ...rest }: { body: string; held: boolean; fold?: string | undefined },
   ): void {
-    // A queued task takes no prompt, so what the user writes waits for the change request.
-    const held = rest.held || this.agent(name)?.task === "queued";
+    const task = this.task(id);
+    if (!task) return;
+    // A task nobody holds takes no prompt, so what the user writes waits for the change request.
+    const held = rest.held || this.holdsBack(task);
     const message = this.threadEntry(body, held, fold);
-    this.append(name, { kind: "thread_message", threadId, message });
-    if (!held) this.sendThreadMessage(name, threadId);
+    this.appendForTask(id, { kind: "thread_message", task: id, threadId, message });
+    if (!held) this.sendThreadMessage(id, threadId);
   }
 
   private threadEntry(body: string, held: boolean, fold: string | undefined): ThreadMessage {
@@ -2001,13 +2145,13 @@ export class Supervisor implements ToolHost {
   }
 
   /** Sends the thread's latest message with the edits made since the last one, which are then reported. */
-  private sendThreadMessage(name: string, threadId: string): void {
-    const agent = this.agent(name);
-    const thread = agent?.threads.find((t) => t.id === threadId);
+  private sendThreadMessage(id: string, threadId: string): void {
+    const task = this.task(id);
+    const thread = task?.threads.find((t) => t.id === threadId);
     const message = thread?.messages.at(-1);
-    if (!agent || !thread || !message) return;
-    this.sendToThread(name, threadMessage(thread, message, agent.edits), threadId);
-    if (agent.edits.length > 0) this.append(name, { kind: "edits_reported" });
+    if (!task?.agent || !thread || !message) return;
+    this.sendToThread(task.agent, threadMessage(thread, message, task.edits), threadId);
+    if (task.edits.length > 0) this.append(task.agent, { kind: "edits_reported", task: id });
   }
 
   /** Like a prompt typed in the tile: no bus message, the card stays. A detached session gets it once fleet runs it again. */
@@ -2051,7 +2195,7 @@ export class Supervisor implements ToolHost {
     thread?: string,
   ): void {
     const agent = this.agent(name);
-    if (!agent || agent.task === "queued") return;
+    if (!agent) return;
     // Claude reads images and PDFs itself; other files go into the workspace for its tools.
     const inline = attachments.filter((file) => readsDirectly(file.mediaType));
     const saved = attachments
@@ -2081,30 +2225,28 @@ export class Supervisor implements ToolHost {
     else this.prompt(to, text, by);
   }
 
-  private async move(name: string, to: TaskState): Promise<void> {
-    const agent = this.agent(name);
-    if (agent?.role !== "worker" || agent.task === to || agent.task === "queued") return;
-    if (to === "accepted") {
-      this.endByUser(name, "stop");
-      await this.sessions.get(name)?.stop();
-      this.forgetHolder(name);
+  /**
+   * The user's move of a task. In progress starts a queued task now, past the limits; Done frees
+   * its agent, whose session carries on. Done and Dropped are final.
+   */
+  private move(id: string, to: UserMove): void {
+    const task = this.task(id);
+    if (!task || task.state === to) return;
+    if (task.state === "queued") {
+      if (to === "in_progress" && !this.blocker(task)) this.startNow(task);
+      return;
     }
-    // An accepted task gave up its workspace; reopened, it waits for it like any other.
-    const reopened = agent.task === "accepted" && ACTIVE.has(to);
-    if (
-      reopened &&
-      (!this.workspaceFree(agent.workspace, name) || !this.hasRoom(agent.project, "running"))
-    ) {
-      this.append(name, { kind: "task_state", state: "queued" });
-    } else {
-      this.append(name, { kind: "task_state", state: to });
-      // A session another client holds runs again once fleet takes it back.
-      if (ACTIVE.has(to) && agent.activity !== "detached") this.session(name)?.start();
+    if (!HOLDS_WORKSPACE.has(task.state)) return;
+    this.append(DAEMON, { kind: "task_state", task: id, state: to });
+    const holder = holderOf(this.state, task);
+    // A session another client holds runs again once fleet takes it back.
+    if (ACTIVE.has(to) && holder && holder.activity !== "detached") {
+      this.session(holder.name)?.start();
     }
     this.schedule();
   }
 
-  /** A detached task that is done waits for no client any more. */
+  /** An agent that leaves fleet waits for no client any more. */
   private forgetHolder(name: string): void {
     this.seen.delete(name);
     this.misses.delete(name);
@@ -2120,51 +2262,70 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Starts queued tasks in order whose workspace is free, within the limits. A task whose
-   * project is full waits without holding up the other projects' tasks.
+   * Hands queued tasks in creation order to their workspace's worker, once it is free and the
+   * limits leave room. A task whose project is full waits without holding up the other projects'.
    */
   private schedule(): void {
-    for (const agent of this.agents) {
-      if (agent.task !== "queued" || !this.hasRoom(agent.project, "running")) continue;
-      if (this.workspaceFree(agent.workspace, agent.name)) this.begin(agent);
+    for (const task of taskList(this.state)) {
+      if (task.state !== "queued" || !this.hasRoom(task.project, "running")) continue;
+      if (!this.blocker(task)) this.startNow(task);
     }
   }
 
-  private begin(agent: AgentView): void {
-    const session = this.session(agent.name);
-    // A reopened task already has its conversation and waits for the user's next prompt.
-    // A new task's prompt is queued before the start, so the session starts working.
-    if (!agent.sessionId) session?.prompt(agent.prompt ?? agent.title, [], { by: "user" });
-    this.append(agent.name, { kind: "task_state", state: "running" });
-    session?.start();
+  /** What keeps a queued task from starting, past the limits; undefined when nothing does. */
+  private blocker(task: TaskView): string | undefined {
+    const workspace = task.workspace;
+    const worker = workspace === undefined ? undefined : this.workerOf(workspace);
+    if (workspace === undefined || !worker) return `${task.id} has no worker to take it`;
+    const holder = workspaceHolder(this.state, workspace, task.id);
+    if (holder !== undefined) return `${workspace} is held by ${holder}`;
+    if (!this.isFree(worker)) return `${worker.name} is busy`;
+    return undefined;
   }
 
-  private workspaceFree(workspace: string, except?: string): boolean {
-    return (
-      !this.state.claims[workspace] &&
-      !this.agents.some(
-        (other) => other.name !== except && other.workspace === workspace && holdsWorkspace(other),
-      )
-    );
+  /**
+   * Gives a queued task to its workspace's worker in a fresh conversation: the worker keeps its
+   * name and settings, and its session starts anew with the brief.
+   */
+  private startNow(task: TaskView): void {
+    const worker = task.workspace === undefined ? undefined : this.workerOf(task.workspace);
+    if (!worker) return;
+    // The old session stops without a word; the reducer archives its conversation.
+    const old = this.sessions.get(worker.name);
+    this.sessions.delete(worker.name);
+    this.forgetHolder(worker.name);
+    this.background(old?.close());
+    this.append(worker.name, { kind: "conversation_started", task: task.id });
+    const session = this.session(worker.name);
+    // The brief goes first, so the worker takes the task working, without a moment stopped.
+    session?.prompt(task.brief, [], { by: "user" });
+    this.append(DAEMON, {
+      kind: "task_state",
+      task: task.id,
+      state: "in_progress",
+      holder: worker.name,
+    });
+    session?.start();
   }
 
   /** A free workspace with nothing queued for it, else the one with the shortest queue. */
   private pickWorkspace(project?: Project): string {
-    const busy = (ws: Workspace) => Number(!this.workspaceFree(ws.name));
-    const queued = (ws: Workspace) =>
-      this.agents.filter((a) => a.task === "queued" && a.workspace === ws.name).length;
+    const busy = (ws: Workspace) => Number(workspaceHolder(this.state, ws.name) !== undefined);
+    const queued = (ws: Workspace) => workspaceUse(this.state, ws.name).queued;
     const ranked = (project?.workspaces ?? this.workspaces)
       .filter((ws) => !ws.explicit)
       .sort((a, b) => busy(a) - busy(b) || queued(a) - queued(b));
     return ranked[0]?.name ?? "";
   }
 
-  private writeContextPack(name: string, context: string): void {
-    const agent = this.agent(name);
-    if (!agent) return;
-    const dir = join(agent.cwd, ".fleet", name);
+  /** Writes the task's brief where its worker keeps notes for the user. */
+  private writeContextPack(id: string): void {
+    const task = this.task(id);
+    const worker = task?.workspace === undefined ? undefined : this.workerOf(task.workspace);
+    if (!task || !worker) return;
+    const dir = join(worker.cwd, ".fleet", worker.name, task.id);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "context.md"), `# ${agent.title}\n\n${context}\n`);
+    writeFileSync(join(dir, "context.md"), `# ${task.title}\n\n${task.brief}\n`);
   }
 
   /** Repos an agent reads besides its own directory: every project's for the fleet director. */
@@ -2179,10 +2340,19 @@ export class Supervisor implements ToolHost {
     return {
       cwd: agent.cwd,
       roots: [agent.cwd, ...this.readableRepos(agent)],
-      listed: [...agent.outputs, ...agent.attached.map((a) => a.path)],
+      listed: [...agent.outputs, ...this.attachedOf(agent)],
       configDir: claudeConfigDir(),
       denied: [secretFile(home), join(home, "remotes")],
     };
+  }
+
+  /** Files attached to the tasks the agent holds or worked on, so the browser may show them. */
+  private attachedOf(agent: AgentView): string[] {
+    return Object.values(this.state.tasks).flatMap((t) =>
+      t.agent === agent.name || t.conversations.some((c) => c.agent === agent.name)
+        ? t.attached.map((a) => a.path)
+        : [],
+    );
   }
 
   private viewFile(agent: AgentView, path: string): FileContent {
@@ -2209,7 +2379,7 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(name);
     if (!agent) return undefined;
     const fleet = agent.role === "fleet-director";
-    const director = agent.role !== "worker";
+    const director = !isWorker(agent);
     // An agent of a project that left the config carries on with the first project's settings.
     const project = fleet ? undefined : (this.projectOf(agent) ?? this.home);
     keepNotesOutOfVcs(agent.cwd);
@@ -2273,6 +2443,10 @@ export class Supervisor implements ToolHost {
     this.log.append({ ...event, agent });
     const after = this.log.state.agents[agent];
     if (after && stretchEnded(before, after)) this.finishRun(after);
+    // A worker that comes free takes the next task for its workspace, once this event is done.
+    if (before && after && isWorker(after) && !this.isFree(before) && this.isFree(after)) {
+      queueMicrotask(() => this.schedule());
+    }
   }
 
   /** The user ends what the agent is doing, so nothing it ends with is news to them. */
@@ -2284,7 +2458,7 @@ export class Supervisor implements ToolHost {
    * Turns a stretch of work that just ended into a Finished item: one that stopped without
    * the user always, one the user started only when it took long enough.
    */
-  private finishRun({ name, activity, stretch, finished }: AgentView): void {
+  private finishRun({ name, activity, stretch, finished, task }: AgentView): void {
     // A failed turn with more queued behind it is no end; the idle that follows decides.
     if (!stretch || stretch.endedByUser || activity === "working") return;
     const stopped =
@@ -2307,11 +2481,16 @@ export class Supervisor implements ToolHost {
         text: stretch.text ?? "",
         ...(stretch.truncated && { truncated: true, textSeq: stretch.textSeq }),
         stopped,
+        ...(task !== undefined && { task }),
         read: false,
       },
     });
   }
 }
+
+/** Workers and investigators: the agents that take tasks. */
+const isWorker = (agent: AgentView): boolean =>
+  agent.role === "worker" || agent.role === "investigator";
 
 /** A workspace a session outside fleet may claim without naming it: nothing holds or awaits it. */
 const isFree = (ws: WorkspaceStatus): boolean =>

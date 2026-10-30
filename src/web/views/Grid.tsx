@@ -19,7 +19,10 @@ interface Props {
 /** A live tile per agent; enlarging one shrinks the rest to a strip of names. */
 export function Grid({ selected, onSelect, enlarged, onEnlarge, tiles }: Props) {
   const state = useShownState();
-  const agents = agentList(state).filter((a) => a.task !== "accepted" || a.activity !== "stopped");
+  // A worker that holds no task and has no session running has nothing to show.
+  const agents = agentList(state).filter(
+    (a) => a.role !== "worker" || a.task !== undefined || a.activity !== "stopped",
+  );
   const big = enlarged ? state.agents[enlarged] : undefined;
   useCommands(
     big
@@ -70,7 +73,7 @@ export function Grid({ selected, onSelect, enlarged, onEnlarge, tiles }: Props) 
           {agents
             .filter((agent) => agent.name !== big.name)
             .map((agent) => {
-              const { label, dot } = agentStatus(agent);
+              const { label, dot } = agentStatus(state, agent);
               return (
                 <button
                   key={agent.name}

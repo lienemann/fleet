@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { AgentView, AttachedEntry } from "../../shared/reducer.ts";
+import type { TaskView } from "../../shared/tasks.ts";
 import { groupByLocation } from "../files.ts";
 import { useFleet } from "../fleet.tsx";
 import { duration } from "../labels.ts";
@@ -10,11 +11,20 @@ import { useNow } from "../useNow.ts";
 type Note = { path: string; modified: number; size: number };
 
 /**
- * What the agent made for the user: the files it attached, its notes under `.fleet/<agent>/`
- * (context.md, reports, open points) and every file it wrote, in its workspace or elsewhere.
- * `request` opens a file from another place in the drawer; each new object opens it again.
+ * What the agent made for the user: the files attached to its task, its notes under
+ * `.fleet/<agent>/` (context.md, reports, open points) and every file it wrote, in its workspace
+ * or elsewhere. `request` opens a file from another place in the drawer; each new object opens it
+ * again.
  */
-export function FilesView({ agent, request }: { agent: AgentView; request?: { path: string } }) {
+export function FilesView({
+  agent,
+  task,
+  request,
+}: {
+  agent: AgentView;
+  task?: TaskView;
+  request?: { path: string };
+}) {
   const { call } = useFleet();
   const now = useNow();
   const [notes, setNotes] = useState<Note[]>();
@@ -32,10 +42,11 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
   }, [call, agent.name, step]);
 
   const noteFiles = new Set(notes?.map((n) => `${agent.cwd}/${n.path}`));
-  const attached = new Set(agent.attached.map((f) => f.path));
+  const files = task?.attached ?? [];
+  const attached = new Set(files.map((f) => f.path));
   // Fleet does not watch files, so one attached since the last report may still be written to.
-  const delivered = agent.attached.filter((f) => f.reported);
-  const pending = agent.attached.filter((f) => !f.reported);
+  const delivered = files.filter((f) => f.reported);
+  const pending = files.filter((f) => !f.reported);
   // Attached files and notes have their own lists above, so each file shows once.
   const written = groupByLocation(
     agent.cwd,
@@ -51,7 +62,7 @@ export function FilesView({ agent, request }: { agent: AgentView; request?: { pa
       onOpen={setOpen}
     />
   );
-  const nothing = notes?.length === 0 && agent.attached.length === 0 && agent.outputs.length === 0;
+  const nothing = notes?.length === 0 && files.length === 0 && agent.outputs.length === 0;
 
   return (
     <div className="drawer-scroll files">

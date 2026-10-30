@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { USER } from "../../shared/events.ts";
 import {
+  type FleetState,
   type OpenPointsDoc,
   openPointDocs,
   pendingDecisions,
   unreadFinished,
-  unreadThreads,
 } from "../../shared/reducer.ts";
+import { lastAgentOf, taskOf, unreadThreads } from "../../shared/tasks.ts";
 import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
@@ -34,8 +35,10 @@ export function Inbox({
 }: {
   onOpen: (agent: string) => void;
   onOpenTab: (agent: string, tab: "diff" | "report") => void;
-  onRemove: (agent: string) => void;
-  onOpenThread: (agent: string, thread: string) => void;
+  /** Removes a task, by its id. */
+  onRemove: (task: string) => void;
+  /** Opens a task's diff at one of its threads. */
+  onOpenThread: (task: string, thread: string) => void;
 }) {
   const { send, state: all } = useFleet();
   const state = useShownState();
@@ -120,6 +123,7 @@ export function Inbox({
           key={decision.requestId}
           decision={decision}
           agent={all.agents[decision.agent]}
+          title={titleOf(all, decision.agent)}
           onOpen={() => onOpen(decision.agent)}
           focused={decision === focused}
           onAnswer={(a) => send({ type: "answer", requestId: decision.requestId, answer: a })}
@@ -141,7 +145,7 @@ export function Inbox({
                   active={group?.agent === agent}
                   onOpen={() => onOpen(agent)}
                   onOpenTab={(tab) => onOpenTab(agent, tab)}
-                  onRemove={() => onRemove(agent)}
+                  onRemove={() => view.task !== undefined && onRemove(view.task)}
                   onFocus={() => setLastGroup(agent)}
                 />
               )
@@ -167,16 +171,16 @@ export function Inbox({
           <h2>
             Replies <span className="lede">· answers under the lines you asked about</span>
           </h2>
-          {replies.map(({ agent, thread }) => (
+          {replies.map(({ task, thread }) => (
             <article key={thread.id} className="decision reply">
               <header>
-                <AgentLabel agent={agent} />
+                <ReplyFrom task={task} />
                 <code className="name">{threadPlace(thread.path, thread.side, thread.lines)}</code>
                 <span className="spacer" />
                 <button
                   type="button"
                   className="link accent"
-                  onClick={() => onOpenThread(agent, thread.id)}
+                  onClick={() => onOpenThread(task, thread.id)}
                 >
                   Open
                 </button>
@@ -189,7 +193,7 @@ export function Inbox({
                   {
                     label: "Mark read",
                     tone: "primary",
-                    run: () => send({ type: "thread_read", agent, threadId: thread.id }),
+                    run: () => send({ type: "thread_read", task, threadId: thread.id }),
                   },
                 ]}
               />
@@ -264,4 +268,18 @@ function PointForm({ doc, point }: { doc: OpenPointsDoc; point: OpenPointsDoc["p
       )}
     </form>
   );
+}
+
+/** What an agent works on: the title of the task it holds, else its own. */
+function titleOf(state: FleetState, name: string): string | undefined {
+  const agent = state.agents[name];
+  return agent && (taskOf(state, agent)?.title ?? agent.title);
+}
+
+/** Who a reply comes from: the task's agent, or the task itself once nobody holds it. */
+function ReplyFrom({ task }: { task: string }) {
+  const { state } = useFleet();
+  const view = state.tasks[task];
+  const agent = view && lastAgentOf(state, view);
+  return agent ? <AgentLabel agent={agent} /> : <span className="task-id">{task}</span>;
 }

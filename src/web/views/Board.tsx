@@ -1,29 +1,32 @@
 import { type DragEvent, useState } from "react";
 import { USER_MOVES, type UserMove } from "../../shared/events.ts";
+import { type Column, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
 import {
-  type AgentView,
-  agentList,
-  type Column,
   columnOf,
+  holderOf,
+  lastAgentOf,
   linksOf,
-  openPointDocs,
-  pendingDecisions,
+  type TaskView,
+  taskList,
   workspaceHolder,
-} from "../../shared/reducer.ts";
+  workspaceOf,
+} from "../../shared/tasks.ts";
+import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
-import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
+import { AgentLabel, useProjectColor } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { useNow } from "../useNow.ts";
 
 interface Props {
   selected: string | undefined;
-  onSelect: (name: string) => void;
+  /** Selects a task by its id. */
+  onSelect: (task: string) => void;
   /** Opens the agent and puts the cursor into its prompt. */
-  onMessage: (name: string) => void;
+  onMessage: (agent: string) => void;
 }
 
 const isMove = (column: Column): column is UserMove =>
@@ -31,7 +34,7 @@ const isMove = (column: Column): column is UserMove =>
 
 /**
  * One column per task state. Cards can be dragged between columns or moved with their buttons.
- * Running and Review count against the fleet's limits, or the filtered project's.
+ * In progress and Review count against the fleet's limits, or the filtered project's.
  */
 export function Board({ selected, onSelect, onMessage }: Props) {
   const { info, send } = useFleet();
@@ -39,20 +42,22 @@ export function Board({ selected, onSelect, onMessage }: Props) {
   const projects = useProjects();
   const { project } = useProjectFilter();
   const [dropTarget, setDropTarget] = useState<Column>();
-  const workers = agentList(state).filter((a) => a.role === "worker");
-  const byColumn = Map.groupBy(workers, columnOf);
+  const byColumn = Map.groupBy(taskList(state), (task) => columnOf(state, task));
   const [only] = projects;
   const wip =
     projects.find((p) => p.name === project)?.wip ??
     // With one project and no fleet-wide limit, the project's own limits are the ones that apply.
     (projects.length === 1 && only ? { ...only.wip, ...info?.wip } : info?.wip);
-  const limits: Partial<Record<Column, number>> = { running: wip?.running, review: wip?.review };
+  const limits: Partial<Record<Column, number>> = {
+    in_progress: wip?.running,
+    review: wip?.review,
+  };
 
   const drop = (column: Column) => (event: DragEvent) => {
     event.preventDefault();
     setDropTarget(undefined);
-    const agent = event.dataTransfer.getData("text/fleet-agent");
-    if (agent && isMove(column)) send({ type: "move", agent, to: column });
+    const task = event.dataTransfer.getData("text/fleet-task");
+    if (task && isMove(column)) send({ type: "move", task, to: column });
   };
 
   return (
@@ -60,9 +65,11 @@ export function Board({ selected, onSelect, onMessage }: Props) {
       {COLUMNS.map(({ id, label }) => {
         const cards = byColumn.get(id) ?? [];
         const limit = limits[id];
-        // Needs-you tasks still count against the running limit.
+        // Needs-you tasks still count against the in-progress limit.
         const count =
-          id === "running" ? cards.length + (byColumn.get("needs_you")?.length ?? 0) : cards.length;
+          id === "in_progress"
+            ? cards.length + (byColumn.get("needs_you")?.length ?? 0)
+            : cards.length;
         const waiting = id === "needs_you" && cards.length > 0;
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: dropping is a mouse shortcut; the card buttons make the same moves
@@ -90,11 +97,11 @@ export function Board({ selected, onSelect, onMessage }: Props) {
                 </span>
               )}
             </header>
-            {cards.map((agent) => (
+            {cards.map((task) => (
               <Card
-                key={agent.name}
-                agent={agent}
-                selected={agent.name === selected}
+                key={task.id}
+                task={task}
+                selected={task.id === selected}
                 onSelect={onSelect}
                 onMessage={onMessage}
               />
@@ -107,57 +114,64 @@ export function Board({ selected, onSelect, onMessage }: Props) {
 }
 
 function Card({
-  agent,
+  task,
   selected,
   onSelect,
   onMessage,
 }: {
-  agent: AgentView;
+  task: TaskView;
   selected: boolean;
-  onSelect: (n: string) => void;
-  onMessage: (n: string) => void;
+  onSelect: (task: string) => void;
+  onMessage: (agent: string) => void;
 }) {
   const { state, send } = useFleet();
-  const style = useAgentStyle(agent);
+  const agent = holderOf(state, task);
+  // A task nobody holds is named after the agent that worked on it last.
+  const named = lastAgentOf(state, task);
+  const style = agentStyle(agent ?? { tint: "soft" }, useProjectColor(task.project));
   const now = useNow();
-  const column = columnOf(agent);
+  const column = columnOf(state, task);
   const moves = useTaskMoves();
-  const [decision] = pendingDecisions(state).filter((d) => d.agent === agent.name);
-  const done = agent.todos.filter((t) => t.status === "completed").length;
-  const holder = workspaceHolder(state, agent.workspace, agent.name);
-  const doing = agent.reconnecting
+  const [decision] = pendingDecisions(state).filter((d) => d.agent === agent?.name);
+  const todos = agent?.todos ?? [];
+  const done = todos.filter((t) => t.status === "completed").length;
+  const workspace = workspaceOf(state, task);
+  const holder = workspace === undefined ? undefined : workspaceHolder(state, workspace, task.id);
+  const doing = agent?.reconnecting
     ? "reconnecting…"
     : column === "queued"
-      ? `Waits for ${holder ? agent.workspace : "a running slot"}`
-      : (currentWork(agent) ?? agent.activity);
+      ? `Waits for ${holder ? workspace : "its worker or a running slot"}`
+      : agent
+        ? (currentWork(state, agent) ?? agent.activity)
+        : (task.status ?? column);
   const points = openPointDocs(state)
-    .filter((doc) => doc.agent === agent.name)
+    .filter((doc) => doc.agent === agent?.name)
     .flatMap((doc) => doc.points)
     .filter((p) => p.answer === undefined).length;
-  const subagents = agent.subagents.filter((s) => !s.done).length;
-  const links = linksOf(state, agent.name);
-  const context = contextPercent(agent);
+  const subagents = agent?.subagents.filter((s) => !s.done).length ?? 0;
+  const links = linksOf(state, task.id);
+  const context = agent && contextPercent(agent);
 
   return (
     <article
       className={`card ${selected ? "selected" : ""} ${column === "needs_you" ? "waiting" : ""}`}
       style={style}
       draggable
-      onDragStart={(event) => event.dataTransfer.setData("text/fleet-agent", agent.name)}
+      onDragStart={(event) => event.dataTransfer.setData("text/fleet-task", task.id)}
     >
-      <button type="button" className="card-main" onClick={() => onSelect(agent.name)}>
+      <button type="button" className="card-main" onClick={() => onSelect(task.id)}>
         <span className="card-head">
           <span className="dot" />
-          <AgentLabel agent={agent.name} />
-          <span className="card-ws">{agent.workspace}</span>
+          {named ? <AgentLabel agent={named} /> : <span className="task-id">{task.id}</span>}
+          <span className="card-ws">{workspace}</span>
           <span className="spacer" />
-          {agent.unseen && <span className="new">new</span>}
-          <span className="since">{duration(now - agent.columnSince)}</span>
+          {agent?.unseen && <span className="new">new</span>}
+          <span className="since">{duration(now - task.columnSince)}</span>
         </span>
-        <span className="card-title">{agent.title}</span>
+        <span className="card-title">{task.title}</span>
         <span className="card-todo">
           ▸ {doing}
-          {agent.todos.length > 0 && ` (${done}/${agent.todos.length})`}
+          {todos.length > 0 && ` (${done}/${todos.length})`}
         </span>
       </button>
       {decision && (
@@ -168,16 +182,16 @@ function Card({
         />
       )}
       <span className="card-meta">
-        <span>{agent.host}</span>
+        {agent && <span>{agent.host}</span>}
         {subagents > 0 && <span>{subagents} subagents</span>}
         {links.length > 0 && (
-          <span title="A director linked these tasks of two projects; they message each other">
+          <span title="A director linked these tasks of two projects; their agents message each other">
             linked to {links.join(", ")}
           </span>
         )}
-        {agent.reviewProgress && (
+        {task.reviewProgress && (
           <span className="rev">
-            {agent.reviewProgress.approved}/{agent.reviewProgress.total} hunks approved
+            {task.reviewProgress.approved}/{task.reviewProgress.total} hunks approved
           </span>
         )}
         {points > 0 && <span className="warn">{points} open points</span>}
@@ -189,13 +203,13 @@ function Card({
             type="button"
             className="small primary"
             disabled={holder !== undefined}
-            title={`Start now, past the WIP limit; only while ${agent.workspace} is free`}
-            onClick={() => send({ type: "start", agent: agent.name })}
+            title={`Start now, past the WIP limit; only while ${workspace} is free`}
+            onClick={() => send({ type: "move", task: task.id, to: "in_progress" })}
           >
             Start now
           </button>
         )}
-        {column !== "queued" && (
+        {agent && (
           <button
             type="button"
             className="small"
@@ -205,12 +219,12 @@ function Card({
             Message
           </button>
         )}
-        {movesOf(agent).map((move) => (
+        {movesOf(task).map((move) => (
           <button
             key={move}
             type="button"
             className={`small ${move === "accept" ? "primary" : ""}`}
-            onClick={() => moves[move](agent.name)}
+            onClick={() => moves[move](task.id)}
           >
             {TASK_MOVES[move].button}
           </button>

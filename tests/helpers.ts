@@ -4,7 +4,15 @@ import type { Project, Workspace } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { AgentSession, type QueryFn, type SessionOptions } from "../src/daemon/session.ts";
 import type { SupervisorOptions } from "../src/daemon/supervisor.ts";
-import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
+import {
+  DAEMON,
+  type FleetEvent,
+  type NewEvent,
+  type TaskState,
+  USER,
+} from "../src/shared/events.ts";
+import type { Column, FleetState } from "../src/shared/reducer.ts";
+import { columnOf, taskOf } from "../src/shared/tasks.ts";
 
 export const sdk = (message: object): SDKMessage => message as unknown as SDKMessage;
 
@@ -166,3 +174,40 @@ export const kinds = (events: FleetEvent[]): string[] => events.map((e) => e.kin
 
 export const until = (predicate: () => boolean): Promise<void> =>
   vi.waitFor(() => expect(predicate()).toBe(true));
+
+/** A task the daemon created, by default for "ws1" of the project "test". */
+export const taskCreated = (
+  id: string,
+  overrides: Partial<NewEvent & { kind: "task_created" }> = {},
+): NewEvent => ({
+  kind: "task_created",
+  agent: DAEMON,
+  id,
+  title: `task ${id}`,
+  brief: `brief of ${id}`,
+  project: "test",
+  role: "worker",
+  by: USER,
+  workspace: "ws1",
+  ...overrides,
+});
+
+/** The daemon moves a task; `holder` names the agent that takes it on entering In progress. */
+export const taskState = (
+  task: string,
+  state: TaskState,
+  extra: Omit<Partial<NewEvent & { kind: "task_state" }>, "kind" | "task" | "state"> = {},
+): NewEvent => ({ kind: "task_state", agent: DAEMON, task, state, ...extra });
+
+/** A task created and handed to `holder`. */
+export const heldTask = (task: string, holder: string): NewEvent[] => [
+  taskCreated(task),
+  taskState(task, "in_progress", { holder }),
+];
+
+/** The board column of the task `agent` holds; undefined while it holds none. */
+export function agentColumn(state: FleetState, agent: string): Column | undefined {
+  const view = state.agents[agent];
+  const held = view && taskOf(state, view);
+  return held && columnOf(state, held);
+}

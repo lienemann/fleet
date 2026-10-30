@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { type AgentView, agentList, type Lane, type Segment } from "../../shared/reducer.ts";
+import { taskOf } from "../../shared/tasks.ts";
 import { keyLabel, useCommands } from "../keys/keymap.tsx";
 import { duration } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
@@ -21,11 +22,13 @@ function before(ms: number): string {
 
 const LANE_LABELS: Record<Lane, string> = {
   queued: "queued",
-  running: "working",
+  parked: "parked",
+  in_progress: "working",
   needs_you: "waiting on you",
   review: "in review",
   changes_requested: "revising",
-  accepted: "accepted",
+  done: "done",
+  dropped: "dropped",
   idle: "idle",
   stopped: "stopped",
 };
@@ -45,8 +48,9 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
   const [windowIndex, setWindowIndex] = useState(0);
   const span = WINDOWS[windowIndex] ?? WINDOWS[0];
   const from = now - span.ms;
+  // A worker that was free all through the window has nothing to show.
   const agents = agentList(state).filter(
-    (a) => a.history.at(-1)?.lane !== "accepted" || (a.history.at(-1)?.from ?? 0) > from,
+    (a) => a.role !== "worker" || visible(a.history, from, now).some((s) => s.lane !== "idle"),
   );
 
   useCommands([
@@ -102,7 +106,7 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
           <div key={agent.name} className="lane">
             <button type="button" className="link lane-name" onClick={() => onOpen(agent.name)}>
               <AgentLabel agent={agent.name} chip={false} />
-              <span className="lane-title">{agent.title}</span>
+              <span className="lane-title">{taskOf(state, agent)?.title ?? agent.title}</span>
             </button>
             <div className="track">
               {visible(agent.history, from, now).map((s) => (
@@ -132,13 +136,13 @@ export function Timeline({ onOpen }: { onOpen: (agent: string) => void }) {
         {agents.length === 0 && <p className="empty">Nothing happened in this window.</p>}
       </div>
       <footer className="legend">
-        {(["running", "needs_you", "review", "changes_requested", "idle", "stopped"] as const).map(
-          (lane) => (
-            <span key={lane}>
-              <span className={`swatch-box lane-${lane}`} /> {LANE_LABELS[lane]}
-            </span>
-          ),
-        )}
+        {(
+          ["in_progress", "needs_you", "review", "changes_requested", "idle", "stopped"] as const
+        ).map((lane) => (
+          <span key={lane}>
+            <span className={`swatch-box lane-${lane}`} /> {LANE_LABELS[lane]}
+          </span>
+        ))}
         <span>
           <span className="swatch-box mark-box" /> message
         </span>

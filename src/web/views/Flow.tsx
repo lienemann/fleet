@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FLEET_DIRECTOR, USER } from "../../shared/events.ts";
-import { agentList, type Message, needsUser } from "../../shared/reducer.ts";
+import { agentList, type Message } from "../../shared/reducer.ts";
+import { needsUser } from "../../shared/tasks.ts";
 import { agentStatus } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { useAgentColors } from "../ui/AgentLabel.tsx";
@@ -68,7 +69,7 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
     // Around the hub: the workers, and the other directors.
     const ring = agentList(state).filter(
       (a) =>
-        (a.role === "worker" && a.task !== "accepted") || (a.role === "director" && a.name !== hub),
+        (a.role === "worker" && a.task !== undefined) || (a.role === "director" && a.name !== hub),
     );
     const positions = new Map<string, Point>([[USER, { x: CENTER, y: 36 }]]);
     if (hub) positions.set(hub, { x: CENTER, y: CENTER });
@@ -202,20 +203,20 @@ export function Flow({ onOpen }: { onOpen: (agent: string) => void }) {
             // biome-ignore lint/a11y/useSemanticElements: an SVG group cannot be a button
             <g
               key={name}
-              className={`node ${agent?.task === "queued" ? "faded" : ""}`}
+              className="node"
               role="button"
               tabIndex={0}
               transform={`translate(${p.x},${p.y})`}
               onClick={() => agent && onOpen(name)}
               onKeyDown={(e) => e.key === "Enter" && agent && onOpen(name)}
             >
-              {agent && needsUser(agent) && <circle r={r + 7} className="needs-ring" />}
+              {agent && needsUser(state, agent) && <circle r={r + 7} className="needs-ring" />}
               <circle r={r} stroke={tint(name)} />
               <text y={r + 15} className="name" fill={tint(name)}>
                 {name}
               </text>
               <text y={r + 28} className="state">
-                {agent ? agentStatus(agent).label : ""}
+                {agent ? agentStatus(state, agent).label : ""}
               </text>
             </g>
           );

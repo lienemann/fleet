@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
-import type { FinishedRun, FleetEvent, NewEvent } from "../src/shared/events.ts";
+import {
+  DAEMON,
+  type FinishedRun,
+  type FleetEvent,
+  type NewEvent,
+  USER,
+} from "../src/shared/events.ts";
 import {
   type AgentView,
   ATTACHED_LIMIT,
-  columnOf,
+  CONVERSATION_LIMIT,
   costOn,
+  DONE_LIMIT,
   FINISHED_READ_LIMIT,
   FINISHED_UNREAD_LIMIT,
-  heldMessages,
+  type FleetState,
   inboxCount,
   LOG_LIMIT,
   pendingDecisions,
@@ -17,16 +24,45 @@ import {
   THREAD_LIMIT,
   THREAD_MESSAGES_LIMIT,
   unreadFinished,
-  unreadThreads,
   withoutProjects,
 } from "../src/shared/reducer.ts";
-import { worker } from "./helpers.ts";
+import {
+  agentState,
+  columnOf,
+  conversationsOf,
+  heldMessages,
+  holderOf,
+  isTaskId,
+  lastAgentOf,
+  linksOf,
+  needsUser,
+  selectionOf,
+  type TaskView,
+  taskList,
+  taskOf,
+  unreadThreads,
+} from "../src/shared/tasks.ts";
+import { heldTask, taskCreated, taskState, worker } from "./helpers.ts";
 
 const events = (...bodies: NewEvent[]): FleetEvent[] =>
   bodies.map((body, i) => ({ parent: null, ...body, seq: i + 1, ts: i * 1000 }) as FleetEvent);
 
-const run = (...bodies: NewEvent[]) =>
-  reduceAll(events(worker("a"), ...bodies)).agents.a as AgentView;
+/** The task most cases are about; agent "a" takes it with `running`. */
+const T = "t1";
+
+/** The state after agent "a" and the task t1 were created, and then `bodies`. */
+const runState = (...bodies: NewEvent[]): FleetState =>
+  reduceAll(events(worker("a"), taskCreated(T), ...bodies));
+
+const run = (...bodies: NewEvent[]) => runState(...bodies).agents.a as AgentView;
+
+const taskAfter = (...bodies: NewEvent[]) => runState(...bodies).tasks[T] as TaskView;
+
+/** t1's board column after `bodies`. */
+const column = (...bodies: NewEvent[]) => {
+  const state = runState(...bodies);
+  return columnOf(state, state.tasks[T] as TaskView);
+};
 
 const request: NewEvent = {
   kind: "decision_requested",
@@ -38,29 +74,27 @@ const request: NewEvent = {
   explanation: "",
   risk: [],
 };
-const running: NewEvent = { kind: "task_state", agent: "a", state: "running" };
+const running: NewEvent = taskState(T, "in_progress", { holder: "a" });
 const working: NewEvent = { kind: "activity", agent: "a", activity: "working" };
 
 describe("board column", () => {
-  it("is needs-you while a running task has a pending decision or an idle session", () => {
-    expect(columnOf(run(running, working))).toBe("running");
-    expect(columnOf(run(running, working, request))).toBe("needs_you");
+  it("is needs-you while a task in progress has a pending decision or an idle agent", () => {
+    expect(column(running, working)).toBe("in_progress");
+    expect(column(running, working, request)).toBe("needs_you");
     expect(
-      columnOf(
-        run(running, working, request, {
-          kind: "decision_resolved",
-          agent: "a",
-          requestId: "r",
-          outcome: "allowed",
-        }),
-      ),
-    ).toBe("running");
-    expect(columnOf(run(running, { kind: "activity", agent: "a", activity: "idle" }))).toBe(
-      "needs_you",
-    );
+      column(running, working, request, {
+        kind: "decision_resolved",
+        agent: "a",
+        requestId: "r",
+        outcome: "allowed",
+      }),
+    ).toBe("in_progress");
+    expect(column(running, { kind: "activity", agent: "a", activity: "idle" })).toBe("needs_you");
+    // A queued task waits for no user, whatever an agent does.
+    expect(column({ kind: "activity", agent: "a", activity: "idle" })).toBe("queued");
   });
 
-  it("is running while an idle agent waits for its background shell, until that is overdue", () => {
+  it("is in progress while an idle agent waits for its background shell, until that is overdue", () => {
     const idle: NewEvent = { kind: "activity", agent: "a", activity: "idle" };
     const started = (taskId: string, type: string): NewEvent => ({
       kind: "background_started",
@@ -71,25 +105,22 @@ describe("board column", () => {
       backgrounded: true,
     });
     const shell = started("s", "local_bash");
-    expect(columnOf(run(running, idle, shell))).toBe("running");
-    expect(columnOf(run(running, idle, started("m", "monitor")))).toBe("needs_you");
+    expect(column(running, idle, shell)).toBe("in_progress");
+    expect(column(running, idle, started("m", "monitor"))).toBe("needs_you");
     const overdue: NewEvent = { kind: "background_overdue", agent: "a", taskId: "s" };
-    expect(columnOf(run(running, idle, shell, overdue))).toBe("needs_you");
+    expect(column(running, idle, shell, overdue)).toBe("needs_you");
   });
 
   it("stays in review even when the session idles", () => {
     expect(
-      columnOf(
-        run(
-          { kind: "task_state", agent: "a", state: "review" },
-          { kind: "activity", agent: "a", activity: "idle" },
-        ),
-      ),
+      column(running, taskState(T, "review"), { kind: "activity", agent: "a", activity: "idle" }),
     ).toBe("review");
   });
 
-  it("records when the agent entered its column", () => {
-    expect(run(running, working, request).columnSince).toBe(3000);
+  it("records when the task entered its column, also when its agent made it change", () => {
+    expect(taskAfter().columnSince).toBe(1000);
+    expect(taskAfter(running).columnSince).toBe(2000);
+    expect(taskAfter(running, working, request).columnSince).toBe(4000);
   });
 });
 
@@ -99,7 +130,7 @@ describe("unseen marks", () => {
       run(running, working, { kind: "log", agent: "a", role: "assistant", text: "hi" }).unseen,
     ).toBe(false);
     expect(run(running, working, request).unseen).toBe(true);
-    expect(run({ kind: "task_state", agent: "a", state: "review" }).unseen).toBe(true);
+    expect(run(running, taskState(T, "review")).unseen).toBe(true);
     expect(run(running, working, request, { kind: "agent_opened", agent: "a" }).unseen).toBe(false);
   });
 
@@ -112,13 +143,8 @@ describe("unseen marks", () => {
 });
 
 describe("reduce", () => {
-  it("keeps the project an agent was created in, and task_updated moves it", () => {
-    const created = worker("a", { project: "site" });
-    expect(reduceAll(events(created)).agents.a?.project).toBe("site");
-    const moved = reduceAll(
-      events(created, { kind: "task_updated", agent: "a", project: "fleet" }),
-    );
-    expect(moved.agents.a?.project).toBe("fleet");
+  it("keeps the project an agent was created in", () => {
+    expect(reduceAll(events(worker("a", { project: "site" }))).agents.a?.project).toBe("site");
   });
 
   it("ignores events it has already applied", () => {
@@ -161,12 +187,12 @@ describe("timeline", () => {
       { kind: "activity", agent: "a", activity: "stopped" },
     );
     expect(agent.history.map((s) => [s.lane, s.from])).toEqual([
-      ["queued", 0],
-      ["stopped", 1000], // the task runs before its session does
-      ["running", 2000],
-      ["needs_you", 4000],
-      ["running", 5000],
-      ["stopped", 6000],
+      ["idle", 0],
+      ["stopped", 2000], // the task is in progress before its session runs
+      ["in_progress", 3000],
+      ["needs_you", 5000],
+      ["in_progress", 6000],
+      ["stopped", 7000],
     ]);
   });
 
@@ -178,7 +204,7 @@ describe("timeline", () => {
         { kind: "activity", agent: "d", activity: "idle" },
       ),
     );
-    expect(state.agents.d?.history.map((s) => s.lane)).toEqual(["idle", "running", "idle"]);
+    expect(state.agents.d?.history.map((s) => s.lane)).toEqual(["idle", "in_progress", "idle"]);
   });
 });
 
@@ -257,18 +283,19 @@ describe("session panel", () => {
     expect(agent.outputs).toEqual(["/ws/done.md"]);
   });
 
-  it("keeps the files the agent attached, newest first, a re-attached one on top with its note", () => {
+  it("keeps the files attached to the task, newest first, a re-attached one on top with its note", () => {
     const attach = (...paths: string[]): NewEvent => ({
       kind: "files_attached",
       agent: "a",
+      task: T,
       files: paths.map((path) => ({ path })),
     });
-    const agent = run(
-      { kind: "files_attached", agent: "a", files: [{ path: "/p/a.md", note: "Review" }] },
+    const task = taskAfter(
+      { kind: "files_attached", agent: "a", task: T, files: [{ path: "/p/a.md", note: "Review" }] },
       attach("/p/b.md"),
       attach("/p/a.md"),
     );
-    expect(agent.attached).toEqual([
+    expect(task.attached).toEqual([
       { path: "/p/a.md", note: "Review", reported: false },
       { path: "/p/b.md", reported: false },
     ]);
@@ -278,32 +305,36 @@ describe("session panel", () => {
     const attach = (path: string): NewEvent => ({
       kind: "files_attached",
       agent: "a",
+      task: T,
       files: [{ path }],
     });
     const report: NewEvent = {
       kind: "report",
       agent: "a",
+      task: T,
       report: { summary: "Done.", changes: [], openQuestions: [] },
     };
-    const reported = (agent: AgentView) => agent.attached.map((f) => [f.path, f.reported]);
-    expect(reported(run(attach("/p/a.md")))).toEqual([["/p/a.md", false]]);
-    expect(reported(run(attach("/p/a.md"), report, attach("/p/b.md")))).toEqual([
+    const reported = (task: TaskView) => task.attached.map((f) => [f.path, f.reported]);
+    expect(reported(taskAfter(attach("/p/a.md")))).toEqual([["/p/a.md", false]]);
+    expect(reported(taskAfter(attach("/p/a.md"), report, attach("/p/b.md")))).toEqual([
       ["/p/b.md", false],
       ["/p/a.md", true],
     ]);
-    expect(reported(run(attach("/p/a.md"), report, attach("/p/a.md")))).toEqual([
+    expect(reported(taskAfter(attach("/p/a.md"), report, attach("/p/a.md")))).toEqual([
       ["/p/a.md", false],
     ]);
   });
 
   it("keeps a bounded number of attached files, the oldest going first", () => {
     const paths = Array.from({ length: ATTACHED_LIMIT + 5 }, (_, i) => `/p/${i}.md`);
-    const agent = run(
-      ...paths.map((path): NewEvent => ({ kind: "files_attached", agent: "a", files: [{ path }] })),
+    const task = taskAfter(
+      ...paths.map(
+        (path): NewEvent => ({ kind: "files_attached", agent: "a", task: T, files: [{ path }] }),
+      ),
     );
-    expect(agent.attached).toHaveLength(ATTACHED_LIMIT);
-    expect(agent.attached[0]?.path).toBe(paths.at(-1));
-    expect(agent.attached.some((f) => f.path === "/p/0.md")).toBe(false);
+    expect(task.attached).toHaveLength(ATTACHED_LIMIT);
+    expect(task.attached[0]?.path).toBe(paths.at(-1));
+    expect(task.attached.some((f) => f.path === "/p/0.md")).toBe(false);
   });
 
   it("keeps what fills the context window", () => {
@@ -378,6 +409,7 @@ describe("line threads", () => {
   const opened = (id = "t1", first = message("m1", "user")): NewEvent => ({
     kind: "thread_opened",
     agent: "a",
+    task: T,
     thread: {
       id,
       path: "src/x.ts",
@@ -390,91 +422,101 @@ describe("line threads", () => {
   const say = (m: ReturnType<typeof message>, threadId = "t1"): NewEvent => ({
     kind: "thread_message",
     agent: "a",
+    task: T,
     threadId,
     message: m,
   });
-  const read: NewEvent = { kind: "thread_read", agent: "a", threadId: "t1" };
+  const read: NewEvent = { kind: "thread_read", agent: "a", task: T, threadId: "t1" };
 
-  it("opens a thread, adds replies and marks it unread for the user", () => {
-    const steps = [worker("a"), opened(), say(message("m2", "agent"))] as NewEvent[];
-    const state = reduceAll(events(...steps));
-    const thread = state.agents.a?.threads[0];
+  it("opens a thread on the task, adds replies and marks it unread for the user", () => {
+    const steps = [opened(), say(message("m2", "agent"))];
+    const state = runState(...steps);
+    const thread = state.tasks[T]?.threads[0];
     expect(thread?.messages).toHaveLength(2);
     expect(thread?.unread).toBe(true);
-    expect(unreadThreads(state)).toEqual([{ agent: "a", thread }]);
-    const after = reduceAll(events(...steps, read));
-    expect(after.agents.a?.threads[0]?.unread).toBe(false);
+    expect(unreadThreads(state)).toEqual([{ task: T, thread }]);
+    const after = runState(...steps, read);
+    expect(after.tasks[T]?.threads[0]?.unread).toBe(false);
     expect(unreadThreads(after)).toEqual([]);
+  });
+
+  it("is kept by the task, also when the user acts while nobody holds it", () => {
+    const fromDaemon: NewEvent = { ...opened(), agent: DAEMON };
+    expect(taskAfter(fromDaemon).threads).toHaveLength(1);
+    expect(run(fromDaemon).unseen).toBe(false);
   });
 
   it("lists the oldest unread reply first", () => {
     const late = { ...message("m3", "agent"), ts: 9000 };
-    const state = reduceAll(
-      events(
-        worker("a"),
-        opened("late"),
-        opened("early"),
-        say(late, "late"),
-        say(message("m2", "agent"), "early"),
-      ),
+    const state = runState(
+      opened("late"),
+      opened("early"),
+      say(late, "late"),
+      say(message("m2", "agent"), "early"),
     );
     expect(unreadThreads(state).map((u) => u.thread.id)).toEqual(["early", "late"]);
   });
 
   it("counts unread replies in the Inbox tab's count", () => {
-    const base = [worker("a"), request, opened()] as NewEvent[];
-    expect(inboxCount(reduceAll(events(...base)))).toBe(1);
+    const base = [request, opened()];
+    expect(inboxCount(runState(...base))).toBe(1);
     const replied = [...base, say(message("m2", "agent"))];
-    expect(inboxCount(reduceAll(events(...replied)))).toBe(2);
-    expect(inboxCount(reduceAll(events(...replied, read)))).toBe(1);
+    expect(inboxCount(runState(...replied))).toBe(2);
+    expect(inboxCount(runState(...replied, read))).toBe(1);
   });
 
-  it("marks the agent new when it replies, not when the user writes", () => {
-    const opening = [opened(), { kind: "agent_opened", agent: "a" } as NewEvent];
+  it("marks the holder new when it replies, not when the user writes", () => {
+    const opening = [running, opened(), { kind: "agent_opened", agent: "a" } as NewEvent];
     expect(run(...opening, say(message("m2", "user"))).unseen).toBe(false);
     expect(run(...opening, say(message("m2", "agent"))).unseen).toBe(true);
   });
 
   it("clears unread when the user answers or resolves", () => {
     const reply = say(message("m2", "agent"));
-    expect(run(opened(), reply, say(message("m3", "user"))).threads[0]?.unread).toBe(false);
+    expect(taskAfter(opened(), reply, say(message("m3", "user"))).threads[0]?.unread).toBe(false);
     const resolve: NewEvent = {
       kind: "thread_resolved",
       agent: "a",
+      task: T,
       threadId: "t1",
       resolved: true,
     };
-    const resolved = run(opened(), reply, resolve).threads[0];
+    const resolved = taskAfter(opened(), reply, resolve).threads[0];
     expect(resolved).toMatchObject({ unread: false, resolved: true });
   });
 
-  it("edits a message and ignores unknown threads and messages", () => {
+  it("edits a message and ignores unknown threads, messages and tasks", () => {
     const edit: NewEvent = {
       kind: "thread_message_edited",
       agent: "a",
+      task: T,
       threadId: "t1",
       messageId: "m1",
       body: "better",
     };
-    expect(run(opened(), edit).threads[0]?.messages[0]?.body).toBe("better");
-    const stray = run(
+    expect(taskAfter(opened(), edit).threads[0]?.messages[0]?.body).toBe("better");
+    const stray = runState(
       opened(),
       say(message("m2", "agent"), "nope"),
       { ...edit, threadId: "nope" },
-      { kind: "thread_message_removed", agent: "a", threadId: "t1", messageId: "nope" },
-      { kind: "thread_read", agent: "a", threadId: "nope" },
+      { ...edit, task: "t9" },
+      { kind: "thread_message_removed", agent: "a", task: T, threadId: "t1", messageId: "nope" },
+      { kind: "thread_read", agent: "a", task: T, threadId: "nope" },
     );
-    expect(stray.threads).toHaveLength(1);
-    expect(stray.threads[0]?.messages).toEqual([message("m1", "user")]);
-    expect(stray.unseen).toBe(false);
+    const task = stray.tasks[T] as TaskView;
+    expect(task.threads).toHaveLength(1);
+    expect(task.threads[0]?.messages).toEqual([message("m1", "user")]);
+    expect(stray.tasks.t9).toBeUndefined();
+    expect(stray.agents.a?.unseen).toBe(false);
   });
 
   it("keeps held messages until the change request goes out", () => {
-    const held = run(opened("t1", message("m1", "user", { held: true })));
+    const held = taskAfter(opened("t1", message("m1", "user", { held: true })));
     expect(heldMessages(held)).toBe(1);
-    const sent = run(opened("t1", message("m1", "user", { held: true })), {
+    const sent = taskAfter(opened("t1", message("m1", "user", { held: true })), {
       kind: "review_sent",
       agent: "a",
+      task: T,
     });
     expect(heldMessages(sent)).toBe(0);
     expect(sent.threads[0]?.messages).toHaveLength(1);
@@ -482,17 +524,14 @@ describe("line threads", () => {
 
   it("edits_reported clears the edits and leaves held messages", () => {
     const edit = { path: "x", commit: "wc", before: ["a"], after: ["b"] };
-    const agent = run(opened("t1", message("m1", "user", { held: true })), {
-      kind: "review_edited",
+    const edited: NewEvent = { kind: "review_edited", agent: "a", task: T, edit };
+    const task = taskAfter(opened("t1", message("m1", "user", { held: true })), edited);
+    expect(task.edits).toHaveLength(1);
+    const reported = taskAfter(opened("t1", message("m1", "user", { held: true })), edited, {
+      kind: "edits_reported",
       agent: "a",
-      edit,
+      task: T,
     });
-    expect(agent.edits).toHaveLength(1);
-    const reported = run(
-      opened("t1", message("m1", "user", { held: true })),
-      { kind: "review_edited", agent: "a", edit },
-      { kind: "edits_reported", agent: "a" },
-    );
     expect(reported.edits).toEqual([]);
     expect(heldMessages(reported)).toBe(1);
   });
@@ -501,36 +540,38 @@ describe("line threads", () => {
     const remove = (messageId: string): NewEvent => ({
       kind: "thread_message_removed",
       agent: "a",
+      task: T,
       threadId: "t1",
       messageId,
     });
-    expect(run(opened(), remove("m1")).threads).toEqual([]);
-    const two = run(opened(), say(message("m2", "user")), remove("m1"));
+    expect(taskAfter(opened(), remove("m1")).threads).toEqual([]);
+    const two = taskAfter(opened(), say(message("m2", "user")), remove("m1"));
     expect(two.threads[0]?.messages.map((m) => m.id)).toEqual(["m2"]);
   });
 
   it("ignores a thread opened twice under one id", () => {
-    const agent = run(opened(), opened("t1", message("m9", "user")));
-    expect(agent.threads).toHaveLength(1);
-    expect(agent.threads[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
+    const task = taskAfter(opened(), opened("t1", message("m9", "user")));
+    expect(task.threads).toHaveLength(1);
+    expect(task.threads[0]?.messages.map((m) => m.id)).toEqual(["m1"]);
   });
 
   it("stays bounded", () => {
     const resolve: NewEvent = {
       kind: "thread_resolved",
       agent: "a",
+      task: T,
       threadId: "t0",
       resolved: true,
     };
     const many = Array.from({ length: THREAD_LIMIT }, (_, i) => opened(`t${i}`));
-    const agent = run(...many, resolve, opened("extra"));
-    expect(agent.threads).toHaveLength(THREAD_LIMIT);
-    expect(agent.threads.map((t) => t.id)).not.toContain("t0");
+    const task = taskAfter(...many, resolve, opened("extra"));
+    expect(task.threads).toHaveLength(THREAD_LIMIT);
+    expect(task.threads.map((t) => t.id)).not.toContain("t0");
     // Without a resolved one, the oldest goes.
-    const unresolved = run(...many, opened("extra"));
+    const unresolved = taskAfter(...many, opened("extra"));
     expect(unresolved.threads[0]?.id).toBe("t1");
     // A thread with a held message outlasts older ones without.
-    const heldFirst = run(
+    const heldFirst = taskAfter(
       opened("t0", message("m0", "user", { held: true })),
       ...many.slice(1),
       opened("extra"),
@@ -541,10 +582,10 @@ describe("line threads", () => {
     const chatter = Array.from({ length: THREAD_MESSAGES_LIMIT }, (_, i) =>
       say(message(`r${i}`, "user")),
     );
-    const thread = run(opened(), ...chatter).threads[0];
+    const thread = taskAfter(opened(), ...chatter).threads[0];
     expect(thread?.messages).toHaveLength(THREAD_MESSAGES_LIMIT);
     expect(thread?.messages[0]?.id).toBe("r0");
-    const long = run(
+    const long = taskAfter(
       opened(),
       say({ ...message("m2", "agent"), body: "x".repeat(TEXT_LIMIT + 1) }),
     );
@@ -936,14 +977,308 @@ describe("withoutProjects", () => {
     worker("c", { project: undefined }),
     { kind: "message", agent: "b", to: "a", body: "hi" },
     { kind: "message", agent: "a", to: "c", body: "yo" },
+    taskCreated("t1", { project: "kept" }),
+    taskCreated("t2", { project: "gone" }),
+    { kind: "linked", agent: DAEMON, task: "t1", with: "t2" },
   );
 
-  it("drops the agents of unlisted projects and what hangs on them, but not the events", () => {
+  it("drops the agents and tasks of unlisted projects and what hangs on them, but not the events", () => {
     const state = reduceAll(log);
+    expect(state.links).toEqual([["t1", "t2"]]);
     const shown = withoutProjects(state, new Set(["kept"]));
     expect(Object.keys(shown.agents)).toEqual(["a", "c"]);
+    expect(Object.keys(shown.tasks)).toEqual(["t1"]);
+    expect(shown.links).toEqual([]);
     expect(shown.messages.map((m) => m.body)).toEqual(["yo"]);
     // Listed again, the same state has them back.
     expect(withoutProjects(state, new Set(["kept", "gone"]))).toBe(state);
+  });
+});
+
+describe("tasks", () => {
+  it("are created queued, numbered by the daemon, and listed in creation order", () => {
+    const state = reduceAll(
+      events(taskCreated("t1"), taskCreated("t2", { title: "Second", pin: "alpha" })),
+    );
+    expect(state.taskCount).toBe(2);
+    expect(taskList(state).map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(state.tasks.t2).toMatchObject({
+      title: "Second",
+      brief: "brief of t2",
+      project: "test",
+      role: "worker",
+      by: USER,
+      workspace: "ws1",
+      pin: "alpha",
+      state: "queued",
+      columnSince: 1000,
+      createdSeq: 2,
+      attached: [],
+      threads: [],
+      edits: [],
+      conversations: [],
+    });
+    expect(state.tasks.t2?.agent).toBeUndefined();
+  });
+
+  it("are held by the agent that takes them, and free it again once done or dropped", () => {
+    const held = runState(running);
+    expect(held.tasks[T]?.agent).toBe("a");
+    expect(held.agents.a?.task).toBe(T);
+    expect(taskOf(held, held.agents.a as AgentView)?.id).toBe(T);
+    expect(holderOf(held, held.tasks[T] as TaskView)?.name).toBe("a");
+    // Review and changes requested keep the holder.
+    const back = runState(running, taskState(T, "review"), taskState(T, "changes_requested"));
+    expect(back.tasks[T]?.agent).toBe("a");
+    for (const end of ["done", "dropped"] as const) {
+      const closed = runState(running, taskState(T, end));
+      expect(closed.tasks[T]).toMatchObject({ state: end, closedAt: 3000 });
+      expect(closed.tasks[T]?.agent).toBeUndefined();
+      expect(closed.agents.a?.task).toBeUndefined();
+    }
+    // Back to the queue, the task has no holder either.
+    expect(runState(running, taskState(T, "queued")).agents.a?.task).toBeUndefined();
+  });
+
+  it("keeps a handover note, change and pin note given with a move", () => {
+    const parked = taskAfter(
+      running,
+      taskState(T, "parked", { note: "Half done.", change: "kxyz", pinNote: "gone" }),
+    );
+    expect(parked).toMatchObject({ note: "Half done.", change: "kxyz", pinNote: "gone" });
+    expect(parked.agent).toBeUndefined();
+  });
+
+  it("are changed by task_updated; a null pin releases the task to any worker", () => {
+    const update = (changes: object): NewEvent =>
+      ({ kind: "task_updated", agent: DAEMON, task: T, ...changes }) as NewEvent;
+    const task = taskAfter(
+      update({ title: "Renamed", brief: "New brief", workspace: "ws2", pin: "alpha" }),
+    );
+    expect(task).toMatchObject({
+      title: "Renamed",
+      brief: "New brief",
+      workspace: "ws2",
+      pin: "alpha",
+    });
+    const unpinned = taskAfter(
+      taskState(T, "queued", { pinNote: "alpha is gone" }),
+      update({ pin: null }),
+    );
+    expect(unpinned.pin).toBeUndefined();
+    expect(unpinned.pinNote).toBeUndefined();
+    expect(runState(update({ task: "t9", title: "x" })).tasks.t9).toBeUndefined();
+  });
+
+  it("keep the report, status, ledger note and review progress, whoever logs them", () => {
+    const task = taskAfter(
+      running,
+      {
+        kind: "report",
+        agent: "a",
+        task: T,
+        report: { summary: "Done.", changes: ["k"], openQuestions: [] },
+      },
+      { kind: "status", agent: "a", task: T, text: "Testing" },
+      { kind: "note", agent: "director-test", task: T, text: "Ship it" },
+      { kind: "review_progress", agent: DAEMON, task: T, approved: 2, total: 3 },
+    );
+    expect(task).toMatchObject({
+      report: { summary: "Done." },
+      status: "Testing",
+      ledgerNote: "Ship it",
+      reviewProgress: { approved: 2, total: 3 },
+    });
+  });
+
+  it("are linked by id across projects, until either is done or dropped", () => {
+    const link = (task: string, other: string): NewEvent => ({
+      kind: "linked",
+      agent: DAEMON,
+      task,
+      with: other,
+    });
+    const base = [taskCreated("t1"), taskCreated("t2", { project: "site" })];
+    const linked = reduceAll(events(...base, link("t2", "t1")));
+    expect(linked.links).toEqual([["t1", "t2"]]);
+    expect(linksOf(linked, "t1")).toEqual(["t2"]);
+    // Twice, to itself, to an unknown or a closed task: no link.
+    expect(reduceAll(events(...base, link("t1", "t2"), link("t2", "t1"))).links).toHaveLength(1);
+    expect(reduceAll(events(...base, link("t1", "t1"))).links).toEqual([]);
+    expect(reduceAll(events(...base, link("t1", "t9"))).links).toEqual([]);
+    expect(reduceAll(events(...base, taskState("t2", "done"), link("t1", "t2"))).links).toEqual([]);
+    expect(reduceAll(events(...base, link("t1", "t2"), taskState("t1", "dropped"))).links).toEqual(
+      [],
+    );
+  });
+
+  it("keep DONE_LIMIT closed ones; the one closed longest ago leaves with its links", () => {
+    const ids = Array.from({ length: DONE_LIMIT + 1 }, (_, i) => `t${i + 1}`);
+    const open = "t999";
+    const state = reduceAll(
+      events(
+        taskCreated(open, { project: "site" }),
+        ...ids.map((id) => taskCreated(id)),
+        { kind: "linked", agent: DAEMON, task: "t1", with: open },
+        ...ids.map((id) => taskState(id, "done")),
+      ),
+    );
+    expect(Object.keys(state.tasks)).toHaveLength(DONE_LIMIT + 1);
+    expect(state.tasks.t1).toBeUndefined();
+    expect(state.tasks.t2?.state).toBe("done");
+    expect(state.tasks[open]?.state).toBe("queued");
+    expect(state.links).toEqual([]);
+  });
+
+  it("are told from agent names by their id, also a remote daemon's", () => {
+    expect(isTaskId("t3")).toBe(true);
+    expect(isTaskId("pod/t3")).toBe(true);
+    expect(isTaskId("tango")).toBe(false);
+    expect(isTaskId("pod/alpha")).toBe(false);
+  });
+
+  it("selectionOf brings the holder with a task, and the held task with an agent", () => {
+    const state = runState(running);
+    expect(selectionOf(state, T)).toEqual({ task: state.tasks[T], agent: state.agents.a });
+    expect(selectionOf(state, "a")).toEqual({ agent: state.agents.a, task: state.tasks[T] });
+    const queued = runState();
+    expect(selectionOf(queued, T)).toEqual({ task: queued.tasks[T], agent: undefined });
+    expect(selectionOf(queued, "a")).toEqual({ agent: queued.agents.a, task: undefined });
+    expect(selectionOf(queued, undefined)).toEqual({});
+  });
+
+  it("make an agent working, waiting or free, and needing the user through its task", () => {
+    expect(agentState(run())).toBe("free");
+    expect(agentState(run(running))).toBe("waiting");
+    expect(agentState(run(running, working))).toBe("working");
+    // A free agent with a request of its own needs the user too.
+    const free = runState(request);
+    expect(needsUser(free, free.agents.a as AgentView)).toBe(true);
+    const idle = runState(running, { kind: "activity", agent: "a", activity: "idle" });
+    expect(needsUser(idle, idle.agents.a as AgentView)).toBe(true);
+    const reviewing = runState(running, taskState(T, "review"), {
+      kind: "activity",
+      agent: "a",
+      activity: "idle",
+    });
+    expect(needsUser(reviewing, reviewing.agents.a as AgentView)).toBe(false);
+  });
+});
+
+describe("agent_removed", () => {
+  it("takes the agent out with its requests and open points; its task loses its holder", () => {
+    const state = runState(
+      running,
+      request,
+      {
+        kind: "open_points",
+        agent: "a",
+        docId: "d",
+        path: "p.md",
+        points: [{ id: "1", text: "?" }],
+      },
+      { kind: "agent_removed", agent: "a" },
+    );
+    expect(state.agents.a).toBeUndefined();
+    expect(state.decisions).toEqual({});
+    expect(state.openPoints).toEqual({});
+    expect(state.tasks[T]?.agent).toBeUndefined();
+    expect(state.tasks[T]?.state).toBe("in_progress");
+  });
+});
+
+describe("conversations", () => {
+  const start = (task?: string, extra: object = {}): NewEvent =>
+    ({ kind: "conversation_started", agent: "a", ...(task && { task }), ...extra }) as NewEvent;
+  const said = (text: string): NewEvent => ({ kind: "log", agent: "a", role: "assistant", text });
+  const session = (sessionId: string): NewEvent => ({
+    kind: "session_started",
+    agent: "a",
+    sessionId,
+  });
+
+  it("archive the previous conversation into its task and start the agent afresh", () => {
+    const state = runState(
+      running,
+      start(T),
+      session("s1"),
+      said("on t1"),
+      { kind: "todos", agent: "a", todos: [{ content: "x", status: "pending" }] },
+      { kind: "context", agent: "a", tokens: 1, window: 2 },
+      taskState(T, "done"),
+      ...heldTask("t2", "a"),
+      start("t2"),
+    );
+    const agent = state.agents.a as AgentView;
+    expect(agent).toMatchObject({ conversationTask: "t2", log: [], todos: [], subagents: [] });
+    expect(agent.sessionId).toBeUndefined();
+    expect(agent.context).toBeUndefined();
+    const [archived] = state.tasks[T]?.conversations ?? [];
+    expect(archived).toMatchObject({ agent: "a", sessionId: "s1" });
+    expect(archived?.log.map((l) => l.text)).toEqual(["on t1"]);
+    expect(lastAgentOf(state, state.tasks[T] as TaskView)).toBe("a");
+  });
+
+  it("show the live one last, while it is still the agent's", () => {
+    const state = runState(running, start(T), said("still here"), taskState(T, "done"));
+    const task = state.tasks[T] as TaskView;
+    expect(task.conversations).toEqual([]);
+    expect(lastAgentOf(state, task)).toBe("a");
+    expect(conversationsOf(state, task).map((c) => c.log.map((l) => l.text))).toEqual([
+      ["still here"],
+    ]);
+  });
+
+  it("drop a conversation that belonged to no task", () => {
+    const state = runState(said("ticketless"), start(T));
+    expect(state.agents.a?.log).toEqual([]);
+    expect(state.tasks[T]?.conversations).toEqual([]);
+  });
+
+  it("keep CONVERSATION_LIMIT per task, the newest", () => {
+    const rounds = Array.from({ length: CONVERSATION_LIMIT + 2 }, (_, i) => [
+      start(T),
+      session(`s${i}`),
+    ]).flat();
+    const task = taskAfter(running, ...rounds, start());
+    expect(task.conversations.map((c) => c.sessionId)).toEqual(
+      Array.from({ length: CONVERSATION_LIMIT }, (_, i) => `s${i + 2}`),
+    );
+  });
+
+  it("take a resumed one back out of the archive, with its log and session", () => {
+    const state = runState(
+      running,
+      start(T),
+      session("s1"),
+      said("first try"),
+      start(T),
+      session("s2"),
+      start(T, { resume: "s1" }),
+    );
+    const agent = state.agents.a as AgentView;
+    expect(agent.sessionId).toBe("s1");
+    expect(agent.log.map((l) => l.text)).toEqual(["first try"]);
+    expect(state.tasks[T]?.conversations.map((c) => c.sessionId)).toEqual(["s2"]);
+  });
+});
+
+describe("messages", () => {
+  it("to the user arrive unread until messages_read; between agents they count as read", () => {
+    const state = reduceAll(
+      events(
+        worker("a"),
+        worker("b"),
+        { kind: "message", agent: "a", to: USER, body: "for you" },
+        { kind: "message", agent: "a", to: "b", body: "for b" },
+        { kind: "message", agent: "b", to: USER, body: "also for you" },
+        { kind: "messages_read", agent: USER, seqs: [3] },
+      ),
+    );
+    expect(state.messages.map((m) => [m.body, m.read])).toEqual([
+      ["for you", true],
+      ["for b", true],
+      ["also for you", false],
+    ]);
   });
 });

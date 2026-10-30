@@ -97,12 +97,12 @@ export class ReviewService {
   private readonly loaded = new Map<string, Loaded>();
 
   /**
-   * Loads (or reloads) the review of an agent's workspace: by default its working copy against
+   * Loads (or reloads) the review of a task's workspace: by default its working copy against
    * trunk, or a single commit against its parent. A commit that left the stack (squashed or
    * abandoned) falls back to the whole branch.
    */
   async load(
-    agent: string,
+    task: string,
     cwd: string,
     walkthrough?: string,
     scope: ReviewScope = BRANCH,
@@ -140,18 +140,18 @@ export class ReviewService {
       walkthrough,
       guide,
     };
-    this.loaded.set(agent, loaded);
-    return this.model(agent, loaded, threads);
+    this.loaded.set(task, loaded);
+    return this.model(task, loaded, threads);
   }
 
   /** Approves or unapproves hunks and moves by id, then returns the updated model. */
   async approve(
-    agent: string,
+    task: string,
     ids: readonly string[],
     approved: boolean,
     threads: LineThread[],
   ): Promise<ReviewModel> {
-    const loaded = this.require(agent);
+    const loaded = this.require(task);
     const { store, review, moves } = loaded;
     const head = review.range.head;
     const records: ApprovalRecord[] = [];
@@ -175,7 +175,7 @@ export class ReviewService {
     }
     if (removals.length > 0) await store.unapproveMany(removals);
     if (records.length > 0) await store.approveMany(records);
-    return this.model(agent, loaded, threads);
+    return this.model(task, loaded, threads);
   }
 
   /**
@@ -183,11 +183,11 @@ export class ReviewService {
    * that wrote all of them; null for the working copy, a mix of commits or lines from trunk.
    */
   async origin(
-    agent: string,
+    task: string,
     path: string,
     lines: LineRange,
   ): Promise<{ change: string; short: string } | null> {
-    const { repo, review } = this.require(agent);
+    const { repo, review } = this.require(task);
     if (!(repo instanceof JjAdapter)) return null;
     try {
       const { first, same } = await locateRange(repo, review, path, lines);
@@ -205,12 +205,12 @@ export class ReviewService {
    * The caller makes sure the agent is not running in that workspace.
    */
   async edit(
-    agent: string,
+    task: string,
     hunkId: string,
     lines: string[],
     threads: LineThread[],
   ): Promise<{ model: ReviewModel; edit: ReviewEdit }> {
-    const loaded = this.require(agent);
+    const loaded = this.require(task);
     const { repo, review } = loaded;
     if (!(repo instanceof JjAdapter))
       throw new ReviewError("Editing in the diff needs a jj repository.");
@@ -245,10 +245,10 @@ export class ReviewService {
 
     // The edit makes new hunks; the user wrote them, so they count as reviewed.
     const before = new Set(review.files.flatMap((f) => f.hunks.map((h) => h.id)));
-    await this.load(agent, repo.root, loaded.walkthrough, loaded.scope, threads);
-    const fresh = this.require(agent).review.files.find((f) => f.change.path === hunk.path);
+    await this.load(task, repo.root, loaded.walkthrough, loaded.scope, threads);
+    const fresh = this.require(task).review.files.find((f) => f.change.path === hunk.path);
     const created = (fresh?.hunks ?? []).filter((h) => !before.has(h.id)).map((h) => h.id);
-    const model = await this.approve(agent, created, true, threads);
+    const model = await this.approve(task, created, true, threads);
     return { model, edit: { path: hunk.path, commit, before: hunk.added, after: lines } };
   }
 
@@ -271,14 +271,14 @@ export class ReviewService {
     return { mentions, order: walkthroughOrder(review.files, mentions).map((ref) => ref.hunk.id) };
   }
 
-  private require(agent: string): Loaded {
-    const loaded = this.loaded.get(agent);
+  private require(task: string): Loaded {
+    const loaded = this.loaded.get(task);
     if (!loaded) throw new ReviewError("Load the review first.");
     return loaded;
   }
 
   private model(
-    agent: string,
+    task: string,
     { repo, store, scope, target, commits, review, branch, moves, guide }: Loaded,
     threads: LineThread[],
   ): ReviewModel {
@@ -331,7 +331,7 @@ export class ReviewService {
     }));
     const hunks = files.flatMap((f) => f.hunks);
     return {
-      agent,
+      task,
       scope,
       root: repo.root,
       target,

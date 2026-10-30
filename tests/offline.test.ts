@@ -3,11 +3,12 @@ import { describe, expect, it } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { QueryFn } from "../src/daemon/session.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
-import { columnOf } from "../src/shared/reducer.ts";
 import {
+  agentColumn,
   assistantText,
   echoing,
   fakeQuery,
+  heldTask,
   newSession,
   result,
   sdk,
@@ -30,14 +31,14 @@ const cutOff: SDKMessage[] = [
 describe("Agents cut off from Claude", () => {
   it("wait for fleet instead of the user, with the error as fleet's own line", async () => {
     const { queryFn } = fakeQuery(echoing(...cutOff));
-    const { session, agent } = newSession(queryFn);
+    const { session, agent, log } = newSession(queryFn);
+    for (const event of heldTask("t1", "a1")) log.append(event);
     session.start();
     session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
 
     expect(agent()?.offline).toBe(true);
-    const view = agent();
-    expect(view && columnOf({ ...view, task: "running" })).toBe("running");
+    expect(agentColumn(log.state, "a1")).toBe("in_progress");
     expect(agent()?.log.at(-1)).toMatchObject({
       role: "system",
       text: "API Error: Connection error.",
@@ -107,9 +108,11 @@ describe("Agents cut off from Claude", () => {
       }),
     });
     supervisor.init();
+    // The workers of ws1 and ws2 take one task each.
     const [alpha, bravo] = ["alpha", "bravo"];
-    expect(supervisor.createTask("One", "Do one.", "ws1")).toBe(alpha);
-    expect(supervisor.createTask("Two", "Do two.", "ws2")).toBe(bravo);
+    expect(supervisor.createTask("One", "Do one.", "ws1")).toBe("t1");
+    expect(supervisor.createTask("Two", "Do two.", "ws2")).toBe("t2");
+    expect([log.state.tasks.t1?.agent, log.state.tasks.t2?.agent]).toEqual([alpha, bravo]);
     const agent = (name: string) => log.state.agents[name];
     const waiting = (name: string) => agent(name)?.offline && agent(name)?.activity === "idle";
     const prompts = (name: string) => agent(name)?.log.filter((l) => l.role === "user").length;

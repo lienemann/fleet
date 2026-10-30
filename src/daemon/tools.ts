@@ -57,21 +57,24 @@ export interface ToolHost {
   spawn(director: string, request: SpawnRequest): string;
   ledger(director: string): string;
   linkTasks(director: string, task: string, other: string): string;
-  moveTask(agent: string, to: string): string;
+  moveTask(task: string, to: string): string;
   setModel(agent: string, model: string): string;
   setEffort(agent: string, effort: EffortLevel | null): string;
   setLimits(changes: LimitChanges): string;
   addWorkspace(name: string, path: string, explicit: boolean, project: string): string;
   addProject(path: string, name?: string): string;
-  note(agent: string, text: string, by?: string): string;
-  updateTask(agent: string, changes: TaskChanges, by?: string): string;
-  removeTask(agent: string, requester: string): Promise<string>;
+  note(task: string, text: string, by?: string): string;
+  updateTask(task: string, changes: TaskChanges, by?: string): string;
+  removeTask(task: string, requester: string): Promise<string>;
   stopTask(agent: string, by?: string): Promise<string>;
 }
 
 /** The arguments of update_task, shared by the director's tools and the MCP server. */
+/** A task id as the tools take it. */
+export const TASK_ID = z.string().describe("The task's id, e.g. t3, as the ledger lists it");
+
 export const TASK_CHANGES = {
-  agent: z.string().describe("The task's agent name"),
+  task: TASK_ID,
   title: z.string().min(1).max(80).optional(),
   context: z
     .string()
@@ -85,7 +88,7 @@ export const UPDATE_TASK =
   "Change a task: rename it, or, while it is queued, rewrite its brief or move it to another workspace. A started task gets changes as a message instead.";
 
 export const REMOVE_TASK =
-  "Take a task off the board. A queued or accepted task goes at once; a task whose workspace holds its work goes only if the user agrees in the inbox.";
+  "Drop a task. A queued task goes at once; a task whose workspace holds its work goes only if the user agrees in the inbox.";
 
 /** A failure the agent should read and act on, not a crash. */
 export class ToolError extends Error {}
@@ -208,7 +211,7 @@ function workerTools(agent: string, host: ToolHost) {
 }
 
 const SPAWN_TASK =
-  "Start a worker on a task in its own jj workspace. The context is all the worker knows: goal, constraints, where to look, how to test, what done means.";
+  "Start a task for the worker of a jj workspace; it returns the task's id. The context is all the worker knows: goal, constraints, where to look, how to test, what done means.";
 
 const SPAWN_ARGS = {
   title: z.string().max(80),
@@ -228,35 +231,35 @@ function taskTools(agent: string, host: ToolHost) {
   return [
     tool(
       "ledger",
-      "Read the task ledger: every task with its state, workspace, status, report and your note. With agent and note, update your note on a task.",
-      { agent: z.string().optional(), note: z.string().optional() },
+      "Read the task ledger: every task with its id, state, agent, workspace, status, report and your note. With task and note, update your note on a task.",
+      { task: TASK_ID.optional(), note: z.string().optional() },
       (args) =>
         run(() =>
-          args.agent && args.note ? host.note(args.agent, args.note, agent) : host.ledger(agent),
+          args.task && args.note ? host.note(args.task, args.note, agent) : host.ledger(agent),
         ),
     ),
     tool(
       "link_tasks",
-      "Let a task of your project and a task of another project message each other, for work that spans both repos. The link ends when either task is accepted or removed.",
+      "Let the agents of a task of your project and a task of another project message each other, for work that spans both repos. The link ends when either task is done or dropped.",
       {
-        task: z.string().describe("Your project's task"),
-        other: z.string().describe("The other project's task"),
+        task: TASK_ID.describe("Your project's task id"),
+        other: TASK_ID.describe("The other project's task id"),
       },
       (args) => run(() => host.linkTasks(agent, args.task, args.other)),
     ),
-    tool("update_task", UPDATE_TASK, TASK_CHANGES, ({ agent: task, ...changes }) =>
+    tool("update_task", UPDATE_TASK, TASK_CHANGES, ({ task, ...changes }) =>
       run(() => host.updateTask(task, changes, agent)),
     ),
     tool(
       "remove_task",
       `${REMOVE_TASK} Blocks until the user answers, if they need to.`,
-      { agent: z.string().describe("The task's agent name") },
-      (args) => run(() => host.removeTask(args.agent, agent)),
+      { task: TASK_ID },
+      (args) => run(() => host.removeTask(args.task, agent)),
     ),
     tool(
       "stop_task",
       "Stop a worker's session; its transcript and workspace stay, and it can be started again.",
-      { agent: z.string() },
+      { agent: z.string().describe("The worker's name") },
       (args) => run(() => host.stopTask(args.agent, agent)),
     ),
   ];
@@ -286,9 +289,9 @@ function fleetDirectorTools(agent: string, host: ToolHost) {
     ...taskTools(agent, host),
     tool(
       "move_task",
-      "Start a queued task now, past the limits, as Start does on the board. Moves into and out of review are the user's.",
-      { agent: z.string().describe("The task's agent name"), to: z.string() },
-      (args) => run(() => host.moveTask(args.agent, args.to)),
+      'Start a queued task now, past the limits, as Start does on the board: to "in_progress". Moves into and out of review are the user\'s.',
+      { task: TASK_ID, to: z.string() },
+      (args) => run(() => host.moveTask(args.task, args.to)),
     ),
     tool(
       "set_model",

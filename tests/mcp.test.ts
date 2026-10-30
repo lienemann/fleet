@@ -87,17 +87,17 @@ describe("workspace claims", () => {
     const { log, supervisor } = setup();
     supervisor.claimWorkspace("cli", "ws1");
     supervisor.createTask("Fix it", "Do it.", "ws1");
-    expect(log.state.agents.alpha?.task).toBe("queued");
+    expect(log.state.tasks.t1?.state).toBe("queued");
 
     supervisor.releaseWorkspace("cli", "ws1");
-    expect(log.state.agents.alpha?.task).toBe("running");
+    expect(log.state.tasks.t1).toMatchObject({ state: "in_progress", agent: "alpha" });
     expect(log.state.claims).toEqual({});
   });
 
   it("are refused for a workspace a task works in, or someone else claimed", () => {
     const { supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
-    expect(() => supervisor.claimWorkspace("cli", "ws1")).toThrow("holds the work of alpha");
+    expect(() => supervisor.claimWorkspace("cli", "ws1")).toThrow("holds the work of t1");
 
     supervisor.claimWorkspace("cli", "ws2");
     expect(supervisor.claimWorkspace("cli", "ws2")).toEqual({
@@ -113,7 +113,11 @@ describe("workspace claims", () => {
     const { log, supervisor } = setup();
     supervisor.claimWorkspace("cli", "ws1");
     supervisor.spawn(DIRECTOR, { title: "Fix it", context: "Do it." });
-    expect(log.state.agents.alpha).toMatchObject({ workspace: "ws2", task: "running" });
+    expect(log.state.tasks.t1).toMatchObject({
+      workspace: "ws2",
+      state: "in_progress",
+      agent: "bravo",
+    });
   });
 
   it("can be ended from the UI", () => {
@@ -151,7 +155,7 @@ describe("session hooks", () => {
     expect(log.state.claims.ws1).toBeDefined();
     supervisor.expireClaims(Date.now() + CLAIM_GRACE_MS);
     expect(log.state.claims).toEqual({});
-    expect(log.state.agents.alpha?.task).toBe("running");
+    expect(log.state.tasks.t1?.state).toBe("in_progress");
   });
 
   it("warn a session that starts where a task works, and ignore other directories", () => {
@@ -260,9 +264,9 @@ describe("MCP server", () => {
     expect((await call("list_workspaces")).text.split("\n")).toHaveLength(3);
 
     const created = await call("create_task", { title: "Fix b", context: "Do it.", cwd: repoB });
-    expect(created.text).toBe("Spawned alpha in b1; it is running.");
+    expect(created.text).toBe("Spawned t1 in b1; it is in_progress on charlie.");
     expect((await call("list_tasks", { cwd: join(root, "ws1") })).text).toBe("No tasks yet.");
-    expect((await call("list_tasks", { cwd: repoB })).text).toContain("## alpha: Fix b");
+    expect((await call("list_tasks", { cwd: repoB })).text).toContain("## t1: Fix b");
   });
 
   it("creates tasks and sends messages under the caller's name", async () => {
@@ -270,8 +274,8 @@ describe("MCP server", () => {
     const call = await connect(supervisor, log);
 
     const created = await call("create_task", { title: "Fix it", context: "Do it." });
-    expect(created.text).toBe("Spawned alpha in ws1; it is running.");
-    expect((await call("list_tasks")).text).toContain("## alpha: Fix it");
+    expect(created.text).toBe("Spawned t1 in ws1; it is in_progress on alpha.");
+    expect((await call("list_tasks")).text).toContain("## t1: Fix it");
 
     await call("send_message", { from: "feature-x", to: "you", body: "Done with ws1." });
     expect(log.state.messages.at(-1)).toMatchObject({ from: "feature-x", to: "you" });
@@ -285,9 +289,9 @@ describe("MCP server", () => {
     const call = await connect(supervisor, log);
     await call("create_task", { title: "Fix it", context: "Do it." });
 
-    await call("update_task", { agent: "alpha", title: "Fix it properly" });
-    expect(log.state.agents.alpha?.title).toBe("Fix it properly");
-    const removed = await call("remove_task", { agent: "alpha", holder: "feature-x" });
+    await call("update_task", { task: "t1", title: "Fix it properly" });
+    expect(log.state.tasks.t1?.title).toBe("Fix it properly");
+    const removed = await call("remove_task", { task: "t1", holder: "feature-x" });
     expect(removed.text).toContain("the user decides in the inbox");
     expect(log.state.agents.alpha?.pending).toBe(1);
   });

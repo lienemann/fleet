@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
 import { reduceAll } from "../src/shared/reducer.ts";
 import { notices, outdated } from "../src/web/useNotifications.ts";
-import { worker } from "./helpers.ts";
+import { taskCreated, taskState, worker } from "./helpers.ts";
 
 const at = (bodies: NewEvent[], from = 1): FleetEvent[] =>
   bodies.map(
@@ -10,10 +10,14 @@ const at = (bodies: NewEvent[], from = 1): FleetEvent[] =>
   );
 
 const running: NewEvent[] = [
-  worker("alpha", { title: "Fix the flaky test" }),
-  { kind: "task_state", agent: "alpha", state: "running" },
+  worker("alpha"),
+  taskCreated("t1", { title: "Fix the flaky test" }),
+  taskState("t1", "in_progress", { holder: "alpha" }),
   { kind: "activity", agent: "alpha", activity: "working" },
 ];
+
+/** The seq of the first event after `running`. */
+const NEXT = running.length + 1;
 
 describe("notices", () => {
   const before = reduceAll(at(running));
@@ -33,7 +37,7 @@ describe("notices", () => {
             risk: [],
           },
         ],
-        4,
+        NEXT,
       ),
       before,
     );
@@ -53,11 +57,12 @@ describe("notices", () => {
           {
             kind: "report",
             agent: "alpha",
+            task: "t1",
             report: { summary: "Scaled the tolerance.", changes: [], openQuestions: [] },
           },
-          { kind: "task_state", agent: "alpha", state: "review" },
+          taskState("t1", "review"),
         ],
-        4,
+        NEXT,
       ),
       before,
     );
@@ -89,7 +94,7 @@ describe("notices", () => {
               },
             },
           ],
-          4,
+          NEXT,
         ),
         before,
       );
@@ -107,10 +112,10 @@ describe("notices", () => {
         item: { id, endedAt: 5000, workMs: 1000, text: `Done ${id}`, read: false },
       }) as const;
     const first = reduceAll(
-      at([{ kind: "activity", agent: "alpha", activity: "idle" }, run("r1")], 4),
+      at([{ kind: "activity", agent: "alpha", activity: "idle" }, run("r1")], NEXT),
       before,
     );
-    const second = reduceAll(at([run("r2")], 6), first);
+    const second = reduceAll(at([run("r2")], NEXT + 2), first);
     expect(first.agents.alpha?.unseen).toBe(true);
     expect(notices(first, second)).toEqual([
       {
@@ -132,13 +137,13 @@ describe("notices", () => {
     const idle: NewEvent = { kind: "activity", agent: "alpha", activity: "idle" };
 
     it("skips blank lines before the first one", () => {
-      const after = reduceAll(at([idle, run("r1", "\n\n  Done.\nMore.")], 4), before);
+      const after = reduceAll(at([idle, run("r1", "\n\n  Done.\nMore.")], NEXT), before);
       expect(notices(before, after)[0]?.body).toBe("Done.");
     });
 
     it("raises no second notice when a retry stops again under the same id", () => {
-      const first = reduceAll(at([idle, run("r1", "Cut off.", "offline")], 4), before);
-      const retry = reduceAll(at([run("r1", "Cut off.", "offline")], 6), first);
+      const first = reduceAll(at([idle, run("r1", "Cut off.", "offline")], NEXT), before);
+      const retry = reduceAll(at([run("r1", "Cut off.", "offline")], NEXT + 2), first);
       expect(notices(first, retry)).toEqual([]);
     });
 
@@ -153,17 +158,17 @@ describe("notices", () => {
         explanation: "",
         risk: [],
       };
-      const after = reduceAll(at([idle, decision, run("r1", "Done.")], 4), before);
+      const after = reduceAll(at([idle, decision, run("r1", "Done.")], NEXT), before);
       expect(notices(before, after).map((n) => n.title)).toEqual(["alpha · test needs you"]);
     });
 
     it("is outdated once the item is read, here or in another window", () => {
-      const after = reduceAll(at([idle, run("r1", "Done.")], 4), before);
+      const after = reduceAll(at([idle, run("r1", "Done.")], NEXT), before);
       const [notice] = notices(before, after);
       if (!notice) throw new Error("no notice");
       expect(outdated(notice, after)).toBe(false);
       const read = reduceAll(
-        at([{ kind: "finished_read", agent: "alpha", ids: ["r1"] }], 6),
+        at([{ kind: "finished_read", agent: "alpha", ids: ["r1"] }], NEXT + 2),
         after,
       );
       expect(outdated(notice, read)).toBe(true);
@@ -177,7 +182,7 @@ describe("notices", () => {
           { kind: "log", agent: "alpha", role: "assistant", text: "thinking" },
           { kind: "message", agent: "alpha", to: "you", body: "Which branch?\nmain or v2" },
         ],
-        4,
+        NEXT,
       ),
       before,
     );
@@ -192,16 +197,16 @@ describe("notices", () => {
       agent: "daemon",
       low: [{ names: ["ws1", "event log"], free, total: 500 * 1024 ** 3 }],
     });
-    const after = reduceAll(at([low(4.2 * 1024 ** 3)], 4), before);
+    const after = reduceAll(at([low(4.2 * 1024 ** 3)], NEXT), before);
     expect(notices(before, after)).toEqual([
       { tag: "disk", title: "Disk almost full", body: "4.2 GB free for ws1 and event log" },
     ]);
-    expect(notices(after, reduceAll(at([low(3 * 1024 ** 3)], 5), after))).toEqual([]);
+    expect(notices(after, reduceAll(at([low(3 * 1024 ** 3)], NEXT + 1), after))).toEqual([]);
   });
 
   it("does not repeat itself for an agent already marked new", () => {
     const waiting = reduceAll(
-      at([{ kind: "activity", agent: "alpha", activity: "idle" }], 4),
+      at([{ kind: "activity", agent: "alpha", activity: "idle" }], NEXT),
       before,
     );
     const later = reduceAll(
@@ -210,7 +215,7 @@ describe("notices", () => {
           { kind: "activity", agent: "alpha", activity: "working" },
           { kind: "activity", agent: "alpha", activity: "idle" },
         ],
-        5,
+        NEXT + 1,
       ),
       waiting,
     );

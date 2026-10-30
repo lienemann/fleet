@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type AgentView, heldMessages } from "../../shared/reducer.ts";
+import type { AgentView } from "../../shared/reducer.ts";
 import type {
   FileView,
   HunkView,
@@ -8,12 +8,13 @@ import type {
   ReviewScope,
   ThreadPlacement,
 } from "../../shared/review.ts";
+import { heldMessages, type TaskView, workspaceOf } from "../../shared/tasks.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel, useCommands } from "../keys/keymap.tsx";
-import { useTaskMoves } from "../taskMoves.ts";
+import { movesOf, useTaskMoves } from "../taskMoves.ts";
 import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
-import { EMPTY_FORM, type Side, Thread, threadPlace } from "./Thread.tsx";
+import { EMPTY_FORM, type Reviewed, type Side, Thread, threadPlace } from "./Thread.tsx";
 
 export type Layout = "inline" | "split";
 
@@ -27,17 +28,21 @@ interface Focus {
  * approve hunk by hunk, ask about lines in threads, fix small things in place. Approvals are
  * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it,
  * `file` scrolls to that file and focuses its first hunk; each new request object does so again.
+ * `agent` is the one that holds the task, if any.
  */
 export function DiffView({
+  task,
   agent,
   thread,
   file: fileRequest,
 }: {
-  agent: AgentView;
+  task: TaskView;
+  agent: AgentView | undefined;
   thread?: { id: string };
   file?: { path: string };
 }) {
   const { call } = useFleet();
+  const reviewed: Reviewed = { task, agent };
   const moves = useTaskMoves();
   const [model, setModel] = useState<ReviewModel>();
   const [error, setError] = useState<string>();
@@ -67,8 +72,8 @@ export function DiffView({
     );
   }, []);
   const load = useCallback(
-    (next = scope.current) => run(call({ type: "review_load", agent: agent.name, scope: next })),
-    [run, call, agent.name],
+    (next = scope.current) => run(call({ type: "review_load", task: task.id, scope: next })),
+    [run, call, task.id],
   );
   const close = () => {
     setComposing(undefined);
@@ -83,7 +88,7 @@ export function DiffView({
   };
 
   // Reload whenever the agent stops working, since its change may have moved on.
-  const resting = agent.activity !== "working";
+  const resting = agent?.activity !== "working";
   useEffect(() => {
     if (resting) void load();
   }, [resting, load]);
@@ -91,7 +96,7 @@ export function DiffView({
   // The daemon places threads when it loads the diff, so a thread it has not placed yet, e.g.
   // one just opened, needs another load.
   const unplaced = model
-    ? agent.threads
+    ? task.threads
         .filter((t) => !model.threads.some((p) => p.thread === t.id))
         .map((t) => t.id)
         .join(" ")
@@ -171,7 +176,7 @@ export function DiffView({
   );
   const focused = hunks[index];
   // Accepting takes the whole branch, whichever commit is on screen.
-  const progress = agent.reviewProgress;
+  const progress = task.reviewProgress;
   const unreviewed = progress ? progress.total - progress.approved : 0;
 
   const go = (delta: number) => {
@@ -186,13 +191,13 @@ export function DiffView({
   };
 
   const approve = (ids: string[], approved: boolean) =>
-    run(call({ type: "review_approve", agent: agent.name, ids, approved }));
+    run(call({ type: "review_approve", task: task.id, ids, approved }));
   const toggleFocused = () => {
     if (!focused) return;
     void approve([focused.hunk.id], !focused.hunk.approved);
     if (!focused.hunk.approved) go(1);
   };
-  const canEdit = agent.activity !== "working" && agent.pending === 0;
+  const canEdit = agent === undefined || (agent.activity !== "working" && agent.pending === 0);
 
   const ask = (hunk: HunkView, side: Side, lines: Selection["lines"], anchor = lines.start) => {
     if (lines.endExclusive <= lines.start) return;
@@ -212,8 +217,8 @@ export function DiffView({
   const askAboutChanges = (hunk: HunkView) =>
     hunk.added.length > 0 ? ask(hunk, "head", hunk.head) : ask(hunk, "base", hunk.base);
 
-  // Placements come with the model, the threads themselves with the agent's state.
-  const threadsById = new Map(agent.threads.map((t) => [t.id, t]));
+  // Placements come with the model, the threads themselves with the task's state.
+  const threadsById = new Map(task.threads.map((t) => [t.id, t]));
   const placed = (model?.threads ?? []).flatMap((placement) => {
     const found = threadsById.get(placement.thread);
     return found ? [{ thread: found, placement }] : [];
@@ -223,7 +228,7 @@ export function DiffView({
       .filter(({ placement }) => placement.hunk === hunk.id && !placement.outdated)
       .map(({ thread, placement }) => ({ thread, lines: placement.lines ?? thread.lines }));
   const elsewhere = placed.filter(({ placement }) => !placement.hunk || placement.outdated);
-  const held = heldMessages(agent);
+  const held = heldMessages(task);
 
   // The scope picker's entries, top to bottom: the whole branch, then each commit, newest first.
   const scopes: ReviewScope[] = [
@@ -317,7 +322,7 @@ export function DiffView({
   return (
     <div className="diff" ref={container}>
       <header className="diff-head">
-        {model && <ScopeBar agent={agent} model={model} onChoose={choose} />}
+        {model && <ScopeBar reviewed={reviewed} model={model} onChoose={choose} />}
         <div className="diff-bar">
           {model && (
             <span className="progress">
@@ -345,17 +350,17 @@ export function DiffView({
           <button
             type="button"
             className="small"
-            disabled={agent.role !== "worker"}
-            onClick={() => moves.changes(agent.name)}
+            disabled={!movesOf(task).includes("changes")}
+            onClick={() => moves.changes(task.id)}
           >
             Request changes{held > 0 && ` · ${held} held`}
-            {agent.edits.length > 0 && ` · ${agent.edits.length} edits`}
+            {task.edits.length > 0 && ` · ${task.edits.length} edits`}
           </button>
           <button
             type="button"
             className="small primary"
-            disabled={agent.role !== "worker" || agent.task === "accepted"}
-            onClick={() => moves.accept(agent.name)}
+            disabled={!movesOf(task).includes("accept")}
+            onClick={() => moves.accept(task.id)}
           >
             Accept{unreviewed > 0 && ` · ${unreviewed} unreviewed`}
             {held > 0 && ` · ${held} held`}
@@ -378,7 +383,7 @@ export function DiffView({
       )}
       {elsewhere.length > 0 && (
         <ThreadsElsewhere
-          agent={agent}
+          reviewed={reviewed}
           threads={elsewhere}
           focusThread={thread?.id}
           onShow={
@@ -401,7 +406,7 @@ export function DiffView({
           {file.hunks.map((hunk) => (
             <Hunk
               key={hunk.id}
-              agent={agent}
+              reviewed={reviewed}
               file={file}
               hunk={hunk}
               language={languageOf(file.path)}
@@ -428,7 +433,7 @@ export function DiffView({
                 void approve([hunk.id], approved);
               }}
               onEdit={(lines) =>
-                run(call({ type: "review_edit", agent: agent.name, hunkId: hunk.id, lines })).then(
+                run(call({ type: "review_edit", task: task.id, hunkId: hunk.id, lines })).then(
                   close,
                 )
               }
@@ -445,12 +450,12 @@ export function DiffView({
  * changed or whose file left the diff, and, in one commit, those about lines of another.
  */
 function ThreadsElsewhere({
-  agent,
+  reviewed,
   threads,
   focusThread,
   onShow,
 }: {
-  agent: AgentView;
+  reviewed: Reviewed;
   threads: Array<{ thread: LineThread; placement: ThreadPlacement }>;
   focusThread: string | undefined;
   /** Goes to all changes, where the thread shows under its lines; only offered for one commit. */
@@ -470,7 +475,7 @@ function ThreadsElsewhere({
               </button>
             )}
           </header>
-          <Thread agent={agent} thread={thread} expand={thread.id === focusThread} />
+          <Thread reviewed={reviewed} thread={thread} expand={thread.id === focusThread} />
         </div>
       ))}
     </section>
@@ -483,20 +488,21 @@ const scopeKey = (scope: ReviewScope): string =>
 
 /** Says which workspace and which revisions the diff shows, and picks the branch or one commit. */
 function ScopeBar({
-  agent,
+  reviewed: { task, agent },
   model,
   onChoose,
 }: {
-  agent: AgentView;
+  reviewed: Reviewed;
   model: ReviewModel;
   onChoose: (scope: ReviewScope) => void;
 }) {
+  const { state } = useFleet();
   const commits = model.commits.filter((c) => !c.empty).length;
   const { base, head } = model.range;
   return (
     <div className="diff-scope">
-      <span className="name">{agent.workspace}</span>
-      <span className="dim">on {agent.host}</span>
+      <span className="name">{workspaceOf(state, task)}</span>
+      {agent && <span className="dim">on {agent.host}</span>}
       <code className="dim path" title={model.root}>
         {model.root}
       </code>

@@ -75,7 +75,7 @@ export interface ThreadPlacement {
 }
 
 export interface ReviewModel {
-  agent: string;
+  task: string;
   scope: ReviewScope;
   /** Root of the reviewed workspace on its host. */
   root: string;
@@ -106,7 +106,7 @@ export interface ThreadMessage {
   fold?: string;
 }
 
-/** A conversation about selected lines of the diff, kept by the agent whose task it is. */
+/** A conversation about selected lines of the diff, kept by its task. */
 export interface LineThread {
   id: string;
   path: string;

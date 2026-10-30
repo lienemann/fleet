@@ -2,6 +2,7 @@ import { type FormEvent, type Ref, useCallback, useEffect, useState } from "reac
 import type { CallResults } from "../../shared/protocol.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import type { LineRange, LineThread, ThreadMessage } from "../../shared/review.ts";
+import type { TaskView } from "../../shared/tasks.ts";
 import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
@@ -23,6 +24,18 @@ interface Draft {
   fold?: string;
 }
 
+/**
+ * Whose change a thread is about: the task, and the agent that holds it, if one does. Drafts
+ * belong to that agent, or to the task while nobody holds it.
+ */
+export interface Reviewed {
+  task: TaskView;
+  agent?: AgentView;
+}
+
+const draftOwner = ({ task, agent }: Reviewed): string => agent?.name ?? task.id;
+const nameOf = ({ agent }: Reviewed): string => agent?.name ?? "the agent";
+
 /** "lib.py:12–18", or "lib.py, old 4–6" for removed lines. */
 export function threadPlace(path: string, side: Side, { start, endExclusive }: LineRange): string {
   const span = endExclusive - 1 > start ? `${start}–${endExclusive - 1}` : `${start}`;
@@ -31,22 +44,24 @@ export function threadPlace(path: string, side: Side, { start, endExclusive }: L
 
 /** A conversation under selected lines: the messages, a reply form, and Resolve. */
 export function Thread({
-  agent,
+  reviewed,
   thread,
   expand = false,
 }: {
-  agent: AgentView;
+  reviewed: Reviewed;
   thread: LineThread;
   /** Shows a resolved thread in full, e.g. when the user opened it from elsewhere. */
   expand?: boolean;
 }) {
   const { send } = useFleet();
+  const { task, agent } = reviewed;
+  const name = nameOf(reviewed);
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState(EMPTY_FORM);
-  const [replyBody, setReplyBody] = useAgentDraft(agent.name, `reply:${thread.id}`);
+  const [replyBody, setReplyBody] = useAgentDraft(draftOwner(reviewed), `reply:${thread.id}`);
   const open = !thread.resolved || expand;
   const resolve = (resolved: boolean) =>
-    send({ type: "thread_resolve", agent: agent.name, threadId: thread.id, resolved });
+    send({ type: "thread_resolve", task: task.id, threadId: thread.id, resolved });
 
   // The diff renders every file wherever it is scrolled, so only an answer the user can see
   // counts as read. The newest message is the one watched.
@@ -55,10 +70,10 @@ export function Thread({
     (element: HTMLDivElement | null) => {
       if (!unread || !element) return;
       return whenSeen(element, () =>
-        send({ type: "thread_read", agent: agent.name, threadId: thread.id }),
+        send({ type: "thread_read", task: task.id, threadId: thread.id }),
       );
     },
-    [unread, thread.id, agent.name, send],
+    [unread, thread.id, task.id, send],
   );
 
   if (!open) {
@@ -74,7 +89,9 @@ export function Thread({
   }
 
   const last = thread.messages.at(-1);
-  const busy = agent.activity === "working" || agent.pending > 0 || (agent.held?.length ?? 0) > 0;
+  const busy =
+    agent !== undefined &&
+    (agent.activity === "working" || agent.pending > 0 || (agent.held?.length ?? 0) > 0);
   const unanswered = last?.from === "user" && !last.held;
   return (
     <div className="thread" data-thread={thread.id}>
@@ -82,26 +99,26 @@ export function Thread({
         <Message
           key={message.id}
           ref={message === last ? watch : undefined}
-          agent={agent}
+          reviewed={reviewed}
           threadId={thread.id}
           message={message}
         />
       ))}
       {unanswered && (
         <p className="thread-note">
-          {busy ? `waiting for ${agent.name}` : `${agent.name} didn't answer here; see the session`}
+          {busy ? `waiting for ${name}` : `${name} didn't answer here; see the session`}
         </p>
       )}
       {replying || replyBody ? (
         <MessageForm
-          placeholder={`Reply to ${agent.name}`}
+          placeholder={`Reply to ${name}`}
           fold={thread.side === "head" ? thread.commit : undefined}
           body={replyBody}
           onBody={setReplyBody}
           form={reply}
           onForm={setReply}
           onSubmit={(draft) => {
-            send({ type: "thread_reply", agent: agent.name, threadId: thread.id, ...draft });
+            send({ type: "thread_reply", task: task.id, threadId: thread.id, ...draft });
             setReplyBody("");
             setReply(EMPTY_FORM);
             setReplying(false);
@@ -127,7 +144,7 @@ export function Thread({
 
 /** The form under freshly selected lines; it opens the thread. */
 export function NewThread({
-  agent,
+  reviewed,
   path,
   side,
   lines,
@@ -137,7 +154,7 @@ export function NewThread({
   onForm,
   onDone,
 }: {
-  agent: AgentView;
+  reviewed: Reviewed;
   path: string;
   side: Side;
   lines: LineRange;
@@ -150,8 +167,8 @@ export function NewThread({
   onDone: () => void;
 }) {
   const { send } = useFleet();
-  const { origin, looking } = useOrigin(agent.name, path, side, lines);
-  const [body, setBody] = useAgentDraft(agent.name, `thread:${hunk}`);
+  const { origin, looking } = useOrigin(reviewed.task.id, path, side, lines);
+  const [body, setBody] = useAgentDraft(draftOwner(reviewed), `thread:${hunk}`);
   const done = (): void => {
     setBody("");
     onDone();
@@ -159,7 +176,7 @@ export function NewThread({
   return (
     <MessageForm
       label={`About ${threadPlace(path, side, lines)}`}
-      placeholder={`Ask ${agent.name} about these lines`}
+      placeholder={`Ask ${nameOf(reviewed)} about these lines`}
       fold={origin?.short}
       // The commit is part of what the thread is opened with, so it has to be known by then.
       busy={looking}
@@ -170,7 +187,7 @@ export function NewThread({
       onSubmit={(draft) => {
         send({
           type: "thread_open",
-          agent: agent.name,
+          task: reviewed.task.id,
           path,
           side,
           lines: { start: lines.start, endExclusive: lines.endExclusive },
@@ -191,7 +208,7 @@ export function NewThread({
  * extend it and each answer runs jj a dozen times.
  */
 function useOrigin(
-  agent: string,
+  task: string,
   path: string,
   side: Side,
   { start, endExclusive }: LineRange,
@@ -205,7 +222,7 @@ function useOrigin(
     if (side !== "head") return;
     let current = true;
     const timer = setTimeout(() => {
-      call({ type: "review_origin", agent, path, start, endExclusive })
+      call({ type: "review_origin", task, path, start, endExclusive })
         .then(
           (found) => {
             if (current) setOrigin(found);
@@ -221,7 +238,7 @@ function useOrigin(
       current = false;
       clearTimeout(timer);
     };
-  }, [call, agent, path, side, start, endExclusive]);
+  }, [call, task, path, side, start, endExclusive]);
   return { origin, looking };
 }
 
@@ -261,23 +278,23 @@ function whenSeen(element: Element, seen: () => void): () => void {
 
 function Message({
   ref,
-  agent,
+  reviewed,
   threadId,
   message,
 }: {
   ref?: Ref<HTMLDivElement> | undefined;
-  agent: AgentView;
+  reviewed: Reviewed;
   threadId: string;
   message: ThreadMessage;
 }) {
   const { send } = useFleet();
   const [editing, setEditing] = useState(false);
-  const ids = { agent: agent.name, threadId, messageId: message.id };
+  const ids = { task: reviewed.task.id, threadId, messageId: message.id };
   const mine = message.from === "user";
   return (
     <div ref={ref} className={`thread-message ${message.from}`}>
       <header>
-        <span className="who">{mine ? "You" : agent.name}</span>
+        <span className="who">{mine ? "You" : nameOf(reviewed)}</span>
         {message.held && <span className="tag">held for Request changes</span>}
         {message.fold && <span className="tag">fold into {message.fold}</span>}
         <span className="spacer" />

@@ -15,7 +15,6 @@ import {
   type OpenPoint,
   type PermissionMode,
   type Question,
-  type Report,
   type ReviewKind,
   type RiskTag,
   type Role,
@@ -24,14 +23,23 @@ import {
   type TaskState,
   type Tint,
   type Todo,
+  USER,
   type Usage,
 } from "./events.ts";
-import type { LineThread, ReviewEdit, ThreadMessage } from "./review.ts";
+import {
+  applyTask,
+  columnOf,
+  laneOf,
+  needsUser,
+  type TaskView,
+  unlink,
+  unreadThreads,
+} from "./tasks.ts";
 
 /** Board column: the task state, except that an active task waiting on the user needs you. */
 export type Column = TaskState | "needs_you";
 
-/** What a timeline lane shows: the column, or for the director and stopped sessions what they do. */
+/** What a timeline lane shows: the column, or for directors, free agents and stopped sessions what they do. */
 export type Lane = Column | "idle" | "stopped";
 
 export interface Segment {
@@ -108,6 +116,8 @@ export interface Message {
   from: string;
   to: string;
   body: string;
+  /** Read by the user; messages between agents count as read. */
+  read: boolean;
 }
 
 /** A Markdown file of `- [ ]` points an agent wants answered; the answers go back together. */
@@ -153,15 +163,20 @@ export interface AttachedEntry extends AttachedFile {
 export interface AgentView {
   name: string;
   role: Role;
+  /** What it is: "Director", or a worker's workspace. */
   title: string;
-  prompt?: string;
   tint: Tint;
   workspace: string;
   cwd: string;
   host: string;
   /** The project it works in; the fleet director has none. */
   project?: string;
-  task: TaskState;
+  /** The task it holds. */
+  task?: string;
+  /** The task its current conversation belongs to; it goes to that task's archive when the next starts. */
+  conversationTask?: string;
+  /** An imported session sharing a directory with another agent; it takes no tickets. */
+  guest?: boolean;
   activity: Activity;
   /** Pending decisions of this agent. */
   pending: number;
@@ -183,8 +198,6 @@ export interface AgentView {
   };
   /** Files the session wrote or edited, newest first. */
   outputs: string[];
-  /** Files the worker attached for the user, newest first. */
-  attached: AttachedEntry[];
   /** What the current turn changed so far, per file. */
   turnEdits: FileEdit[];
   /** The latest handover to a fresh session, while it runs or if it failed. */
@@ -206,15 +219,6 @@ export interface AgentView {
   /** Outcome changed since the user last opened the agent. */
   unseen: boolean;
   createdSeq: number;
-  /** When the agent entered its current column. */
-  columnSince: number;
-  /** One-line status from `report_status`. */
-  status?: string;
-  report?: Report;
-  /** The director's ledger note. */
-  note?: string;
-  /** Hunks approved in the diff view, as of its last load. */
-  reviewProgress?: { approved: number; total: number };
   /** Lane changes over time, newest last, for the timeline. */
   history: Segment[];
   /** Who holds the session while it is detached: `null` nobody, absent when fleet cannot tell. */
@@ -227,10 +231,6 @@ export interface AgentView {
   transcriptMark?: string;
   /** Prompts waiting until fleet runs the detached session again. */
   held?: HeldText[];
-  /** Edits the user made in the diff view, reported with the next message about the diff. */
-  edits: ReviewEdit[];
-  /** Conversations about lines of the diff, oldest first. */
-  threads: LineThread[];
 }
 
 export interface FleetState {
@@ -252,7 +252,11 @@ export interface FleetState {
   restartPending: boolean;
   /** Workspaces that sessions outside fleet hold, by workspace name. */
   claims: Record<string, Claim>;
-  /** Pairs of tasks of different projects that may message each other, each sorted. */
+  /** Tasks by id; done and dropped ones up to DONE_LIMIT. */
+  tasks: Record<string, TaskView>;
+  /** Tasks created so far; numbers the next one. */
+  taskCount: number;
+  /** Pairs of task ids of different projects whose agents may message each other, each sorted. */
   links: Array<[string, string]>;
 }
 
@@ -286,7 +290,7 @@ export const MESSAGE_LIMIT = 500;
 export const HISTORY_LIMIT = 400;
 /** Prompts kept for a detached session; more are unlikely, and the oldest go first. */
 export const HELD_LIMIT = 50;
-/** Line threads kept per agent; past it the oldest resolved one goes, else the oldest. */
+/** Line threads kept per task; past it the oldest resolved one goes, else the oldest. */
 export const THREAD_LIMIT = 50;
 /** Messages kept per thread; the oldest go first. */
 export const THREAD_MESSAGES_LIMIT = 50;
@@ -296,76 +300,18 @@ export const QUOTE_LIMIT = 20;
 export const MODELS_LIMIT = 40;
 /** Files listed under a turn; a turn that edits more says how many. */
 export const EDITS_LIMIT = 100;
+/** Attached files kept per task; the oldest go first. */
+export const ATTACHED_LIMIT = 50;
+/** Ended conversations kept per task, each with its log; the oldest go first. */
+export const CONVERSATION_LIMIT = 5;
+/** Done and dropped tasks kept in the state; past it the one closed longest ago goes. */
+export const DONE_LIMIT = 100;
 /** Finished background tasks kept per agent; the oldest go first. */
 export const BACKGROUND_LIMIT = 20;
 /** Read Finished items kept per agent; the oldest go first. */
 export const FINISHED_READ_LIMIT = 20;
 /** Unread Finished items kept per agent; past it the oldest unread one goes. */
 export const FINISHED_UNREAD_LIMIT = 20;
-
-const ACTIVE: ReadonlySet<TaskState> = new Set(["running", "changes_requested"]);
-
-/** Tasks in these states hold their workspace: the agent's changes live there until accepted. */
-export const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set([
-  "running",
-  "review",
-  "changes_requested",
-]);
-
-/**
- * Whether the agent's work lives in its workspace. A director shares the checkout with the
- * user and changes no code there, so it never holds one.
- */
-export const holdsWorkspace = (agent: AgentView): boolean =>
-  agent.role === "worker" && HOLDS_WORKSPACE.has(agent.task);
-
-/** Who keeps a task other than `except` from starting in a workspace: a task there, or a claim. */
-export function workspaceHolder(
-  state: FleetState,
-  workspace: string,
-  except?: string,
-): string | undefined {
-  const task = Object.values(state.agents).find(
-    (a) => a.name !== except && a.workspace === workspace && holdsWorkspace(a),
-  );
-  return task?.name ?? state.claims[workspace]?.holder;
-}
-
-/** Who uses a workspace right now. */
-export interface WorkspaceUse {
-  /** Agents whose work lives in the workspace. */
-  tasks: AgentView[];
-  /** Tasks waiting for it. */
-  queued: number;
-  claim?: Claim;
-}
-
-export function workspaceUse(state: FleetState, workspace: string): WorkspaceUse {
-  const here = agentList(state).filter((a) => a.workspace === workspace);
-  return {
-    tasks: here.filter(holdsWorkspace),
-    queued: here.filter((a) => a.task === "queued").length,
-    claim: state.claims[workspace],
-  };
-}
-
-/** Why a workspace cannot leave fleet now, or undefined if nothing keeps it. */
-export function workspaceInUse({ tasks, queued, claim }: WorkspaceUse): string | undefined {
-  if (claim) return `${claim.holder} has claimed it`;
-  if (tasks.length > 0) return `it holds the work of ${tasks.map((a) => a.name).join(", ")}`;
-  if (queued > 0) return `${queued} queued ${queued === 1 ? "task waits" : "tasks wait"} for it`;
-  return undefined;
-}
-
-/** Thread messages waiting in the draft for Request changes. */
-export const heldMessages = (agent: AgentView): number =>
-  agent.threads.reduce((sum, t) => sum + t.messages.filter((m) => m.held).length, 0);
-
-/** Threads the agent replied to that the user has not looked at, oldest reply first. */
-export const unreadThreads = (state: FleetState): Array<{ agent: string; thread: LineThread }> =>
-  Object.values(state.agents)
-    .flatMap((a) => a.threads.filter((t) => t.unread).map((thread) => ({ agent: a.name, thread })))
-    .sort((a, b) => lastTs(a.thread) - lastTs(b.thread));
 
 /** Unread Finished items per agent, newest first; the agent with the newest run comes first. */
 export function unreadFinished(state: FleetState): Array<{ agent: string; runs: FinishedRun[] }> {
@@ -385,34 +331,6 @@ export const stretchEnded = (before: AgentView | undefined, after: AgentView): b
     (after.activity === "idle" || after.activity === "stopped")) ||
     (after.stretch.failed !== undefined && before?.stretch?.failed === undefined));
 
-const lastTs = (thread: LineThread): number => thread.messages.at(-1)?.ts ?? 0;
-
-export function columnOf(agent: AgentView): Column {
-  // An agent cut off by the network waits for fleet to continue it, not for the user. One
-  // whose shell still runs in the background carries on by itself once the shell ends.
-  const shellRuns = agent.backgroundTasks.some(
-    (t) => t.type === "local_bash" && t.backgrounded && !t.end && !t.overdue,
-  );
-  const waiting = agent.pending > 0 || (agent.activity === "idle" && !agent.offline && !shellRuns);
-  return ACTIVE.has(agent.task) && waiting ? "needs_you" : agent.task;
-}
-
-/**
- * Whether the agent waits on the user. Directors are idle most of the time by design, so only
- * their explicit requests count.
- */
-export const needsUser = (agent: AgentView): boolean =>
-  agent.role !== "worker" ? agent.pending > 0 : columnOf(agent) === "needs_you";
-
-/** The timeline lane of an agent right now. */
-export function laneOf(agent: AgentView): Lane {
-  if (agent.role !== "worker") {
-    return agent.pending > 0 ? "needs_you" : agent.activity === "working" ? "running" : "idle";
-  }
-  const column = columnOf(agent);
-  return column === "running" && agent.activity === "stopped" ? "stopped" : column;
-}
-
 /** The UTC day of a timestamp, as costs are counted. */
 export const dayOf = (ts: number): string => new Date(ts).toISOString().slice(0, 10);
 
@@ -431,15 +349,10 @@ export const emptyState = (): FleetState => ({
   models: [],
   restartPending: false,
   claims: {},
+  tasks: {},
+  taskCount: 0,
   links: [],
 });
-
-/** The tasks `agent` is linked to. */
-export const linksOf = (state: FleetState, agent: string): string[] =>
-  state.links.flatMap(([a, b]) => (a === agent ? [b] : b === agent ? [a] : []));
-
-const unlink = (links: FleetState["links"], agent: string): FleetState["links"] =>
-  links.filter((pair) => !pair.includes(agent));
 
 /**
  * Applies one event to the state. The daemon and the browser both build their state by
@@ -479,7 +392,12 @@ export const inboxCount = (state: FleetState): number =>
   unreadThreads(state).length +
   unreadFinished(state).reduce((n, group) => n + group.runs.length, 0);
 
-const ROLE_ORDER: Record<Role, number> = { "fleet-director": 0, director: 1, worker: 2 };
+const ROLE_ORDER: Record<Role, number> = {
+  "fleet-director": 0,
+  director: 1,
+  worker: 2,
+  investigator: 3,
+};
 
 /** Agents in creation order, the fleet director first, then the projects' directors. */
 export const agentList = (state: FleetState): AgentView[] =>
@@ -488,9 +406,10 @@ export const agentList = (state: FleetState): AgentView[] =>
   );
 
 /**
- * The state without the agents of projects the config no longer lists, and what hangs on them:
- * their decisions, open points, messages and links. The events stay in the log, so a project
- * that comes back has its history again. Agents without a project (the fleet director) stay.
+ * The state without the agents and tasks of projects the config no longer lists, and what hangs
+ * on them: their decisions, open points, messages and links. The events stay in the log, so a
+ * project that comes back has its history again. Agents without a project (the fleet director)
+ * stay.
  */
 export function withoutProjects(state: FleetState, known: ReadonlySet<string>): FleetState {
   const gone = new Set(
@@ -498,16 +417,20 @@ export function withoutProjects(state: FleetState, known: ReadonlySet<string>): 
       a.project !== undefined && !known.has(a.project) ? [a.name] : [],
     ),
   );
-  if (gone.size === 0) return state;
+  const goneTasks = new Set(
+    Object.values(state.tasks).flatMap((t) => (known.has(t.project) ? [] : [t.id])),
+  );
+  if (gone.size === 0 && goneTasks.size === 0) return state;
   const kept = <T extends { agent: string }>(record: Record<string, T>): Record<string, T> =>
     Object.fromEntries(Object.entries(record).filter(([, v]) => !gone.has(v.agent)));
   return {
     ...state,
     agents: Object.fromEntries(Object.entries(state.agents).filter(([name]) => !gone.has(name))),
+    tasks: Object.fromEntries(Object.entries(state.tasks).filter(([id]) => !goneTasks.has(id))),
     decisions: kept(state.decisions),
     openPoints: kept(state.openPoints),
     messages: state.messages.filter((m) => !gone.has(m.from) && !gone.has(m.to)),
-    links: state.links.filter(([a, b]) => !gone.has(a) && !gone.has(b)),
+    links: unlink(state.links, goneTasks),
   };
 }
 
@@ -520,9 +443,19 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       from: event.agent,
       to: event.to,
       body: event.body,
+      read: event.to !== USER,
     };
     return { ...state, messages: [...state.messages.slice(-(MESSAGE_LIMIT - 1)), message] };
   }
+  if (event.kind === "messages_read") {
+    const seqs = new Set(event.seqs);
+    return {
+      ...state,
+      messages: state.messages.map((m) => (seqs.has(m.seq) ? { ...m, read: true } : m)),
+    };
+  }
+  const task = applyTask(state, event);
+  if (task) return task;
   if (event.kind === "restart") return { ...state, restartPending: event.pending };
   if (event.kind === "power") {
     const { caffeinated, lidMode, since, note } = event;
@@ -549,13 +482,12 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       name: event.agent,
       role: event.role,
       title: event.title,
-      prompt: event.prompt,
       tint: "soft",
       workspace: event.workspace,
       cwd: event.cwd,
       host: event.host,
       project: event.project,
-      task: event.role === "worker" ? "queued" : "running",
+      ...(event.guest && { guest: true }),
       activity: "stopped",
       pending: 0,
       permissionMode: DEFAULT_PERMISSION_MODE,
@@ -565,19 +497,15 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       subagents: [],
       backgroundTasks: [],
       outputs: [],
-      attached: [],
       turnEdits: [],
       handovers: 0,
-      edits: [],
-      threads: [],
       finished: [],
-      history: [{ lane: event.role === "worker" ? "queued" : "idle", from: event.ts }],
+      history: [{ lane: "idle", from: event.ts }],
       costUsd: 0,
       costByDay: {},
       reconnecting: false,
       unseen: false,
       createdSeq: event.seq,
-      columnSince: event.ts,
       ...(event.imported && { briefing: "due" }),
     };
     return { ...state, agents: { ...state.agents, [event.agent]: agent } };
@@ -591,39 +519,21 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
   });
 
   switch (event.kind) {
-    case "task_state":
-      return {
-        ...patch({ task: event.state }),
-        ...(event.state === "accepted" && { links: unlink(state.links, event.agent) }),
-      };
-    case "linked": {
-      const pair = [event.agent, event.with].sort() as [string, string];
-      const known = state.links.some(([a, b]) => a === pair[0] && b === pair[1]);
-      if (known || !state.agents[event.with] || event.with === event.agent) return state;
-      return { ...state, links: [...state.links, pair] };
-    }
-    case "task_updated": {
-      const { title, prompt, workspace, cwd, project } = event;
-      return patch({
-        ...(title !== undefined && { title }),
-        ...(prompt !== undefined && { prompt }),
-        ...(workspace !== undefined && { workspace }),
-        ...(cwd !== undefined && { cwd }),
-        ...(project !== undefined && { project }),
-      });
-    }
-    case "task_removed": {
+    case "agent_removed": {
       const { [event.agent]: _removed, ...agents } = state.agents;
       const keep = <T extends { agent: string }>(items: Record<string, T>) =>
         Object.fromEntries(Object.entries(items).filter(([, item]) => item.agent !== event.agent));
+      const held = agent.task === undefined ? undefined : state.tasks[agent.task];
       return {
         ...state,
         agents,
+        ...(held && { tasks: { ...state.tasks, [held.id]: { ...held, agent: undefined } } }),
         decisions: keep(state.decisions),
         openPoints: keep(state.openPoints),
-        links: unlink(state.links, event.agent),
       };
     }
+    case "conversation_started":
+      return startConversation(state, agent, event);
     case "activity": {
       // A session that ends takes its unfinished turn along: no edits to list, nothing to continue.
       const ended =
@@ -766,19 +676,6 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return state;
     case "agent_opened":
       return patch({ unseen: false });
-    case "report":
-      return patch({
-        report: event.report,
-        attached: agent.attached.map((file) =>
-          file.reported ? file : { ...file, reported: true },
-        ),
-      });
-    case "files_attached":
-      return patch({ attached: trackAttached(agent.attached, event.files) });
-    case "status":
-      return patch({ status: event.text });
-    case "note":
-      return patch({ note: event.text });
     case "handover":
       if (event.state !== "done")
         return patch({ handover: { state: event.state, path: event.path, note: event.note } });
@@ -790,70 +687,25 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         context: undefined,
         log: appendLine(agent.log, event, "system", `New session, continuing from ${event.path}`),
       });
+    case "task_created":
+    case "task_state":
+    case "task_updated":
+    case "linked":
+    case "report":
+    case "files_attached":
+    case "status":
+    case "note":
     case "review_progress":
-      return patch({ reviewProgress: { approved: event.approved, total: event.total } });
     case "review_edited":
-      return patch({ edits: [...agent.edits, event.edit] });
     case "edits_reported":
-      return patch({ edits: [] });
     case "review_sent":
-      return patch({
-        edits: [],
-        threads: agent.threads.map((t) => ({
-          ...t,
-          messages: t.messages.map(({ held: _sent, ...m }) => m),
-        })),
-      });
-    case "thread_opened": {
-      const { thread, message } = event;
-      if (agent.threads.some((t) => t.id === thread.id)) return state;
-      const fresh: LineThread = {
-        ...thread,
-        messages: [cap(message)],
-        resolved: false,
-        unread: false,
-      };
-      return patch({ threads: [...makeRoom(agent.threads), fresh] });
-    }
-    case "thread_message": {
-      const { from } = event.message;
-      return patch({
-        threads: changeThread(agent, event.threadId, (t) => ({
-          ...t,
-          messages: [...t.messages, cap(event.message)].slice(-THREAD_MESSAGES_LIMIT),
-          unread: from === "agent",
-        })),
-      });
-    }
+    case "thread_opened":
+    case "thread_message":
     case "thread_message_edited":
-      return patch({
-        threads: changeThread(agent, event.threadId, (t) => ({
-          ...t,
-          messages: t.messages.map((m) =>
-            m.id === event.messageId ? { ...m, body: event.body } : m,
-          ),
-        })),
-      });
     case "thread_message_removed":
-      return patch({
-        threads: agent.threads.flatMap((t) => {
-          if (t.id !== event.threadId) return [t];
-          const messages = t.messages.filter((m) => m.id !== event.messageId);
-          return messages.length > 0 ? [{ ...t, messages }] : [];
-        }),
-      });
     case "thread_read":
-      return patch({
-        threads: changeThread(agent, event.threadId, (t) => ({ ...t, unread: false })),
-      });
     case "thread_resolved":
-      return patch({
-        threads: changeThread(agent, event.threadId, (t) => ({
-          ...t,
-          resolved: event.resolved,
-          unread: false,
-        })),
-      });
+      return state; // applied by applyTask
     case "open_points":
       return {
         ...state,
@@ -980,58 +832,106 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
 }
 
 /**
- * Marks an agent as new when its outcome changes: it starts to need the user or reaches
- * review. Log lines and other churn never count.
+ * Marks what an event changed for the user. A task whose column changed counts its time there
+ * anew. An agent is new when its outcome changes: it starts to need the user, its task reaches
+ * review, or it hands something in. Log lines and other churn never count.
  */
 function markOutcome(before: FleetState, after: FleetState, event: FleetEvent): FleetState {
-  const old = before.agents[event.agent];
-  const now = after.agents[event.agent];
-  if (!old || !now) return after;
-  const column = columnOf(now);
-  const moved = column !== columnOf(old);
-  const news =
-    (needsUser(now) && !needsUser(old)) ||
-    (moved && column === "review") ||
-    event.kind === "open_points" ||
-    event.kind === "run_finished" ||
-    (event.kind === "thread_message" &&
-      event.message.from === "agent" &&
-      now.threads.some((t) => t.id === event.threadId));
-  const lane = laneOf(now);
-  const laneChanged = now.history.at(-1)?.lane !== lane;
-  if (!moved && !news && !laneChanged) return after;
-  const updated = {
-    ...now,
-    columnSince: moved ? event.ts : now.columnSince,
-    unseen: now.unseen || news,
-    history: laneChanged
-      ? [...now.history.slice(-(HISTORY_LIMIT - 1)), { lane, from: event.ts }]
-      : now.history,
-  };
-  return { ...after, agents: { ...after.agents, [event.agent]: updated } };
+  const keyed = "task" in event ? event.task : undefined;
+  const names = new Set([event.agent]);
+  const tasks = new Set<string>();
+  if (keyed !== undefined) {
+    tasks.add(keyed);
+    for (const state of [before, after]) {
+      const holder = state.tasks[keyed]?.agent;
+      if (holder !== undefined) names.add(holder);
+    }
+  }
+  for (const name of names) {
+    for (const state of [before, after]) {
+      const held = state.agents[name]?.task;
+      if (held !== undefined) tasks.add(held);
+    }
+  }
+
+  let result = after;
+  const reviewed = new Set<string>();
+  for (const id of tasks) {
+    const was = before.tasks[id];
+    const now = result.tasks[id];
+    if (!was || !now) continue;
+    const column = columnOf(result, now);
+    if (column === columnOf(before, was)) continue;
+    if (column === "review" && now.agent !== undefined) reviewed.add(now.agent);
+    result = { ...result, tasks: { ...result.tasks, [id]: { ...now, columnSince: event.ts } } };
+  }
+
+  for (const name of names) {
+    const old = before.agents[name];
+    const now = result.agents[name];
+    if (!old || !now) continue;
+    const news =
+      (needsUser(result, now) && !needsUser(before, old)) ||
+      reviewed.has(name) ||
+      (name === event.agent && (event.kind === "open_points" || event.kind === "run_finished")) ||
+      (event.kind === "thread_message" &&
+        event.message.from === "agent" &&
+        result.tasks[event.task]?.agent === name &&
+        result.tasks[event.task]?.threads.some((t) => t.id === event.threadId) === true);
+    const lane = laneOf(result, now);
+    const laneChanged = now.history.at(-1)?.lane !== lane;
+    if (!news && !laneChanged) continue;
+    const updated = {
+      ...now,
+      unseen: now.unseen || news,
+      history: laneChanged
+        ? [...now.history.slice(-(HISTORY_LIMIT - 1)), { lane, from: event.ts }]
+        : now.history,
+    };
+    result = { ...result, agents: { ...result.agents, [name]: updated } };
+  }
+  return result;
 }
 
-const changeThread = (
-  agent: AgentView,
-  id: string,
-  change: (thread: LineThread) => LineThread,
-): LineThread[] => agent.threads.map((t) => (t.id === id ? change(t) : t));
-
-/** The agent's answers are cut like log text; the event log has all of it. */
-const cap = (message: ThreadMessage): ThreadMessage =>
-  message.from === "agent" && message.body.length > TEXT_LIMIT
-    ? { ...message, body: message.body.slice(0, TEXT_LIMIT) }
-    : message;
-
 /**
- * Leaves space for one more thread: drops the oldest resolved one, else the oldest. A thread with
- * messages still held for the next change request goes last.
+ * The agent starts a new conversation. The one it had goes into the archive of the task it
+ * belonged to; one without a task is dropped. A conversation of the task that is resumed or
+ * forked comes back out of the archive, with its log.
  */
-function makeRoom(threads: LineThread[]): LineThread[] {
-  if (threads.length < THREAD_LIMIT) return threads;
-  const settled = threads.filter((t) => !t.messages.some((m) => m.held));
-  const drop = settled.find((t) => t.resolved) ?? settled[0] ?? threads[0];
-  return threads.filter((t) => t !== drop);
+function startConversation(
+  state: FleetState,
+  agent: AgentView,
+  event: FleetEvent & { kind: "conversation_started" },
+): FleetState {
+  let tasks = state.tasks;
+  const previous = agent.conversationTask === undefined ? undefined : tasks[agent.conversationTask];
+  if (previous && (agent.log.length > 0 || agent.sessionId !== undefined)) {
+    const ended = { agent: agent.name, sessionId: agent.sessionId, log: agent.log };
+    const conversations = [...previous.conversations, ended].slice(-CONVERSATION_LIMIT);
+    tasks = { ...tasks, [previous.id]: { ...previous, conversations } };
+  }
+  const session = event.resume ?? event.fork?.session;
+  const target = event.task === undefined ? undefined : tasks[event.task];
+  const stored =
+    session === undefined ? undefined : target?.conversations.find((c) => c.sessionId === session);
+  if (target && stored) {
+    const conversations = target.conversations.filter((c) => c !== stored);
+    tasks = { ...tasks, [target.id]: { ...target, conversations } };
+  }
+  const fresh: AgentView = {
+    ...agent,
+    conversationTask: event.task,
+    sessionId: event.resume,
+    log: stored?.log ?? [],
+    todos: [],
+    subagents: [],
+    context: undefined,
+    turnEdits: [],
+    stretch: undefined,
+    outputs: [],
+    handover: undefined,
+  };
+  return { ...state, tasks, agents: { ...state.agents, [agent.name]: fresh } };
 }
 
 function appendLine(
@@ -1088,23 +988,6 @@ function trackOutputs(
   );
   if (!call?.toolName || !WRITING_TOOLS.has(call.toolName)) return outputs;
   return [call.text, ...outputs.filter((p) => p !== call.text)].slice(0, OUTPUT_LIMIT);
-}
-
-/** Attached files kept per agent; the oldest go first. */
-export const ATTACHED_LIMIT = 50;
-
-/**
- * New files go on top, not yet reported; attaching a path again moves it up, keeps its note
- * unless a new one comes, and takes it back out of the delivered files until the next report.
- */
-function trackAttached(attached: AttachedEntry[], files: AttachedFile[]): AttachedEntry[] {
-  const merged = files.map((file) => ({
-    ...file,
-    note: file.note ?? attached.find((a) => a.path === file.path)?.note,
-    reported: false,
-  }));
-  const paths = new Set(files.map((f) => f.path));
-  return [...merged, ...attached.filter((a) => !paths.has(a.path))].slice(0, ATTACHED_LIMIT);
 }
 
 function trackBackground(agent: AgentView, event: FleetEvent): BackgroundTask[] {

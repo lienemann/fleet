@@ -121,11 +121,12 @@ it("removes only a workspace nobody uses, and never the last one", () => {
     configFile: file,
     onWorkspacesChanged: changed,
   });
+  supervisor.init();
   const remove = (workspace: string) => supervisor.handle({ type: "remove_workspace", workspace });
 
   supervisor.startTask({ title: "One", context: "x", workspace: "ws1" });
   supervisor.claimWorkspace("outside", "ws2");
-  expect(() => remove("ws1")).toThrow("ws1 stays: it holds the work of alpha.");
+  expect(() => remove("ws1")).toThrow('ws1 stays: it holds the work of t1 "One".');
   expect(() => remove("ws2")).toThrow("ws2 stays: outside has claimed it.");
 
   remove("ws3");
