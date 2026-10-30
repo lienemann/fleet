@@ -130,6 +130,8 @@ export interface Stretch {
   countingSince?: number;
   /** The last text the agent wrote on its main thread in this stretch. */
   text?: string;
+  /** `text` was cut to TEXT_LIMIT. */
+  truncated?: boolean;
   endedByUser: boolean;
   /** The unread item this stretch continues after the agent woke itself. */
   continues?: string;
@@ -638,10 +640,19 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
     }
     case "finished_read": {
       const ids = new Set(event.ids);
+      const { stretch } = agent;
+      const continued = stretch?.continues
+        ? agent.finished.find((r) => r.id === stretch.continues && ids.has(r.id))
+        : undefined;
       return patch({
         finished: trimFinished(
           agent.finished.map((r) => (ids.has(r.id) ? { ...r, read: true } : r)),
         ),
+        // The user read what the stretch carries on from, so what it does now starts afresh.
+        ...(stretch &&
+          continued && {
+            stretch: withoutCarriedOver(stretch, continued),
+          }),
       });
     }
     case "log":
@@ -716,6 +727,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "connection":
       return patch({ reconnecting: event.reconnecting });
+    case "resumed":
+      return state;
     case "agent_opened":
       return patch({ unseen: false });
     case "report":
@@ -836,6 +849,12 @@ function trimFinished(items: FinishedRun[]): FinishedRun[] {
   return items.filter((r) => keep.has(r));
 }
 
+/** The stretch without the unread item it carried on from: its work and text start from nothing. */
+function withoutCarriedOver(stretch: Stretch, item: FinishedRun): Stretch {
+  const { continues: _item, text: _text, truncated: _cut, ...rest } = stretch;
+  return { ...rest, workMs: Math.max(0, stretch.workMs - item.workMs) };
+}
+
 /**
  * Follows the agent's stretch of work. A prompt of the user or another agent opens one,
  * unless the agent is mid-turn, when it joins the stretch under way. An agent that starts on
@@ -876,13 +895,27 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
       startedAt: event.ts,
       workMs: unread?.workMs ?? 0,
       endedByUser: false,
-      ...(unread && { continues: unread.id, text: unread.text }),
+      ...(unread && {
+        continues: unread.id,
+        text: unread.text,
+        ...(unread.truncated && { truncated: true }),
+      }),
     };
   }
   if (!stretch) return after;
 
   if (event.kind === "log" && event.role === "assistant" && event.parent === null) {
-    stretch = { ...stretch, text: event.text.slice(0, TEXT_LIMIT) };
+    const { truncated: _earlier, ...rest } = stretch;
+    stretch = {
+      ...rest,
+      text: event.text.slice(0, TEXT_LIMIT),
+      ...(event.text.length > TEXT_LIMIT && { truncated: true }),
+    };
+  }
+  if (event.kind === "resumed" && stretch.countingSince !== undefined) {
+    // The daemon was down: what it did until it went away counts, the time after does not.
+    const { countingSince, ...rest } = stretch;
+    stretch = { ...rest, workMs: stretch.workMs + Math.max(0, event.lastActive - countingSince) };
   }
   if (event.kind === "turn_finished") {
     const { failed: _earlier, ...rest } = stretch;
@@ -890,7 +923,7 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
       ? rest
       : { ...rest, failed: event.offline ? "offline" : (event.error ?? "error") };
   }
-  const counting = agent.activity === "working" && agent.pending === 0;
+  const counting = agent.activity === "working" && agent.pending === 0 && !agent.reconnecting;
   if (counting && stretch.countingSince === undefined) {
     stretch = { ...stretch, countingSince: event.ts };
   } else if (!counting && stretch.countingSince !== undefined) {

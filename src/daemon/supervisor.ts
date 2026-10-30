@@ -370,6 +370,7 @@ export class Supervisor implements ToolHost {
    * sessions that were live. Those resume; one that was mid-turn is told to continue.
    */
   init(): void {
+    const lastActive = this.log.since(this.log.lastSeq - 1).at(0)?.ts ?? Date.now();
     // A restart that was waiting has happened now.
     if (this.log.state.restartPending) this.append(DAEMON, { kind: "restart", pending: false });
     if (this.fleetDir && !this.agent(FLEET_DIRECTOR)) {
@@ -396,6 +397,9 @@ export class Supervisor implements ToolHost {
       });
     }
     for (const agent of this.agents) {
+      if (agent.stretch?.countingSince !== undefined) {
+        this.append(agent.name, { kind: "resumed", lastActive });
+      }
       if (agent.reconnecting) this.append(agent.name, { kind: "connection", reconnecting: false });
       // The tasks of a daemon that did not stop cleanly ended with its sessions.
       for (const task of agent.backgroundTasks.filter((t) => !t.end)) {
@@ -454,9 +458,10 @@ export class Supervisor implements ToolHost {
         }
         return;
       case "finished_reply": {
-        // A second click or tab meets items that are read already.
+        // A second click or tab meets items that are read already, and a comment on an item that a
+        // newer one replaced meanwhile would answer text the user has not seen.
         const finished = this.agent(message.agent)?.finished ?? [];
-        if (message.ids.every((id) => finished.find((r) => r.id === id)?.read)) return;
+        if (!message.ids.some((id) => finished.find((r) => r.id === id)?.read === false)) return;
         this.handle({ type: "prompt", agent: message.agent, text: message.text });
         this.handle({ type: "finished_read", agent: message.agent, ids: message.ids });
         return;
@@ -2191,7 +2196,7 @@ export class Supervisor implements ToolHost {
    * Turns a stretch of work that just ended into a Finished item: one that stopped without
    * the user always, one the user started only when it took long enough.
    */
-  private finishRun({ name, activity, stretch }: AgentView): void {
+  private finishRun({ name, activity, stretch, finished }: AgentView): void {
     // A failed turn with more queued behind it is no end; the idle that follows decides.
     if (!stretch || stretch.endedByUser || activity === "working") return;
     const stopped =
@@ -2200,14 +2205,19 @@ export class Supervisor implements ToolHost {
     const long = stretch.by === "user" && stretch.workMs >= this.config.finishedAfterMs;
     // An item this stretch continues is kept current, not doubled, whatever the stretch is.
     if (stopped === undefined && !long && !stretch.continues) return;
+    // A retry that stops for the same reason again is the same news, so it keeps the id and
+    // raises no new notification.
+    const continued = finished.find((r) => r.id === stretch.continues);
+    const again = stopped !== undefined && continued?.stopped === stopped;
     this.append(name, {
       kind: "run_finished",
       replaces: stretch.continues,
       item: {
-        id: randomUUID().slice(0, 8),
+        id: again ? continued.id : randomUUID().slice(0, 8),
         endedAt: Date.now(),
         workMs: stretch.workMs,
         text: stretch.text ?? "",
+        ...(stretch.truncated && { truncated: true }),
         stopped,
         read: false,
       },

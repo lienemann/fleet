@@ -642,6 +642,14 @@ describe("finished runs", () => {
       workMs: 30_000,
       text: "Waiting.",
     });
+    // New work adds onto what the item had.
+    const rested = agentAt(
+      [0, prompt("user")],
+      [30, runFinished(finished("i1", { workMs: 30_000 }))],
+      [60, working],
+      [70, activity("idle")],
+    );
+    expect(rested.stretch?.workMs).toBe(40_000);
     // A read item has nothing to continue.
     const read = agentAt(
       [0, prompt("user")],
@@ -653,6 +661,67 @@ describe("finished runs", () => {
     expect(read.stretch?.text).toBeUndefined();
     // Without a prompt before, nobody asked for the work.
     expect(agentAt([0, working]).stretch?.by).toBe("agent");
+  });
+
+  it("starts afresh when the user reads the item a woken stretch continues", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [30, runFinished(finished("i1", { workMs: 30_000, text: "Waiting.", truncated: true }))],
+      [60, working],
+      [65, readEvent("i1")],
+      [70, activity("idle")],
+    );
+    expect(agent.stretch).toMatchObject({ workMs: 10_000 });
+    expect(agent.stretch?.continues).toBeUndefined();
+    expect(agent.stretch?.text).toBeUndefined();
+    expect(agent.stretch?.truncated).toBeUndefined();
+  });
+
+  it("leaves out the time an agent spends reconnecting", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [10, { kind: "connection", agent: "a", reconnecting: true }],
+      [50, { kind: "connection", agent: "a", reconnecting: false }],
+      [60, activity("idle")],
+    );
+    expect(agent.stretch?.workMs).toBe(20_000);
+  });
+
+  it("does not count the time the daemon was down", () => {
+    const agent = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [100, { kind: "resumed", agent: "a", lastActive: 40_000 }],
+      [110, activity("idle")],
+    );
+    expect(agent.stretch?.workMs).toBe(50_000);
+  });
+
+  it("marks a text that was cut", () => {
+    const agent = agentAt([0, prompt("user")], [0, working], [1, said("x".repeat(TEXT_LIMIT + 1))]);
+    expect(agent.stretch).toMatchObject({ truncated: true });
+    expect(agent.stretch?.text).toHaveLength(TEXT_LIMIT);
+    expect(agentAt([0, prompt("user")], [1, said("short")]).stretch?.truncated).toBeUndefined();
+  });
+
+  it("keeps endedByUser through a failed turn, and a good turn clears the failure", () => {
+    const turn = (ok: boolean): NewEvent => ({
+      kind: "turn_finished",
+      agent: "a",
+      ok,
+      costUsd: 0,
+      ...(!ok && { error: "error_during_execution" }),
+    });
+    const ended = agentAt(
+      [0, prompt("user")],
+      [0, working],
+      [3, { kind: "ended_by_user", agent: "a", how: "interrupt" }],
+      [4, turn(false)],
+    );
+    expect(ended.stretch).toMatchObject({ endedByUser: true, failed: "error_during_execution" });
+    const recovered = agentAt([0, prompt("user")], [0, working], [1, turn(false)], [2, turn(true)]);
+    expect(recovered.stretch?.failed).toBeUndefined();
   });
 
   it("stores Finished items, replaces a continued one, and marks the agent new", () => {

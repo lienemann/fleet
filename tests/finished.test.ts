@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { QueryFn } from "../src/daemon/session.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
@@ -76,13 +76,15 @@ describe("Finished runs", () => {
     await until(idle(short.alpha));
     expect(short.alpha()?.finished).toEqual([]);
 
-    const { supervisor, alpha } = setup(echoing(assistantText("Ok."), result()));
+    const { supervisor, alpha, log } = setup(echoing(assistantText("Ok."), result()));
     supervisor.createTask("Fix it", "Do it.", "ws1");
     await until(() => alpha()?.finished.length === 1);
     supervisor.message(DIRECTOR, "alpha", "Please also check the docs.");
     await until(() => (alpha()?.log ?? []).some((l) => l.text.includes("Message from")));
     await until(idle(alpha));
     expect(alpha()?.finished).toHaveLength(1);
+    // The other agent's run adds no item, nor replaces the first one.
+    expect(log.since(0).filter((e) => e.kind === "run_finished")).toHaveLength(1);
   });
 
   it("reports a run that went offline, even a short one by another agent", async () => {
@@ -179,10 +181,13 @@ describe("Finished runs", () => {
     again.init();
     await until(idle(alpha));
     expect(log.since(0).filter((e) => e.kind === "run_finished")).toEqual([]);
+    // The time it was down stays out of the stretch's work.
+    expect(log.since(0).filter((e) => e.kind === "resumed")).toHaveLength(1);
   });
 
   it("leaves out the turn that writes a handover, but not the fresh session's work", async () => {
     const dir = mkdtempSync(join(tmpdir(), "fleet-finished-"));
+    onTestFinished(() => rmSync(dir, { recursive: true }));
     // Every turn leaves the handover file behind, so the handover succeeds.
     const script: Script = async function* (params) {
       for await (const _ of params.prompt as AsyncIterable<unknown>) {
@@ -279,6 +284,17 @@ describe("Finished runs", () => {
     ).toHaveLength(1);
   });
 
+  it("drops a reply to items that a newer one replaced meanwhile", async () => {
+    const { supervisor, alpha, prompts } = setup(echoing(assistantText("Plan ready."), result()));
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => alpha()?.finished.length === 1);
+    await until(idle(alpha));
+    const before = prompts().length;
+    supervisor.handle({ type: "finished_reply", agent: "alpha", ids: ["gone"], text: "Go ahead." });
+    expect(prompts()).toHaveLength(before);
+    expect(alpha()?.finished.map((r) => r.read)).toEqual([false]);
+  });
+
   it("names the director that stopped a worker", async () => {
     const { script, release } = held();
     const { supervisor, alpha } = setup(script, 15_000);
@@ -363,6 +379,9 @@ describe("Finished runs the agent goes on with by itself", () => {
       supervisor.watchConnection(0);
       await until(() => runs().length === 2);
       expect(alpha()?.finished).toMatchObject([{ stopped: "offline", text: "Making progress." }]);
+      // The same news under the same id, so the browser raises no second notification.
+      const ids = runs().map((e) => (e.kind === "run_finished" ? e.item.id : ""));
+      expect(new Set(ids).size).toBe(1);
       expect(runs().map((e) => (e.kind === "run_finished" ? e.item.text : ""))).toEqual([
         "Making progress.",
         "Making progress.",

@@ -42,6 +42,8 @@ export interface FinishedRun {
   workMs: number;
   /** Markdown; cut to TEXT_LIMIT. */
   text: string;
+  /** The text was cut. */
+  truncated?: boolean;
   /**
    * Set when the run ended without the user: "offline", the SDK's error subtype, "crashed" or
    * "stopped by <agent>" when another agent stopped it.
@@ -350,6 +352,11 @@ export type EventBody =
       autoCompactAt?: number;
     }
   | { kind: "connection"; reconnecting: boolean; detail?: string }
+  /**
+   * The daemon came back and runs the agent's session again. `lastActive` is when the log
+   * last saw anything, so the time it was down is not work.
+   */
+  | { kind: "resumed"; lastActive: number }
   | { kind: "agent_opened" }
   | { kind: "report"; report: Report }
   | { kind: "status"; text: string }
