@@ -92,6 +92,7 @@ export function Hunk(props: Props) {
           side={asking.side}
           lines={asking.lines}
           quote={quoteOf(rows, asking)}
+          hunk={hunk.id}
           form={props.form}
           onForm={props.onForm}
           onDone={props.onDone}

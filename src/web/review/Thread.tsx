@@ -2,19 +2,19 @@ import { type FormEvent, type Ref, useCallback, useEffect, useState } from "reac
 import type { CallResults } from "../../shared/protocol.ts";
 import type { AgentView } from "../../shared/reducer.ts";
 import type { LineRange, LineThread, ThreadMessage } from "../../shared/review.ts";
+import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 
 export type Side = "head" | "base";
 
-/** What is typed in a message form so far. */
+/** The checkboxes of a message form; what is typed in it is a draft of the agent. */
 export interface FormState {
-  body: string;
   held: boolean;
   folding: boolean;
 }
 
-export const EMPTY_FORM: FormState = { body: "", held: false, folding: false };
+export const EMPTY_FORM: FormState = { held: false, folding: false };
 
 /** What the message form sends; `fold` only when the user ticked its checkbox. */
 interface Draft {
@@ -43,6 +43,7 @@ export function Thread({
   const { send } = useFleet();
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState(EMPTY_FORM);
+  const [replyBody, setReplyBody] = useAgentDraft(agent.name, `reply:${thread.id}`);
   const open = !thread.resolved || expand;
   const resolve = (resolved: boolean) =>
     send({ type: "thread_resolve", agent: agent.name, threadId: thread.id, resolved });
@@ -91,18 +92,24 @@ export function Thread({
           {busy ? `waiting for ${agent.name}` : `${agent.name} didn't answer here; see the session`}
         </p>
       )}
-      {replying ? (
+      {replying || replyBody ? (
         <MessageForm
           placeholder={`Reply to ${agent.name}`}
           fold={thread.side === "head" ? thread.commit : undefined}
+          body={replyBody}
+          onBody={setReplyBody}
           form={reply}
           onForm={setReply}
           onSubmit={(draft) => {
             send({ type: "thread_reply", agent: agent.name, threadId: thread.id, ...draft });
+            setReplyBody("");
             setReply(EMPTY_FORM);
             setReplying(false);
           }}
-          onCancel={() => setReplying(false)}
+          onCancel={() => {
+            setReplyBody("");
+            setReplying(false);
+          }}
         />
       ) : (
         <footer>
@@ -125,6 +132,7 @@ export function NewThread({
   side,
   lines,
   quote,
+  hunk,
   form,
   onForm,
   onDone,
@@ -134,6 +142,8 @@ export function NewThread({
   side: Side;
   lines: LineRange;
   quote: string[];
+  /** The hunk the lines are in; each has its own draft, so the text survives a moved selection. */
+  hunk: string;
   /** Kept by the caller: the form remounts under another line as the selection grows. */
   form: FormState;
   onForm: (form: FormState) => void;
@@ -141,6 +151,11 @@ export function NewThread({
 }) {
   const { send } = useFleet();
   const { origin, looking } = useOrigin(agent.name, path, side, lines);
+  const [body, setBody] = useAgentDraft(agent.name, `thread:${hunk}`);
+  const done = (): void => {
+    setBody("");
+    onDone();
+  };
   return (
     <MessageForm
       label={`About ${threadPlace(path, side, lines)}`}
@@ -148,6 +163,8 @@ export function NewThread({
       fold={origin?.short}
       // The commit is part of what the thread is opened with, so it has to be known by then.
       busy={looking}
+      body={body}
+      onBody={setBody}
       form={form}
       onForm={onForm}
       onSubmit={(draft) => {
@@ -161,9 +178,9 @@ export function NewThread({
           ...(origin && { commit: origin.short }),
           ...draft,
         });
-        onDone();
+        done();
       }}
-      onCancel={onDone}
+      onCancel={done}
     />
   );
 }
@@ -303,6 +320,8 @@ function MessageForm({
   placeholder,
   fold,
   busy = false,
+  body,
+  onBody,
   form,
   onForm,
   onSubmit,
@@ -314,12 +333,14 @@ function MessageForm({
   fold: string | undefined;
   /** Waiting for something the message needs; it cannot be sent yet. */
   busy?: boolean;
+  body: string;
+  onBody: (body: string) => void;
   form: FormState;
   onForm: (form: FormState) => void;
   onSubmit: (draft: Draft) => void;
   onCancel: () => void;
 }) {
-  const { body, held, folding } = form;
+  const { held, folding } = form;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const text = body.trim();
@@ -333,7 +354,7 @@ function MessageForm({
         autoFocus
         rows={3}
         value={body}
-        onChange={(e) => onForm({ ...form, body: e.target.value })}
+        onChange={(e) => onBody(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit(e)}
         placeholder={`${placeholder} (⌘↵ to ${held ? "save" : "send"})`}
       />

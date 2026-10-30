@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useAppDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { useProjectFilter, useProjects } from "../projects.tsx";
 import { closeOnBackdrop } from "../ui/backdrop.ts";
@@ -10,8 +11,9 @@ import { closeOnBackdrop } from "../ui/backdrop.ts";
 export function NewTask({ onClose }: { onClose: () => void }) {
   const { info, send } = useFleet();
   const dialog = useRef<HTMLDialogElement>(null);
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
+  // Not about one agent, so the draft belongs to the app; Cancel keeps it for the next time.
+  const [title, setTitle] = useAppDraft("new-task.title");
+  const [prompt, setPrompt] = useAppDraft("new-task.prompt");
   const projects = useProjects();
   const filter = useProjectFilter();
   // The daemon's lists can arrive after the dialog opened.
@@ -32,6 +34,8 @@ export function NewTask({ onClose }: { onClose: () => void }) {
       prompt: prompt.trim() || title.trim(),
       workspace,
     });
+    setTitle("");
+    setPrompt("");
     onClose();
   };
 
