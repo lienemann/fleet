@@ -10,6 +10,7 @@ import type {
 } from "../../shared/review.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel, useCommands } from "../keys/keymap.tsx";
+import { useTaskMoves } from "../taskMoves.ts";
 import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
 import { EMPTY_FORM, type Side, Thread, threadPlace } from "./Thread.tsx";
@@ -36,7 +37,8 @@ export function DiffView({
   thread?: { id: string };
   file?: { path: string };
 }) {
-  const { call, send } = useFleet();
+  const { call } = useFleet();
+  const moves = useTaskMoves();
   const [model, setModel] = useState<ReviewModel>();
   const [error, setError] = useState<string>();
   const [layout, setLayout] = useState<Layout>("inline");
@@ -344,7 +346,7 @@ export function DiffView({
             type="button"
             className="small"
             disabled={agent.role !== "worker"}
-            onClick={() => send({ type: "request_changes", agent: agent.name })}
+            onClick={() => moves.changes(agent.name)}
           >
             Request changes{held > 0 && ` · ${held} held`}
             {agent.edits.length > 0 && ` · ${agent.edits.length} edits`}
@@ -353,7 +355,7 @@ export function DiffView({
             type="button"
             className="small primary"
             disabled={agent.role !== "worker" || agent.task === "accepted"}
-            onClick={() => send({ type: "move", agent: agent.name, to: "accepted" })}
+            onClick={() => moves.accept(agent.name)}
           >
             Accept{unreviewed > 0 && ` · ${unreviewed} unreviewed`}
             {held > 0 && ` · ${held} held`}

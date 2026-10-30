@@ -14,6 +14,7 @@ import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
+import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel, useAgentStyle } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { useNow } from "../useNow.ts";
@@ -120,7 +121,7 @@ function Card({
   const style = useAgentStyle(agent);
   const now = useNow();
   const column = columnOf(agent);
-  const move = (to: UserMove) => send({ type: "move", agent: agent.name, to });
+  const moves = useTaskMoves();
   const [decision] = pendingDecisions(state).filter((d) => d.agent === agent.name);
   const done = agent.todos.filter((t) => t.status === "completed").length;
   const holder = workspaceHolder(state, agent.workspace, agent.name);
@@ -204,30 +205,16 @@ function Card({
             Message
           </button>
         )}
-        {column === "review" && (
-          <>
-            <button type="button" className="small primary" onClick={() => move("accepted")}>
-              Accept
-            </button>
-            <button
-              type="button"
-              className="small"
-              onClick={() => send({ type: "request_changes", agent: agent.name })}
-            >
-              Request changes
-            </button>
-          </>
-        )}
-        {(column === "running" || column === "needs_you") && (
-          <button type="button" className="small" onClick={() => move("review")}>
-            To review
+        {movesOf(agent).map((move) => (
+          <button
+            key={move}
+            type="button"
+            className={`small ${move === "accept" ? "primary" : ""}`}
+            onClick={() => moves[move](agent.name)}
+          >
+            {TASK_MOVES[move].button}
           </button>
-        )}
-        {column === "accepted" && (
-          <button type="button" className="small" onClick={() => move("running")}>
-            Reopen
-          </button>
-        )}
+        ))}
       </footer>
     </article>
   );

@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { PERMISSION_MODES, type UserMove } from "../shared/events.ts";
+import { PERMISSION_MODES } from "../shared/events.ts";
 import { lastWorkspace } from "../shared/hosts.ts";
 import {
   agentList,
@@ -26,6 +26,7 @@ import { NewTask } from "./shell/NewTask.tsx";
 import { ProjectColor } from "./shell/ProjectColor.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
+import { TASK_MOVES, useTaskMoves } from "./taskMoves.ts";
 import { attachAgent } from "./tile/attach.ts";
 import { canHandOver } from "./tile/CliBar.tsx";
 import { ResizeHandle } from "./ui/ResizeHandle.tsx";
@@ -49,6 +50,7 @@ const focus = (selector: string): void => document.querySelector<HTMLElement>(se
 
 export function App() {
   const { state, info, connected, offline, error, send, toggleTheme } = useFleet();
+  const moves = useTaskMoves();
   const [view, setView] = useState<View>("board");
   const [selected, setSelected] = useState<string>();
   const [enlarged, setEnlarged] = useState<string>();
@@ -412,7 +414,6 @@ export function App() {
           requestId: decision.requestId,
           answer: behavior === "allow" ? { behavior, alwaysAllow } : { behavior },
         });
-    const move = (to: UserMove) => () => send({ type: "move", agent: name, to });
     const mode = current?.permissionMode ?? "default";
     const nextMode =
       PERMISSION_MODES[(PERMISSION_MODES.indexOf(mode) + 1) % PERMISSION_MODES.length];
@@ -506,41 +507,13 @@ export function App() {
         keys: ["alt+r"],
         run: answer("deny"),
       },
-      {
-        id: "move.review",
-        label: "Move to review",
+      ...(["review", "changes", "accept", "reopen", "remove"] as const).map((m) => ({
+        id: TASK_MOVES[m].id,
+        label: TASK_MOVES[m].label,
         group: "Move the selected task",
-        keys: ["alt+m r"],
-        run: move("review"),
-      },
-      {
-        id: "move.changes",
-        label: "Request changes",
-        group: "Move the selected task",
-        keys: ["alt+m c"],
-        run: () => send({ type: "request_changes", agent: name }),
-      },
-      {
-        id: "move.accept",
-        label: "Accept",
-        group: "Move the selected task",
-        keys: ["alt+m a"],
-        run: move("accepted"),
-      },
-      {
-        id: "move.reopen",
-        label: "Reopen",
-        group: "Move the selected task",
-        keys: ["alt+m o"],
-        run: move("running"),
-      },
-      {
-        id: "agent.remove",
-        label: "Remove from fleet",
-        group: "Move the selected task",
-        keys: ["alt+m x"],
-        run: () => remove(name),
-      },
+        keys: [TASK_MOVES[m].keys],
+        run: () => (m === "remove" ? remove(name) : moves[m](name)),
+      })),
       {
         id: "drawer.next",
         label: "Next drawer tab",
