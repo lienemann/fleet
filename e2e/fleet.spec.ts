@@ -230,10 +230,44 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await expect(read).toContainText(title);
 
   // The comment went to the agent as a prompt.
-  await read.getByRole("button", { name: "Open" }).first().click();
+  await read
+    .locator(".run", { hasText: title })
+    .getByRole("button", { name: "Open", exact: true })
+    .click();
   await expect(page.locator(".tile .log")).toContainText("Thanks");
   await page.keyboard.press("1");
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+});
+
+test("Mark read and Go deal with a finished run without a comment", async ({ page }) => {
+  await page.goto("/");
+  const read = page.locator(".read-finished");
+  const finishedTask = async (title: string, workspace: string) => {
+    await newTask(page, title, workspace);
+    await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+    await answerFromInbox(page, title);
+    const group = page.locator(".finished", { hasText: title });
+    await expect(group).toContainText("Finished", { timeout: 15_000 });
+    return group;
+  };
+
+  const marked = await finishedTask("Sort the imports", "ws1");
+  await marked.getByRole("button", { name: "Mark read" }).click();
+  await expect(marked).toHaveCount(0);
+  await read.locator("summary").click();
+  await expect(read).toContainText("Sort the imports");
+  await page.keyboard.press("1");
+  await card(page, "Review", "Sort the imports").getByRole("button", { name: "Accept" }).click();
+
+  // Go answers for the user, so the agent gets a prompt and the group is read.
+  const go = await finishedTask("Rename the helpers", "ws2");
+  await go.getByRole("button", { name: "Go", exact: true }).click();
+  await expect(go).toHaveCount(0);
+  await page.keyboard.press("1");
+  const task = card(page, "Review", "Rename the helpers");
+  await task.locator(".card-main").click();
+  await expect(page.locator(".drawer .log")).toContainText("Go ahead.");
+  await task.getByRole("button", { name: "Accept" }).click();
 });
 
 test("a run that ends while the user watches the agent goes straight to read", async ({ page }) => {
