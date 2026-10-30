@@ -3,7 +3,7 @@ import { type AgentView, QUOTE_LIMIT } from "../../shared/reducer.ts";
 import type { FileView, HunkView, LineRange, LineThread } from "../../shared/review.ts";
 import type { Layout } from "./DiffView.tsx";
 import { highlightLine } from "./highlight.ts";
-import { NewThread, type Side, Thread } from "./Thread.tsx";
+import { type FormState, NewThread, type Side, Thread } from "./Thread.tsx";
 
 /** Lines picked by their numbers, on one side of one hunk. */
 export interface Selection {
@@ -29,6 +29,8 @@ interface Props {
   focused: boolean;
   composing: "thread" | "edit" | undefined;
   selection: Selection | undefined;
+  /** What is typed so far in the form for a new thread. */
+  form: FormState;
   threads: PlacedThread[];
   /** The thread the user came to see; shown in full even when resolved. */
   focusThread: string | undefined;
@@ -36,6 +38,7 @@ interface Props {
   onFocus: () => void;
   onCompose: (mode: "thread" | "edit") => void;
   onSelect: (side: Side, line: number, extend: boolean) => void;
+  onForm: (form: FormState) => void;
   onDone: () => void;
   onApprove: (approved: boolean) => void;
   onEdit: (lines: string[]) => void;
@@ -88,6 +91,8 @@ export function Hunk(props: Props) {
           side={asking.side}
           lines={asking.lines}
           quote={quoteOf(rows, asking)}
+          form={props.form}
+          onForm={props.onForm}
           onDone={props.onDone}
         />
       ),

@@ -7,6 +7,15 @@ import { Markdown } from "../ui/Markdown.tsx";
 
 export type Side = "head" | "base";
 
+/** What is typed in a message form so far. */
+export interface FormState {
+  body: string;
+  held: boolean;
+  folding: boolean;
+}
+
+export const EMPTY_FORM: FormState = { body: "", held: false, folding: false };
+
 /** What the message form sends; `fold` only when the user ticked its checkbox. */
 interface Draft {
   body: string;
@@ -33,6 +42,7 @@ export function Thread({
 }) {
   const { send } = useFleet();
   const [replying, setReplying] = useState(false);
+  const [reply, setReply] = useState(EMPTY_FORM);
   const open = !thread.resolved || expand;
   const resolve = (resolved: boolean) =>
     send({ type: "thread_resolve", agent: agent.name, threadId: thread.id, resolved });
@@ -85,8 +95,11 @@ export function Thread({
         <MessageForm
           placeholder={`Reply to ${agent.name}`}
           fold={thread.side === "head" ? thread.commit : undefined}
+          form={reply}
+          onForm={setReply}
           onSubmit={(draft) => {
             send({ type: "thread_reply", agent: agent.name, threadId: thread.id, ...draft });
+            setReply(EMPTY_FORM);
             setReplying(false);
           }}
           onCancel={() => setReplying(false)}
@@ -112,6 +125,8 @@ export function NewThread({
   side,
   lines,
   quote,
+  form,
+  onForm,
   onDone,
 }: {
   agent: AgentView;
@@ -119,15 +134,22 @@ export function NewThread({
   side: Side;
   lines: LineRange;
   quote: string[];
+  /** Kept by the caller: the form remounts under another line as the selection grows. */
+  form: FormState;
+  onForm: (form: FormState) => void;
   onDone: () => void;
 }) {
   const { send } = useFleet();
-  const origin = useOrigin(agent.name, path, side, lines);
+  const { origin, looking } = useOrigin(agent.name, path, side, lines);
   return (
     <MessageForm
       label={`About ${threadPlace(path, side, lines)}`}
       placeholder={`Ask ${agent.name} about these lines`}
       fold={origin?.short}
+      // The commit is part of what the thread is opened with, so it has to be known by then.
+      busy={looking}
+      form={form}
+      onForm={onForm}
       onSubmit={(draft) => {
         send({
           type: "thread_open",
@@ -147,36 +169,43 @@ export function NewThread({
 }
 
 /**
- * The task's commit that last changed the selected new lines, if one did. Asked once the
- * selection settles, since Shift+click may still extend it and each answer runs jj a dozen times.
+ * The task's commit that last changed the selected new lines, if one did, and whether the
+ * answer is still on its way. Asked once the selection settles, since Shift+click may still
+ * extend it and each answer runs jj a dozen times.
  */
 function useOrigin(
   agent: string,
   path: string,
   side: Side,
   { start, endExclusive }: LineRange,
-): CallResults["review_origin"] {
+): { origin: CallResults["review_origin"]; looking: boolean } {
   const { call } = useFleet();
   const [origin, setOrigin] = useState<CallResults["review_origin"]>(null);
+  const [looking, setLooking] = useState(side === "head");
   useEffect(() => {
     setOrigin(null);
+    setLooking(side === "head");
     if (side !== "head") return;
     let current = true;
     const timer = setTimeout(() => {
-      call({ type: "review_origin", agent, path, start, endExclusive }).then(
-        (found) => {
-          if (current) setOrigin(found);
-        },
-        // Without an answer there is just no fold checkbox.
-        () => undefined,
-      );
+      call({ type: "review_origin", agent, path, start, endExclusive })
+        .then(
+          (found) => {
+            if (current) setOrigin(found);
+          },
+          // Without an answer there is just no fold checkbox.
+          () => undefined,
+        )
+        .finally(() => {
+          if (current) setLooking(false);
+        });
     }, 300);
     return () => {
       current = false;
       clearTimeout(timer);
     };
   }, [call, agent, path, side, start, endExclusive]);
-  return origin;
+  return { origin, looking };
 }
 
 /** Steps of the visible part, so a message taller than the screen still reports when it fills half of it. */
@@ -273,6 +302,9 @@ function MessageForm({
   label,
   placeholder,
   fold,
+  busy = false,
+  form,
+  onForm,
   onSubmit,
   onCancel,
 }: {
@@ -280,16 +312,18 @@ function MessageForm({
   placeholder: string;
   /** The commit a fix could be folded into; no checkbox without one. */
   fold: string | undefined;
+  /** Waiting for something the message needs; it cannot be sent yet. */
+  busy?: boolean;
+  form: FormState;
+  onForm: (form: FormState) => void;
   onSubmit: (draft: Draft) => void;
   onCancel: () => void;
 }) {
-  const [body, setBody] = useState("");
-  const [held, setHeld] = useState(false);
-  const [folding, setFolding] = useState(false);
+  const { body, held, folding } = form;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const text = body.trim();
-    if (text) onSubmit({ body: text, held, ...(fold && folding && { fold }) });
+    if (text && !busy) onSubmit({ body: text, held, ...(fold && folding && { fold }) });
   };
   return (
     <form className="compose" onSubmit={submit}>
@@ -299,13 +333,17 @@ function MessageForm({
         autoFocus
         rows={3}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => onForm({ ...form, body: e.target.value })}
         onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit(e)}
         placeholder={`${placeholder} (⌘↵ to ${held ? "save" : "send"})`}
       />
       <footer>
         <label>
-          <input type="checkbox" checked={held} onChange={(e) => setHeld(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={held}
+            onChange={(e) => onForm({ ...form, held: e.target.checked })}
+          />
           Hold for Request changes
         </label>
         {fold && (
@@ -313,13 +351,13 @@ function MessageForm({
             <input
               type="checkbox"
               checked={folding}
-              onChange={(e) => setFolding(e.target.checked)}
+              onChange={(e) => onForm({ ...form, folding: e.target.checked })}
             />
             Fold the fix into <code>{fold}</code>
           </label>
         )}
         <span className="spacer" />
-        <button type="submit" className="small primary" disabled={!body.trim()}>
+        <button type="submit" className="small primary" disabled={!body.trim() || busy}>
           {held ? "Save" : "Send"}
         </button>
         <button type="button" className="small" onClick={onCancel}>

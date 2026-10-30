@@ -12,7 +12,7 @@ import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
-import { type Side, Thread, threadPlace } from "./Thread.tsx";
+import { EMPTY_FORM, type Side, Thread, threadPlace } from "./Thread.tsx";
 
 export type Layout = "inline" | "split";
 
@@ -24,7 +24,8 @@ interface Focus {
 /**
  * Review of a task's change against trunk, or of one of its commits, built on reviewdiff-core:
  * approve hunk by hunk, ask about lines in threads, fix small things in place. Approvals are
- * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it; each new request object does so again.
+ * shared with ReviewDiff. `thread` scrolls to that thread and expands it once the diff shows it;
+ * each new request object does so again.
  */
 export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: string } }) {
   const { call, send } = useFleet();
@@ -34,6 +35,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
   const [focusId, setFocusId] = useState<string>();
   const [composing, setComposing] = useState<"thread" | "edit">();
   const [selection, setSelection] = useState<Selection>();
+  const [form, setForm] = useState(EMPTY_FORM);
   const [fileOrder, setFileOrder] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
@@ -61,6 +63,7 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
   const close = () => {
     setComposing(undefined);
     setSelection(undefined);
+    setForm(EMPTY_FORM);
   };
   const choose = (next: ReviewScope) => {
     setFocusId(undefined);
@@ -148,11 +151,13 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
 
   const ask = (hunk: HunkView, side: Side, lines: Selection["lines"], anchor = lines.start) => {
     if (lines.endExclusive <= lines.start) return;
+    // The text typed so far follows a selection that grows, but not one in another hunk.
+    if (selection?.hunk !== hunk.id) setForm(EMPTY_FORM);
     setFocusId(hunk.id);
     setSelection({ hunk: hunk.id, side, anchor, lines });
     setComposing("thread");
   };
-  /** A click on a line number selects that line; with Shift, the lines from the first click to it. */
+  /** A click on a line number selects it; with Shift, the lines from the first click to it. */
   const select = (hunk: HunkView, side: Side, line: number, extend: boolean) => {
     const from =
       extend && selection?.hunk === hunk.id && selection.side === side ? selection.anchor : line;
@@ -354,6 +359,8 @@ export function DiffView({ agent, thread }: { agent: AgentView; thread?: { id: s
               focused={hunk.id === focused?.hunk.id}
               composing={hunk.id === focused?.hunk.id ? composing : undefined}
               selection={selection?.hunk === hunk.id ? selection : undefined}
+              form={form}
+              onForm={setForm}
               threads={threadsIn(hunk)}
               focusThread={thread?.id}
               canEdit={canEdit}
