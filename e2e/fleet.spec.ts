@@ -274,6 +274,14 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await expect(group.getByRole("button", { name: "Mark read" })).toBeVisible();
 
   await group.getByPlaceholder(/^Comment for/).fill("Thanks");
+  // The comment is a draft of the agent: a reload keeps it and the agent's prompt shows it too.
+  await page.reload();
+  await page.keyboard.press("Alt+2");
+  await expect(group.getByPlaceholder(/^Comment for/)).toHaveValue("Thanks");
+  await group.getByRole("button", { name: "Open", exact: true }).first().click();
+  await expect(page.locator(".tile [data-prompt]")).toHaveValue("Thanks");
+  await page.keyboard.press("Escape"); // leaves the field
+  await page.keyboard.press("Alt+2");
   // Go would drop the comment, so only Send is left.
   await expect(group.getByRole("button", { name: "Go" })).toBeDisabled();
   await group.getByRole("button", { name: /^Send/ }).click();
@@ -288,6 +296,8 @@ test("a finished run waits in the inbox until the user comments on it", async ({
     .getByRole("button", { name: "Open", exact: true })
     .click();
   await expect(page.locator(".tile .log")).toContainText("Thanks");
+  // Sending cleared the draft everywhere.
+  await expect(page.locator(".tile [data-prompt]")).toHaveValue("");
   await page.keyboard.press("Alt+1");
   await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
 });
@@ -1161,36 +1171,24 @@ test("the sidebars collapse to a strip and come back at their old width", async 
   await expect.poll(drawerWidth).toBe(open);
 });
 
-test("a draft belongs to its agent: the dock, the drawer and a reload show the same one until it is sent", async ({
+test("the dock keeps its choice of director and one line of text, which follows the choice", async ({
   page,
 }) => {
   await page.goto("/");
   const dock = page.locator(".dock");
+  await dock.getByLabel("Talk to").selectOption("fleet");
+  await dock.getByPlaceholder(/Message the fleet director/).fill("Half a thought");
   await dock.getByLabel("Talk to").selectOption("director-site");
   const inDock = dock.getByPlaceholder(/Message the director of site/);
-  await inDock.fill("Half a thought");
+  await expect(inDock).toHaveValue("Half a thought");
 
-  // Another agent's box is not touched, and the drawer shows what the dock has.
-  await dock.getByRole("button", { name: "director-site" }).click();
-  const inDrawer = page
-    .getByRole("complementary", { name: "Selected task" })
-    .locator("[data-prompt]");
-  await expect(inDrawer).toHaveValue("Half a thought");
-  await dock.getByLabel("Talk to").selectOption("fleet");
-  await expect(dock.getByPlaceholder(/Message the fleet director/)).toHaveValue("");
-
-  await inDrawer.fill("Half a thought, finished");
   await page.reload();
-  await dock.getByLabel("Talk to").selectOption("director-site");
-  await expect(inDock).toHaveValue("Half a thought, finished");
+  await expect(dock.getByLabel("Talk to")).toHaveValue("director-site");
+  await expect(inDock).toHaveValue("Half a thought");
 
-  // Sending from the drawer clears it in the dock.
-  await dock.getByRole("button", { name: "director-site" }).click();
-  await expect(inDrawer).toHaveValue("Half a thought, finished");
-  await inDrawer.press("Enter");
+  await inDock.press("Enter");
   await expect(inDock).toHaveValue("");
-  await expect(inDrawer).toHaveValue("");
-  await page.keyboard.press("Alt+x");
+  await expect(dock.locator(".dock-reply")).not.toContainText("Half a thought");
 });
 
 test("the drawer fills the window and shrinks back without losing its draft", async ({ page }) => {

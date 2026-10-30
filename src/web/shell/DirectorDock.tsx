@@ -1,10 +1,11 @@
-import { type FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import { FLEET_DIRECTOR } from "../../shared/events.ts";
-import { useAgentDraft } from "../drafts.ts";
+import { useAppDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { type Command, useCommands } from "../keys/keymap.tsx";
 import { useProjects } from "../projects.tsx";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
+import { useDockDirector } from "../useDockDirector.ts";
 
 /**
  * A director's latest reply and a prompt to it, always at hand: the fleet director's, or, picked
@@ -13,7 +14,7 @@ import { AgentLabel } from "../ui/AgentLabel.tsx";
 export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
   const { state, send } = useFleet();
   const projects = useProjects();
-  const [chosen, setChosen] = useState<string>();
+  const [chosen, setChosen] = useDockDirector();
   const directors = [
     { name: FLEET_DIRECTOR, label: "Fleet director", whom: "the fleet director" },
     ...projects.flatMap((p) =>
@@ -24,7 +25,8 @@ export function DirectorDock({ onOpen }: { onOpen: (agent: string) => void }) {
   ].filter((d) => state.agents[d.name]);
   const target = directors.find((d) => d.name === chosen) ?? directors[0];
   const director = target && state.agents[target.name];
-  const [draft, setDraft] = useAgentDraft(target?.name ?? "", "prompt");
+  // One line for all directors: I may pick the receiver after typing.
+  const [draft, setDraft] = useAppDraft("dock");
 
   useCommands(
     directors.length > 1
