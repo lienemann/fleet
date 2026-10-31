@@ -116,6 +116,10 @@ Agents never format their replies as JSON. Structure comes from three sources: t
 | `send_message`       | any agent     | to, body (multi-line)                                      | Message bus, flow view, both transcripts                                           |
 | `spawn_task`         | director only | title, context pack, workspace, host, `same_worker`        | New worker on the board; with `same_worker` the task waits for the named worker    |
 | `ledger`             | director only | read or update tasks                                       | Director's view of the board                                                       |
+| `keep_awake`         | any worker or investigator | reason, minutes (0 releases), optional background task id | Hold in the header's awake popover and the agent's Activity tab; the Mac stays awake until it ends |
+| `lease_ports`        | any worker or investigator | label, count                                | Port range in the agent's Activity tab, in the tool result and in `.fleet/ports.env` |
+| `start_process`, `process_status`, `stop_process` | any worker or investigator | name; command, cwd, url, keep awake | Row in the Activity tab with output, Open and Stop |
+| `vpn`                | any worker or investigator | connect or disconnect, reason                              | Inbox question before a connect; banner while connected                            |
 
 **Decisions and permissions.** `canUseTool` turns every permission prompt and every `AskUserQuestion` into an inbox item. Each item carries Claude's explanation: the text it wrote just before the call, taken from the stream, plus risk tags the daemon derives from the command (network, writes outside the workspace, runtime).
 
@@ -161,18 +165,18 @@ The daemon is the only stateful component: one append-only SQLite event log per 
 | Path                                                       | Content                                             |
 | ---------------------------------------------------------- | --------------------------------------------------- |
 | `~/.fleet/fleet.db`                                        | Event log and projections                           |
-| `~/.fleet/config.toml`                                     | Hosts, projects with their colors, workspaces, WIP limits, sleep policy |
+| `~/.fleet/config.toml`                                     | Hosts, projects with their colors, workspaces, WIP limits, sleep policy, port range, process limit, VPN commands |
 | `<workspace>/.fleet/<agent>/`                              | Reports, open-point files, context packs            |
 | ReviewDiff `approvals.json` (common git dir or `.jj/repo`) | Hunk approvals, read and written by the diff view   |
 
-Data that comes and goes with tasks, sessions and agents lives in `fleet.db`: the event log, an agent's model, effort and tint, its threads and open points. Configuration whose lifetime doesn't depend on any project or task lives in `config.toml`: hosts, projects with their colors and workspaces, limits, the sleep policy, thresholds such as the one for Finished items. I can edit the file by hand or keep it with my dotfiles, and the settings in the UI write to the same file. Resetting `fleet.db` then costs history, never configuration.
+Data that comes and goes with tasks, sessions and agents lives in `fleet.db`: the event log, an agent's model, effort and tint, its threads and open points. Configuration whose lifetime doesn't depend on any project or task lives in `config.toml`: hosts, projects with their colors and workspaces, limits, the sleep policy, the port range, the VPN commands, thresholds such as the one for Finished items. I can edit the file by hand or keep it with my dotfiles, and the settings in the UI write to the same file. Resetting `fleet.db` then costs history, never configuration.
 
 ## UI
 
 One web app served by the daemon, with six views over the same task data. Selection is shared: a task picked in one view stays picked in the others. The mockup on the Agent Supervisor UI canvas is the reference for layout and behaviour.
 
 **Shell (every view)**
-- Header: view switcher (keys 1–6), counters (working, need me, in review, open points, new), New task, lid-closed mode, theme, command palette (⌘K).
+- Header: view switcher (keys 1–6), counters (working, need me, in review, open points, new), New task, lid-closed mode, keep-awake gate, theme, command palette (⌘K). The row narrows in a fixed order (see Machine tools) and never hides lid-closed mode.
 - Bus ticker: the last two messages, each with a packet that crosses from sender to receiver three times when it arrives and then rests at the receiver; multi-line bodies show their first line plus a line count.
 - Director dock: the director's latest reply and a prompt to it.
 - Left rail: agent tree (director → workers → subagents) in the project's color with status dots and "new" marks. Under each director, agents sort by what they need from me: Needs you first, then working, waiting and free ones, each with its current task; free agents stay listed, dimmed, so none disappears with its ticket; hosts and jj workspaces, each with the disk it takes and Purge. With several projects, each project's agents and workspaces sit in an indented block under its name; clicking the name, or "Fold <project>" in the palette, folds the block away, leaving a dot if an agent of that project needs me, and the fold survives a reload.
@@ -319,6 +323,86 @@ When the directory is missing, or none of its files has the expected shape, the 
 
 **Bringing my own director.** I may already have a Claude Code session that coordinates my work, and fleet's director should start from what it knows. Its conversation is not taken over, since a director needs a clean context and fleet's rules from its first turn. In the import dialog, "Use as director" on a session resumes a fork of it (the SDK's `forkSession`), so the original stays untouched wherever it is open and nothing is ended. The fork gets the handover request and writes the handover file under the director's `.fleet/`. fleet's director then starts a fresh session from that file, as after a handover; its previous session ends. The board and tasks are in the event log and need no handover.
 
+## Machine tools
+
+Agents already do some things through Bash that reach past their workspace: they keep the Mac awake, pick ports, start servers and connect the VPN. In Bash these are invisible to me, nothing cleans them up and no policy covers them. An action becomes a fleet tool when it touches something outside the agent's workspace, outlives the turn, or should be visible to me or governed by a policy. Everything else (jj, just, tests, compilers, reading files) stays in Bash under `policy.ts`.
+
+**What the tools share.**
+- Workers and investigators call them; directors and the fleet director do not. A director's own subagents run only small checks, and anything larger goes to a worker.
+- What an agent holds through them is listed in a Held block at the top of its Activity tab, above the background tasks: the awake hold, the port range, its processes and its use of the VPN, each with Release or Stop. The state keeps only what is held now, and each tool caps what one agent can hold, so it stays bounded.
+- A hold belongs to the agent's task. It ends when the task is Done, Dropped or Parked, and when the agent is removed; the sections below say what else ends each kind. Review keeps processes, ports and the VPN, since I may want to try what the worker built, but it ends an awake hold. An agent without a ticket has only the ends that need no task. A restarted session or daemon releases nothing by itself: at start the daemon checks every hold against the task and agent it belongs to and lets go of the ones whose owner is gone.
+- Bash keeps working for these things, except where a tool exists that does the job visibly. `policy.ts` gets a verdict for those commands, checked like `jjPolicy` and enforced by a hook as the foreign-edit check is, so the permission mode cannot skip it. It refuses with a message that names the tool.
+- This builds on the tickets-and-agents rebuild, because every lifetime above hangs on a task ending and an agent leaving the pool.
+
+| Tool | Callers | Policy | Ends when |
+| --- | --- | --- | --- |
+| `keep_awake` | worker, investigator | `[sleep]` in `config.toml`, the header gate | deadline, named background task ends, session process ends, task leaves In progress, agent removed, gate off, low battery, Release |
+| `lease_ports` | worker, investigator | `[ports]` in `config.toml` | task Done, Dropped or Parked, agent removed, a new lease, Release |
+| `start_process` | worker, investigator | the Bash verdict for its command; `[processes]` | process exits, Stop, task Done, Dropped or Parked, agent removed |
+| `vpn` | worker, investigator | `[vpn]` in `config.toml`, the inbox question | last user lets go, task Done, Dropped or Parked, agent removed, my Disconnect |
+
+**Keep awake.** Today the daemon holds `caffeinate -i` while any agent works, so a background e2e run, benchmark or build lets the Mac sleep as soon as its agent goes idle. A tool closes that gap, and it is an explicit call with a deadline, not a hold that every background task carries. Fleet cannot tell a benchmark from a dev server or a watcher, and a hold on each of those would keep the Mac up for days. The agent knows which work has to finish, so the agent says so. The exception is a process started with `start_process`, whose lifetime fleet owns: its `keep_awake` flag lets the process carry the hold for as long as it runs, up to the cap.
+- `keep_awake(reason, minutes, task?)`. The reason is one line that I read; minutes run from 1 to `max_hold_minutes` (default 240), and a longer ask is refused with the cap in the message; `task` is the id of a background task from the Activity tab, so the hold ends when that shell ends. An agent has one hold: calling again replaces it, and `minutes: 0` releases it. The result is "Holding until 15:40" or a refusal.
+- The daemon holds `caffeinate -i` while any agent works or any hold is live. A hold does not keep the Mac running with the lid shut: that stays lid-closed mode, which only I switch on. No tool turns it on, and a Bash `pmset` that changes sleep settings is refused for agents in every mode, since it would skip the two-hour limit and the battery check.
+- The gate sits in the header, and it is the only thing that decides whether agents may hold the Mac awake. While it is off, `keep_awake` refuses: "Holds are switched off on this Mac to save energy. Carry on without; if the work cannot finish while the Mac sleeps, say so in your report." Switching it off ends every live hold at once and tells each holder in a message, so no agent keeps counting on a Mac that went to sleep. The gate does not touch the hold for working agents: a Mac that sleeps during a turn drops the request and sets off the watchdog (provisional).
+- Holds also end when the battery falls below 20 % off AC power, as lid-closed mode does (provisional). Every ending of a hold names its reason in the power event, like the lid-closed banner does.
+- Default and persistence: the gate is on by default and lives in `config.toml` as `[sleep] agent_holds = true`, next to `max_hold_minutes`, written there when I switch it in the header. It is the machine's standing preference, such as "off while I am on battery for a week", and it should survive a restart like the other sleep policy. Forgetting it in either position is cheap: on costs some power, off costs a refusal the agent reads and reports. Lid-closed mode is the opposite case, since forgetting it can overheat a Mac in a bag, so it stays a runtime switch that expires by itself.
+- The popover. The header's awake button (a can icon) shows the number of live holds and opens a popover with the gate as a switch on top, then one row per holder: the agent's name in its project's color, the reason, the time left or "until its shell ends", and Release. A line at the bottom says that with the lid shut the Mac sleeps unless lid-closed mode is on. A pod's daemon has no sleep control, so the button belongs to the Mac's daemon and the tool on a pod says that it has nothing to hold. The gate and Release are commands in the keymap, with keys chosen when they are built.
+- Bash: raw `caffeinate` is refused with a message that names `keep_awake`, since a hold made that way is invisible and nothing ends it.
+
+**Header at narrow widths.** The row today holds, left to right: the name with the host label and the project filter, the view switcher, the counters with the day's cost, New task, lid-closed mode, the awake button, then Notify, the font, theme, the palette and `?`. The mockup's row is shorter (it has no cost, filter, font, Notify or `?`), but the order is the same. Lid-closed mode and the awake button sit right after New task, ahead of the secondary controls, so the row never pushes them away. Lid-closed mode stays visible at every width, because a Mac that never sleeps in a bag can do damage. The header measures its own width, not the device's, and gives things up in this order, each step only when the row no longer fits:
+1. The key hints on the view buttons, New task and Command.
+2. The words on the counters (dot and number stay), and the text on the awake button and the lid-closed button: the moon stays, with its name in the tooltip.
+3. The day's cost and the host label, which move into tooltips.
+4. Font, Notify, theme, `?` and Command fold into a "⋯" menu; each is also in the palette.
+5. The counters other than "need you" fold into that menu.
+6. New task shrinks to "+".
+7. The view switcher becomes one button that shows the current view and opens a menu; the keys and the palette still switch views.
+8. The project filter moves into the menu.
+
+Two things never leave: the lid-closed button and the awake button's icon with its count. Below about 360 px, where even the shortest row will not fit, the row wraps, and the lid-closed button leads the wrapped line, so it is never clipped. While lid-closed mode is on, its button wears the warning fill and border, shows "On" next to the moon at every width, and pulses slowly unless the system asks for less motion; the browser tab's title gets a moon in front, so it shows from another tab. The banner under the header, with its Turn off button, stays at every width (provisional order and width).
+
+**Port leases.** Workers that run e2e or demo daemons pick ports by hand and collide. A lease gives the agent a range that nobody else holds.
+- `lease_ports(label, count)`. The label says what the ports are for ("e2e", "demo daemon") and shows in the UI; count runs from 1 to 16. The daemon takes a contiguous range from `[ports] range` in `config.toml` (default 20000 to 29999), skipping ranges that another agent holds, the daemon's own port, and any port it cannot bind on 127.0.0.1 right now. The result names the range. An agent holds one lease: asking again replaces it, so a recipe can call the tool as often as it likes. A pod's daemon leases from its own range.
+- Reading it. For a worker, the daemon writes `.fleet/ports.env` in its workspace with `FLEET_PORTS=20040-20043` and `FLEET_PORT=20040` (the first port), and deletes the file when the lease ends. The justfile loads it with `set dotenv-path := ".fleet/ports.env"`, and the Playwright config and the e2e recipes read `FLEET_PORT` and `FLEET_PORTS` instead of `FLEET_E2E_PORT`; without a lease they use their old defaults. An investigator shares its checkout with others, so it gets no file; the range is in the tool result only (provisional).
+- UI: a line in the Held block, "Ports 20040–20043 · e2e", with Release. A lease ends with its task, and the processes that use the range are stopped first.
+- Bash: nothing to refuse, since a port number in a command is not recognizable. The agent prompt tells agents to lease before they start anything that listens, and the recipes use what they find.
+
+**Long-running processes.** Demo daemons, dev servers and scripts outlive their agent today, because they start with `nohup` or `&` and nobody tracks them.
+- How it relates to the Activity tab. Claude Code's background shells stay the route for work the agent's own turn follows, such as tests and builds: they wake the agent when they end, they show in the Activity tab, and they die with the CLI process. `start_process` is for what has to outlive a session, or what I should be able to see and stop whatever the session does. The daemon owns such a process, not the CLI, but it shows in the same list in the Activity tab: the same row, with a "process" tag, its command, how long it has run, when its output last grew, the end of the output and Stop. Two differences: the amber hint for quiet output is off for processes, since a server is quiet by nature, and a row may have an Open link. Finished rows follow the same rule as shells (the last 20 per agent, and Clear).
+- `start_process(name, command, cwd?, url?, keep_awake?)`. The name is unique among the agent's processes and labels the row; the command runs through `sh -c` in `cwd`, which must lie in the agent's workspace (default: its root), with `FLEET_PORTS` set if the agent holds a lease; `url` is a link for me, as for a demo daemon's address; `keep_awake` lets the process carry an awake hold while it runs. When the gate is off the process still starts, and the result says that it holds nothing. Starting a name that is running starts nothing and returns its status. An agent runs at most `[processes] per_agent` (default 4).
+- `process_status(name?)` returns the state, pid, run time, exit code and the last 40 lines of output, or a line per process without a name. `stop_process(name)` sends SIGTERM to its process group and SIGKILL after 10 s (provisional).
+- The command is not exempt from the permission path. `start_process` runs it only after the verdict a Bash call with the same command would get: `allowed_tools` and the policy apply, and anything else asks me in the inbox, with the same risk tags, while the tool waits for my answer. Otherwise the tool would be a way around the permission prompt.
+- Mechanics. The daemon starts the process in a group of its own, with its output going to `.fleet/<agent>/processes/<name>.log`, kept to the last megabyte. The event log records the start, the exit and the code, never the output. The daemon writes down pid and start time, so a daemon restart finds its processes again by the check that finds a session's holder (the pid is alive and the start time matches), and marks the others exited with an unknown code. A session restart touches nothing.
+- When a process ends by itself while its task is in progress, the agent gets a message with the exit code, the run time and the last lines, as it does when a background shell ends. A process that I or the task's end stopped sends nothing.
+- Cleanup: the process stops when it exits, on Stop (mine or the agent's), when its task is Done, Dropped or Parked, and when its agent is removed; Review keeps it. "Stop all" in the Held block stops every process of one agent.
+- Bash: a command that detaches (`nohup`, `setsid`, `disown`, a trailing `&`) is refused with a message that says to use `run_in_background` for work the turn follows and `start_process` for the rest. This is a heuristic on the usual spellings; the agent prompt does most of the guiding.
+
+**VPN.** Connecting changes the network of the whole machine: every agent and every app of mine. Fleet never assumes a VPN product, so the host names the commands, and the feature is off without them.
+- In the host's `config.toml`:
+  ```toml
+  [vpn]
+  connect = "<command>"  # runs in sh, whatever the product
+  disconnect = "<command>"
+  status = "<command>"   # optional: exit 0 while connected
+  ask = "always"         # or "never"
+  ```
+  Fleet runs the commands as written and does not parse them. Without `[vpn]` the tool refuses ("this host has no VPN configured") and the UI shows nothing about VPNs except what the next bullets say. A pod's daemon has its own `[vpn]` or none. Directors cannot change it.
+- `vpn(action, reason)`, action `connect` or `disconnect`; the reason is shown in the inbox. A connect registers the agent as a user. If the VPN is already up (by `status`, or because fleet connected it for someone else), the agent joins at once and nothing is asked. Otherwise the connect comes to the inbox as a decision like any other: the agent, its reason, the connect command verbatim, and a line that it changes the network of the whole Mac. The options are Connect, "Connect and stop asking until fleet restarts", and Refuse. With `ask = "never"`, which is for a machine and a VPN that I trust, fleet connects without asking. After I agree, fleet runs `connect`, waits up to a minute for `status` to say connected (without `status` it trusts the exit code) and returns "connected" or the end of the command's output.
+- A disconnect lets go of the agent's use. Fleet runs `disconnect` only when it connected the VPN itself and no other agent still uses it; otherwise the result says who does. A VPN that was already up when fleet started is never disconnected by fleet, except by my own Disconnect.
+- UI: while the VPN is connected, a banner under the header, like the sleep banner, says since when, who connected it (fleet or outside), who uses it and why, with Disconnect, which is mine and works whatever the uses. With `status` set, the daemon checks every 30 s, so a VPN I connect or drop outside fleet shows right. "Connect VPN" and "Disconnect VPN" are palette commands whenever `[vpn]` exists, and my own connect asks nothing. The header gets no button of its own, since the banner covers the time that matters.
+- Cleanup: an agent's use ends with its task and its removal; the last use going away disconnects what fleet connected. When the daemon stops, it disconnects a VPN it connected, as it releases the sleep hold.
+- Bash: a command that runs the host's configured connect or disconnect command, or its first words, is refused with a message that names `vpn`. Without `[vpn]` fleet knows no such command, and a VPN command in Bash goes to the inbox like any other unknown one.
+
+**Opening a URL or an app on my screen.** There is no tool for it. The browser where fleet runs is my screen, and a link in fleet opens there, also through a tunnel, whereas `open` runs on the agent's host: on a pod it opens nothing I can see, and on the Mac it takes focus while I work on something else. What I should look at already has a place: files are attached with `attach_file`, a review or a question comes to the inbox, and a running thing's address is the `url` of its process, shown as an Open link in the Activity tab. Bash `open` stays as it is, a command that asks me.
+
+**Build.** After the tickets-and-agents rebuild, in this order:
+1. Header reflow and the awake button's place (small, a day): it touches `App.tsx`, the header and its CSS, which other work edits, so it goes first and can land before the rebuild.
+2. The held-things mechanism (a hold per agent, released at task end and reconciled at start), `keep_awake`, the gate, `[sleep]`, the Held block and the `caffeinate` and `pmset` refusals (medium, two days). Everything after it reuses the mechanism.
+3. `lease_ports`, with the recipes and the Playwright config reading it (small, a day).
+4. The process tools: detached start, adoption after a restart, logs, Activity rows, the permission path, the exit message and the detach refusal (large, three to four days).
+5. `vpn`: config, inbox question, use counting, banner and the refusal (medium, one to two days).
+
 ## Security, auth and Mac specifics
 
 The daemon can make agents run commands, so it is reachable only through `127.0.0.1` and tunnels, never an open port.
@@ -332,7 +416,7 @@ The daemon can make agents run commands, so it is reachable only through `127.0.
 **Permissions.** Agents start in auto mode, with a per-workspace allow list (tests, jj, build). Anything outside goes to the inbox. The director has no write tools outside `.fleet/`.
 
 **Sleep on the Mac.**
-- While any agent is busy, the daemon holds `caffeinate -i`.
+- While any agent is busy, or holds the Mac awake through `keep_awake` or a process (see Machine tools), the daemon holds `caffeinate -i`. A gate in the header decides whether agents may hold it for work that outlives their turn.
 - Lid-closed mode runs `pmset disablesleep 1` through a sudoers rule that allows exactly `pmset disablesleep 1` and `pmset disablesleep 0`, nothing else.
 - It turns itself off when all agents are idle, after 2 h, or below 20 % battery. A banner shows it is on.
 - While the lid is closed, builds and benchmarks on the Mac pause; pods keep going.
