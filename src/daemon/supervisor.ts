@@ -199,11 +199,13 @@ export interface WorkspaceStatus {
 
 /**
  * How a worker's conversation on a task begins: fresh with the brief, resuming the task's
- * earlier session in place, or forking the session that the agent `from` had.
+ * earlier session in place, following the worker's own current session into a new task (Same
+ * worker), or forking the session that the agent `from` had.
  */
 type Opening =
   | { kind: "fresh" }
   | { kind: "resume"; session: string }
+  | { kind: "follow"; session: string }
   | { kind: "fork"; session: string; from: AgentView };
 
 /** The free worker that takes a queued task, and how its conversation begins. */
@@ -654,9 +656,15 @@ export class Supervisor implements ToolHost {
         for (const agent of this.agents)
           if (agent.unseen) this.append(agent.name, { kind: "agent_opened" });
         return;
-      case "create_task":
-        this.createTask(message.title, message.brief, message.workspace);
+      case "create_task": {
+        const { title, brief, workspace, worker, sameWorker } = message;
+        try {
+          this.startTask({ title, context: brief, workspace, worker, sameWorker });
+        } catch (error) {
+          if (!(error instanceof ToolError)) throw error;
+        }
         return;
+      }
       case "continue":
         this.continueAgent(message.agent);
         return;
@@ -668,6 +676,9 @@ export class Supervisor implements ToolHost {
         return;
       case "unpark":
         this.unpark(message.task, message.sameWorker ?? false);
+        return;
+      case "unpin":
+        this.unpin(message.task);
         return;
       case "drop": {
         const task = this.task(message.task);
@@ -1363,7 +1374,7 @@ export class Supervisor implements ToolHost {
 
   /**
    * Queues a worker task and returns its id: for a workspace's worker, or, without one, for any
-   * free worker of `project`. `by` is who asks.
+   * free worker of `project`. `by` is who asks; a `pin` names the only worker that may take it.
    */
   createTask(
     title: string,
@@ -1371,6 +1382,7 @@ export class Supervisor implements ToolHost {
     workspace: string | undefined,
     by = USER,
     project = this.home,
+    pin?: string,
   ): string | undefined {
     const ws = workspace === undefined ? undefined : this.workspace(workspace);
     if (workspace !== undefined && !ws) return undefined;
@@ -1386,6 +1398,7 @@ export class Supervisor implements ToolHost {
       role: "worker",
       by,
       ...(ws && { workspace: ws.name }),
+      ...(pin !== undefined && { pin }),
     });
     this.schedule();
     return id;
@@ -1742,14 +1755,20 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Creates a worker task, the director's limits aside: for the named workspace, else for any
-   * free worker of `project`. `by` is who asks.
+   * Creates a worker task, the director's limits aside: for the named worker or workspace, else
+   * for any free worker of `project`. With `sameWorker`, the named worker takes it in its own
+   * conversation and no other worker does. `by` is who asks.
    */
   startTask(
-    { title, context, workspace }: SpawnRequest,
+    { title, context, worker: named, sameWorker, ...request }: SpawnRequest,
     project?: Project,
     by: string = USER,
   ): string {
+    const worker = named === undefined ? undefined : this.agent(named);
+    if (named !== undefined && (worker?.role !== "worker" || worker.guest)) {
+      throw new ToolError(`No worker "${named}". Workers: ${this.workerNames(project)}.`);
+    }
+    const workspace = worker?.workspace ?? request.workspace;
     const names = this.workspaceNames(project);
     const ws = workspace === undefined ? undefined : this.workspace(workspace);
     if (workspace !== undefined && !ws) {
@@ -1760,7 +1779,12 @@ export class Supervisor implements ToolHost {
         `${workspace} belongs to the project ${ws.project}. Workspaces: ${names}.`,
       );
     }
-    const id = this.createTask(title, context, workspace, by, project);
+    // A pinned task is for its worker, not its workspace, so Unpin lets any worker take it.
+    const pin = sameWorker ? worker?.name : undefined;
+    const id =
+      pin === undefined
+        ? this.createTask(title, context, workspace, by, project)
+        : this.createTask(title, context, undefined, by, worker && this.projectOf(worker), pin);
     if (id === undefined) throw new ToolError("No project takes tasks; add one first.");
     return `Spawned ${id}; ${this.standing(id)}.`;
   }
@@ -1770,6 +1794,7 @@ export class Supervisor implements ToolHost {
     const worker = this.starting.get(id);
     if (worker !== undefined) return `it starts on ${worker} in ${this.agent(worker)?.workspace}`;
     const task = this.task(id);
+    if (task?.pinNote !== undefined) return `it cannot start: ${task.pinNote}`;
     if (task?.state === "queued") {
       return `it waits for ${task.pin ?? task.workspace ?? "a free worker"}`;
     }
@@ -2252,6 +2277,14 @@ export class Supervisor implements ToolHost {
     this.schedule();
   }
 
+  /** Releases a queued task that waits for one worker to the pool, which places it as any other. */
+  private unpin(id: string): void {
+    const task = this.task(id);
+    if (task?.state !== "queued" || task.pin === undefined) return;
+    this.append(DAEMON, { kind: "task_updated", task: id, pin: null });
+    this.schedule();
+  }
+
   /**
    * Tells an agent that stopped without the user, offline, after a failed request or a crash,
    * to go on. Any other agent is left alone.
@@ -2278,6 +2311,13 @@ export class Supervisor implements ToolHost {
 
   private workspaceNames(project?: Project): string {
     return (project?.workspaces ?? this.workspaces).map((w) => w.name).join(", ");
+  }
+
+  private workerNames(project?: Project): string {
+    const workers = this.agents.filter(
+      (a) => a.role === "worker" && !a.guest && (!project || a.project === project.name),
+    );
+    return workers.map((a) => a.name).join(", ");
   }
 
   // --- Internals ---------------------------------------------------------------------
@@ -2496,11 +2536,17 @@ export class Supervisor implements ToolHost {
 
   /**
    * The pool: hands queued tasks in creation order to free workers while the limits leave room.
-   * A task whose project is full waits without holding up the other projects'.
+   * A task whose project is full waits without holding up the other projects'. A pinned task
+   * that its worker can never take gets a note saying why, and waits for Unpin.
    */
   private schedule(): void {
     for (const task of taskList(this.state)) {
       if (task.state !== "queued" || this.starting.has(task.id)) continue;
+      const refusal = this.pinRefusal(task);
+      if (refusal !== undefined) {
+        this.refusePin(task, refusal);
+        continue;
+      }
       if (!this.hasRoom(task.project, "running")) continue;
       const placement = this.placement(task);
       if (typeof placement === "object") this.begin(task, placement);
@@ -2508,17 +2554,58 @@ export class Supervisor implements ToolHost {
   }
 
   /**
+   * Why a pinned task can never start on its worker: the worker is gone, or, once it is free,
+   * the conversation the task would continue there is. Undefined while it may still start.
+   */
+  private pinRefusal(task: TaskView): string | undefined {
+    if (task.pin === undefined) return undefined;
+    if (task.pinNote !== undefined) return task.pinNote;
+    const worker = this.agent(task.pin);
+    if (worker?.role !== "worker" || worker.guest) return `${task.pin} was removed`;
+    // A busy worker's conversation is still changing; it counts once the worker is free.
+    if (!this.takes(worker, task)) return undefined;
+    if (this.pinnedSession(task, worker) !== undefined) return undefined;
+    return conversationsOf(this.state, task).length === 0
+      ? `${task.pin} has no conversation to continue`
+      : `the conversation ${task.pin} would continue is gone`;
+  }
+
+  /** Puts the reason a pinned task cannot start on its card, once. */
+  private refusePin(task: TaskView, why: string): void {
+    if (task.pinNote === why) return;
+    this.append(DAEMON, { kind: "task_state", task: task.id, state: "queued", pinNote: why });
+  }
+
+  /**
+   * The session a pinned task resumes on its worker: its last conversation there, or, for a
+   * task that never ran, the worker's current one.
+   */
+  private pinnedSession(task: TaskView, worker: AgentView): string | undefined {
+    const conversations = conversationsOf(this.state, task);
+    if (conversations.length === 0) return worker.sessionId;
+    return conversations.findLast((c) => c.agent === worker.name)?.sessionId;
+  }
+
+  /** Whether the worker may take the task now: it is free, and no other task's work is there. */
+  private takes(worker: AgentView, task: TaskView): boolean {
+    return (
+      this.isFree(worker) && workspaceHolder(this.state, worker.workspace, task.id) === undefined
+    );
+  }
+
+  /**
    * Which free worker takes a queued task, past the limits, and how its conversation begins; else
-   * what keeps the task waiting. A pinned task waits for its worker, one for a workspace for that
-   * workspace's; any other goes to a worker of its project outside the explicit workspaces. The
-   * worker that had the task's last conversation resumes it in place; another one forks it.
+   * what keeps the task waiting. A pinned task waits for its worker and continues its
+   * conversation there; one for a workspace waits for that workspace's worker; any other goes to
+   * a worker of its project outside the explicit workspaces. The worker that had the task's last
+   * conversation resumes it in place; another one forks it.
    */
   private placement(task: TaskView): Placement | string {
+    const refusal = this.pinRefusal(task);
+    if (refusal !== undefined) return refusal;
     const candidates = this.candidates(task);
     if (typeof candidates === "string") return candidates;
-    const free = candidates.filter(
-      (w) => this.isFree(w) && workspaceHolder(this.state, w.workspace, task.id) === undefined,
-    );
+    const free = candidates.filter((w) => this.takes(w, task));
     const [first] = free;
     if (!first) {
       const [only] = candidates;
@@ -2528,7 +2615,15 @@ export class Supervisor implements ToolHost {
         ? `${only.name} is busy`
         : `${only.workspace} is held by ${holder}`;
     }
-    const last = conversationsOf(this.state, task).at(-1);
+    const conversations = conversationsOf(this.state, task);
+    if (task.pin !== undefined) {
+      const session = this.pinnedSession(task, first);
+      // pinRefusal has turned a pinned task without its conversation away already.
+      if (session === undefined) return `${task.pin} has no conversation for ${task.id}`;
+      const kind = conversations.length > 0 ? "resume" : "follow";
+      return { worker: first, opening: { kind, session } };
+    }
+    const last = conversations.at(-1);
     if (last?.sessionId === undefined) return { worker: first, opening: { kind: "fresh" } };
     const session = last.sessionId;
     const own = free.find((w) => w.name === last.agent);
@@ -2541,7 +2636,7 @@ export class Supervisor implements ToolHost {
   private candidates(task: TaskView): AgentView[] | string {
     if (task.pin !== undefined) {
       const pinned = this.agent(task.pin);
-      return pinned && isWorker(pinned) ? [pinned] : `${task.pin} is gone`;
+      return pinned ? [pinned] : `${task.pin} was removed`;
     }
     if (task.workspace !== undefined) {
       const worker = this.workerOf(task.workspace);
@@ -2563,9 +2658,12 @@ export class Supervisor implements ToolHost {
   }
 
   private async ready(task: TaskView, worker: AgentView, planned: Opening): Promise<void> {
-    let ready: Readied;
+    let ready: Readied | undefined;
     try {
-      ready = await this.prepare(task, worker, planned);
+      // A pinned task never starts without its conversation, so that is looked for first.
+      if (task.pin === undefined || (await this.hasTranscript(planned, worker))) {
+        ready = await this.prepare(task, worker, planned);
+      }
     } finally {
       this.starting.delete(task.id);
     }
@@ -2573,6 +2671,13 @@ export class Supervisor implements ToolHost {
     // its workspace claimed.
     const now = this.task(task.id);
     const agent = this.agent(worker.name);
+    if (!ready) {
+      // Unless the user unpinned it meanwhile.
+      if (now?.state === "queued" && now.pin === worker.name) {
+        this.refusePin(now, `the conversation ${worker.name} would continue is gone`);
+      }
+      return this.schedule();
+    }
     if (
       now?.state !== "queued" ||
       !agent ||
@@ -2584,16 +2689,30 @@ export class Supervisor implements ToolHost {
     this.startNow(now, agent, ready.opening, ready.resume);
   }
 
+  /** Whether Claude Code still keeps the session an opening resumes; true when it cannot tell. */
+  private async hasTranscript(opening: Opening, worker: AgentView): Promise<boolean> {
+    if (opening.kind !== "resume" && opening.kind !== "follow") return true;
+    try {
+      return (await this.sessionSource.messages(opening.session, worker.cwd)).length > 0;
+    } catch (error) {
+      console.error(`fleet: looking for the session ${opening.session} failed:`, error);
+      return true;
+    }
+  }
+
   /**
    * Readies a worker for a task: its session ends, the task's conversation is forked over if it
-   * moves, and its workspace gets a new change: on top of the task's change when it has one,
-   * else from trunk. Never in an explicit workspace, the user's checkout.
+   * moves, and its workspace gets a new change: on top of the task's change when it has one, on
+   * top of the worker's own work when the task follows its conversation, else from trunk. Never
+   * in an explicit workspace, the user's checkout.
    * What fails is logged, and the task starts anyway; a fork that fails starts fresh.
    */
   private async prepare(task: TaskView, worker: AgentView, planned: Opening): Promise<Readied> {
+    const own = planned.kind === "follow" ? await this.changeOf(worker) : undefined;
     await this.closeSession(worker.name);
     let opening = planned;
-    let resume = planned.kind === "resume" ? planned.session : undefined;
+    let resume =
+      planned.kind === "resume" || planned.kind === "follow" ? planned.session : undefined;
     if (planned.kind === "fork") {
       try {
         resume = await this.sessionSource.fork(planned.session, planned.from.cwd);
@@ -2604,7 +2723,7 @@ export class Supervisor implements ToolHost {
     }
     if (!this.workspace(worker.workspace)?.explicit) {
       try {
-        await this.changes.startChange(worker.cwd, task.change ?? "trunk");
+        await this.changes.startChange(worker.cwd, task.change ?? own ?? "trunk");
       } catch (error) {
         console.error(
           `fleet: starting a change for ${task.id} in ${worker.workspace} failed:`,
@@ -2625,7 +2744,9 @@ export class Supervisor implements ToolHost {
     this.append(worker.name, {
       kind: "conversation_started",
       task: task.id,
-      ...(opening.kind === "resume" && { resume: opening.session }),
+      ...((opening.kind === "resume" || opening.kind === "follow") && {
+        resume: opening.session,
+      }),
       ...(opening.kind === "fork" && {
         fork: { session: opening.session, from: opening.from.workspace },
       }),
@@ -2643,9 +2764,14 @@ export class Supervisor implements ToolHost {
     session?.start();
   }
 
-  /** The brief, or a note to go on, for a moved conversation after a briefing; then the handover note. */
+  /**
+   * The brief for a task new to the conversation; a note to go on for one that continues, after
+   * a briefing when it moved; then the handover note.
+   */
   private firstPrompt(task: TaskView, worker: AgentView, opening: Opening): string {
-    if (opening.kind === "fresh") return withNote(task.brief, task.note);
+    if (opening.kind === "fresh" || opening.kind === "follow") {
+      return withNote(task.brief, task.note);
+    }
     if (opening.kind === "resume") return withNote(continueTask(task.id), task.note);
     const briefing = movedBriefing({
       task: task.id,

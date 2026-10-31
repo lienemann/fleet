@@ -310,7 +310,7 @@ Press `?` for every shortcut, or Cmd+K (Ctrl+K elsewhere) to run any command by 
 | Option+`f` | with several projects, show the next one, then all again |
 | Option+`p` | write to the selected agent; Esc leaves the field |
 | Option+`a`, Option+Shift+`a`, Option+`r` | approve, always allow, or reject its permission request |
-| Option+`m` then `r`, `c`, `a`, `p`, `u`, `d` | move to review, request changes, accept, park, unpark, drop |
+| Option+`m` then `r`, `c`, `a`, `p`, `u`, `i`, `d` | move to review, request changes, accept, park, unpark, unpin, drop |
 | Option+`m` then `n` | tell an agent that stopped without you to continue |
 | Option+`s`, Option+Shift+`m`, Esc | attach a session a terminal held, next permission mode, interrupt |
 | Option+`h`, Option+`l`, Option+`z` | collapse the rail, collapse the drawer, expand the drawer to the full window |

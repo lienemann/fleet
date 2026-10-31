@@ -27,6 +27,10 @@ export interface SpawnRequest {
   title: string;
   context: string;
   workspace?: string;
+  /** The worker to wait for, instead of a workspace. */
+  worker?: string;
+  /** The named worker takes the task in its own conversation, and no other worker does. */
+  sameWorker?: boolean;
   /** The project to work in; only the fleet director names one. */
   project?: string;
 }

@@ -3,7 +3,7 @@ import type { TaskView } from "../shared/tasks.ts";
 import { useFleet } from "./fleet.tsx";
 
 /** A move of a task the user can make from the board, the inbox, the diff or the palette. */
-export type TaskMove = "review" | "changes" | "accept" | "park" | "unpark" | "drop";
+export type TaskMove = "review" | "changes" | "accept" | "park" | "unpark" | "unpin" | "drop";
 
 /** What the palette and the keys call each move, and what a button says; one table for all of them. */
 export const TASK_MOVES: Record<
@@ -20,6 +20,12 @@ export const TASK_MOVES: Record<
   accept: { id: "move.accept", label: "Accept", button: "Accept", keys: "alt+m a" },
   park: { id: "move.park", label: "Park the task", button: "Park", keys: "alt+m p" },
   unpark: { id: "move.unpark", label: "Unpark the task", button: "Unpark", keys: "alt+m u" },
+  unpin: {
+    id: "move.unpin",
+    label: "Let any worker take the task",
+    button: "Unpin",
+    keys: "alt+m i",
+  },
   drop: {
     id: "move.drop",
     label: "Drop the task",
@@ -39,11 +45,12 @@ export const MOVE_ORDER: readonly TaskMove[] = [
   "changes",
   "park",
   "unpark",
+  "unpin",
   "drop",
 ];
 
 const BY_STATE: Record<TaskState, TaskMove[]> = {
-  queued: ["drop"],
+  queued: ["unpin", "drop"],
   parked: ["unpark", "drop"],
   in_progress: ["review", "park", "drop"],
   review: ["accept", "changes", "park", "drop"],
@@ -52,8 +59,12 @@ const BY_STATE: Record<TaskState, TaskMove[]> = {
   dropped: [],
 };
 
-/** The moves a task offers in its state; the same on the board, in the inbox and in the palette. */
-export const movesOf = (task: Pick<TaskView, "state">): TaskMove[] => BY_STATE[task.state];
+/**
+ * The moves a task offers in its state, Unpin only while it waits for one worker; the same on
+ * the board, in the inbox and in the palette.
+ */
+export const movesOf = (task: Pick<TaskView, "state" | "pin">): TaskMove[] =>
+  BY_STATE[task.state].filter((move) => move !== "unpin" || task.pin !== undefined);
 
 /**
  * Sends the moves; Request changes takes a note for the agent, which the others ignore. Drop
@@ -67,6 +78,7 @@ export function useTaskMoves(): Record<TaskMove, (task: string, note?: string) =
     changes: (task, message) => send({ type: "request_changes", task, message }),
     park: (task) => send({ type: "park", task }),
     unpark: (task) => send({ type: "unpark", task }),
+    unpin: (task) => send({ type: "unpin", task }),
     drop: (task) => send({ type: "drop", task }),
   };
 }

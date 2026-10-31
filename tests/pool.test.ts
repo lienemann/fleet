@@ -3,7 +3,7 @@ import type { Changes } from "../src/daemon/changes.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import type { SessionSource } from "../src/daemon/sessions.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
-import type { FleetEvent, NewEvent } from "../src/shared/events.ts";
+import { DAEMON, type FleetEvent, type NewEvent } from "../src/shared/events.ts";
 import { pendingDecisions } from "../src/shared/reducer.ts";
 import {
   assistantText,
@@ -12,6 +12,7 @@ import {
   init,
   result,
   settled,
+  storedSessions,
   taskCreated,
   taskState,
   testConfig,
@@ -32,6 +33,10 @@ interface Options {
   before?: NewEvent[];
   fork?: SessionSource["fork"];
   startChange?: Changes["startChange"];
+  /** Sessions whose transcript Claude Code no longer has. */
+  gone?: string[];
+  /** The project's limit of running tasks. */
+  running?: number;
 }
 
 function setup({
@@ -39,20 +44,22 @@ function setup({
   before = [],
   fork = async () => "s-fork",
   startChange = async () => undefined,
+  gone = [],
+  running,
 }: Options = {}) {
   const log = new EventLog(":memory:");
   for (const event of before) log.append(event);
   const fake = fakeQuery(echoing(init("s-new"), assistantText("ok"), result()));
   const changes = {
     startChange: vi.fn(startChange),
-    currentChange: vi.fn(async () => undefined),
+    currentChange: vi.fn(async (): Promise<string | undefined> => undefined),
     holdsWork: vi.fn(async () => false),
   };
-  const sessions = { list: async () => [], messages: async () => [], fork: vi.fn(fork) };
+  const sessions = storedSessions({ gone, fork });
   const supervisor = new Supervisor({
     log,
     queryFn: fake.queryFn,
-    config: testConfig({ workspaces }),
+    config: testConfig({ workspaces, running }),
     changes,
     sessions,
   });
@@ -225,6 +232,128 @@ describe("a task that had a conversation", () => {
     );
     expect(changes.startChange.mock.calls).toEqual([["/work/ws2", "trunk"]]);
     error.mockRestore();
+  });
+});
+
+describe("a task pinned to its worker", () => {
+  const pinned = (task: string, pin: string): NewEvent => ({
+    kind: "task_updated",
+    agent: DAEMON,
+    task,
+    pin,
+  });
+
+  it("waits for that worker while another is free, then resumes its conversation there", async () => {
+    const { supervisor, task, log, callIn, started, changes, sessions } = setup({
+      before: [...earlier({ busy: true, change: "kxqv" }), pinned("t1", "alpha")],
+    });
+    await settled();
+    expect(task("t1")).toMatchObject({ state: "queued", pin: "alpha" });
+    expect(task("t1")?.pinNote).toBeUndefined();
+    expect(log.state.agents.bravo?.task).toBeUndefined();
+
+    supervisor.handle({ type: "move", task: "t2", to: "done" });
+    await until(() => task("t1")?.state === "in_progress");
+    expect(task("t1")?.agent).toBe("alpha");
+    expect(started("alpha")).toMatchObject({ task: "t1", resume: "s-1" });
+    expect(callIn("/work/ws1")?.options?.resume).toBe("s-1");
+    expect(changes.startChange.mock.calls.at(-1)).toEqual(["/work/ws1", "kxqv"]);
+    expect(sessions.messages).toHaveBeenCalledWith("s-1", "/work/ws1");
+    expect(sessions.fork).not.toHaveBeenCalled();
+  });
+
+  it("is, when new, the named worker's next turn in its own conversation, on top of its work", async () => {
+    const { supervisor, task, log, fake, started, sent, changes } = setup();
+    supervisor.createTask("one", "x", undefined);
+    await until(() => log.state.agents.alpha?.activity === "idle");
+    const answer = supervisor.startTask({
+      title: "two",
+      context: "Now the tests.",
+      worker: "alpha",
+      sameWorker: true,
+    });
+    expect(answer).toBe("Spawned t2; it waits for alpha.");
+    await settled();
+    expect(task("t2")).toMatchObject({ state: "queued", pin: "alpha" });
+    expect(task("t2")?.workspace).toBeUndefined();
+
+    changes.currentChange.mockResolvedValue("wxyz");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    await until(() => task("t2")?.state === "in_progress");
+    expect(task("t2")?.agent).toBe("alpha");
+    expect(started("alpha")).toMatchObject({ task: "t2", resume: "s-new" });
+    expect(fake.calls.at(-1)?.options?.resume).toBe("s-new");
+    expect(sent("alpha")).toBe("Now the tests.");
+    expect(changes.startChange.mock.calls.at(-1)).toEqual(["/work/ws1", "wxyz"]);
+    // The conversation stays in the first task's history too.
+    expect(task("t1")?.conversations.map((c) => c.sessionId)).toEqual(["s-new"]);
+  });
+
+  it("names a worker without pinning to it unless Same worker is set", async () => {
+    const { supervisor, task } = setup();
+    supervisor.startTask({ title: "one", context: "x", worker: "bravo" });
+    await settled();
+    expect(task("t1")).toMatchObject({ agent: "bravo", workspace: "ws2" });
+    expect(task("t1")?.pin).toBeUndefined();
+    expect(() => supervisor.startTask({ title: "two", context: "x", worker: "zulu" })).toThrow(
+      'No worker "zulu". Workers: alpha, bravo.',
+    );
+  });
+
+  it("says why it cannot start when its conversation is gone, and starts nothing", async () => {
+    const { supervisor, task, fake, changes } = setup({
+      before: [...earlier(), pinned("t1", "alpha")],
+      gone: ["s-1"],
+    });
+    await until(() => task("t1")?.pinNote !== undefined);
+    expect(task("t1")).toMatchObject({
+      state: "queued",
+      pinNote: "the conversation alpha would continue is gone",
+    });
+    expect(fake.calls).toEqual([]);
+    expect(changes.startChange).not.toHaveBeenCalled();
+    expect(supervisor.startTask({ title: "two", context: "x" })).toBe(
+      "Spawned t2; it starts on alpha in ws1.",
+    );
+
+    // Unpin hands it to the pool like any other task.
+    supervisor.handle({ type: "unpin", task: "t1" });
+    await until(() => task("t1")?.state === "in_progress");
+    expect(task("t1")).toMatchObject({ agent: "bravo", pin: undefined, pinNote: undefined });
+  });
+
+  it("says why when its worker was removed or has no conversation yet", async () => {
+    const { supervisor, task } = setup({
+      before: [taskCreated("t1", { workspace: undefined, pin: "zulu" })],
+    });
+    supervisor.startTask({ title: "two", context: "x", worker: "bravo", sameWorker: true });
+    await settled();
+    expect(task("t1")?.pinNote).toBe("zulu was removed");
+    expect(task("t2")?.pinNote).toBe("bravo has no conversation to continue");
+    expect(supervisor.startTask({ title: "three", context: "x" })).toBe(
+      "Spawned t3; it starts on alpha in ws1.",
+    );
+  });
+
+  it("still waits for room in the limits", async () => {
+    const { supervisor, task, log } = setup({
+      running: 1,
+      before: [
+        worker("bravo", { title: "ws2", workspace: "ws2", cwd: "/work/ws2" }),
+        { kind: "session_started", agent: "bravo", sessionId: "s-bravo" },
+      ],
+    });
+    supervisor.createTask("one", "x", "ws1");
+    supervisor.startTask({ title: "two", context: "x", worker: "bravo", sameWorker: true });
+    await settled();
+    expect(task("t1")?.state).toBe("in_progress");
+    expect(task("t2")?.state).toBe("queued");
+    expect(task("t2")?.pinNote).toBeUndefined();
+
+    await until(() => log.state.agents.alpha?.activity === "idle");
+    supervisor.handle({ type: "move", task: "t1", to: "review" });
+    await until(() => task("t2")?.state === "in_progress");
+    expect(task("t2")?.agent).toBe("bravo");
   });
 });
 

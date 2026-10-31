@@ -54,6 +54,7 @@ describe("task moves", () => {
     expect(movesOf({ state: "in_progress" })).toEqual(["review", "park", "drop"]);
     expect(movesOf({ state: "parked" })).toEqual(["unpark", "drop"]);
     expect(movesOf({ state: "queued" })).toEqual(["drop"]);
+    expect(movesOf({ state: "queued", pin: "alpha" })).toEqual(["unpin", "drop"]);
     for (const state of ["done", "dropped"] as const) expect(movesOf({ state })).toEqual([]);
   });
 });

@@ -10,7 +10,14 @@ import {
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
-import { agentStatus, columnLabel, contextPercent, currentWork, duration } from "../labels.ts";
+import {
+  agentStatus,
+  columnLabel,
+  contextPercent,
+  currentWork,
+  duration,
+  waitsFor,
+} from "../labels.ts";
 import { DiffView } from "../review/DiffView.tsx";
 import { Log } from "../tile/Log.tsx";
 import { Tile } from "../tile/Tile.tsx";
@@ -268,7 +275,7 @@ function PastConversations({ task }: { task: TaskView }) {
       {task.state === "queued" ? (
         <div className="queued">
           <span title={holder && `${holder} holds ${workspace}`}>
-            Queued. Waits for {holder ? workspace : "its worker or a running slot"}.
+            Queued. {waitsFor(task, holder ? workspace : undefined)}.
           </span>
           <button
             type="button"

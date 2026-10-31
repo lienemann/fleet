@@ -1,9 +1,10 @@
-import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Query, SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { expect, vi } from "vitest";
 import type { Changes } from "../src/daemon/changes.ts";
 import type { Project, Workspace } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { AgentSession, type QueryFn, type SessionOptions } from "../src/daemon/session.ts";
+import type { SessionSource } from "../src/daemon/sessions.ts";
 import type { SupervisorOptions } from "../src/daemon/supervisor.ts";
 import {
   DAEMON,
@@ -168,6 +169,32 @@ export const noChanges: Changes = {
 
 /** Like `noChanges`, but every workspace holds work, so dropping a task asks first. */
 export const withWork: Changes = { ...noChanges, holdsWork: async () => true };
+
+/**
+ * Claude Code's stored sessions: a transcript for every session but the `gone` ones, and forks
+ * made by `fork`.
+ */
+export function storedSessions({
+  gone = [],
+  fork = async () => "s-fork",
+}: {
+  gone?: string[];
+  fork?: SessionSource["fork"];
+} = {}) {
+  const line = (sessionId: string): SessionMessage => ({
+    type: "user",
+    uuid: `${sessionId}-1`,
+    session_id: sessionId,
+    message: {},
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+  });
+  return {
+    list: async () => [],
+    messages: vi.fn(async (id: string) => (gone.includes(id) ? [] : [line(id)])),
+    fork: vi.fn(fork),
+  };
+}
 
 export function newSession(queryFn: QueryFn, extra: Partial<SessionOptions> = {}) {
   const log = new EventLog(":memory:");

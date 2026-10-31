@@ -14,7 +14,7 @@ import {
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
-import { COLUMNS, contextPercent, currentWork, duration, firstLine } from "../labels.ts";
+import { COLUMNS, contextPercent, currentWork, duration, firstLine, waitsFor } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel, useProjectColor } from "../ui/AgentLabel.tsx";
@@ -140,7 +140,7 @@ function Card({
   const doing = agent?.reconnecting
     ? "reconnecting…"
     : column === "queued"
-      ? `Waits for ${holder ? workspace : "its worker or a running slot"}`
+      ? waitsFor(task, holder ? workspace : undefined)
       : column === "parked" && task.note !== undefined
         ? firstLine(task.note)
         : agent

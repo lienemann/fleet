@@ -164,6 +164,10 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       return [{ host, message: { ...message, docId: name } }];
     }
     case "create_task": {
+      if (message.worker !== undefined) {
+        const { host, name } = locate(message.worker, remotes);
+        return [{ host, message: { ...message, worker: name } }];
+      }
       // A task for any free worker goes to the local daemon's pool.
       if (message.workspace === undefined) return [{ host: LOCAL, message }];
       const { host, name } = locate(message.workspace, remotes);
@@ -178,6 +182,7 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
     }
     case "park":
     case "unpark":
+    case "unpin":
     case "drop":
     case "move":
     case "thread_open":

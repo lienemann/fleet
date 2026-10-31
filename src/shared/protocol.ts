@@ -79,12 +79,17 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("remove_workspace"), workspace: z.string().min(1) }),
   /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
   z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
-  /** A task for the workspace's worker; without a workspace, for any free worker. */
+  /**
+   * A task for the workspace's worker, or for the named `worker`; without either, for any free
+   * worker. With `sameWorker`, the named worker takes it in its own conversation.
+   */
   z.object({
     type: z.literal("create_task"),
     title: z.string().trim().min(1),
     brief: z.string().trim().min(1),
     workspace: z.string().min(1).optional(),
+    worker: agent.optional(),
+    sameWorker: z.boolean().optional(),
   }),
   z.object({ type: z.literal("detach"), agent }),
   /** Ends the client that holds a detached session and runs the session in fleet. */
@@ -98,6 +103,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("park"), task }),
   /** Queues a parked task again; with `sameWorker`, for the worker that held it. */
   z.object({ type: z.literal("unpark"), task, sameWorker: z.boolean().optional() }),
+  /** Releases a queued task that waits for one worker to any worker. */
+  z.object({ type: z.literal("unpin"), task }),
   /** Closes a task as dropped; when its change holds work, the user is asked in the inbox first. */
   z.object({ type: z.literal("drop"), task }),
   /** In progress for a queued task starts it now, past the limits. */

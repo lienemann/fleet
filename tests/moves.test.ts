@@ -14,6 +14,7 @@ import {
   init,
   result,
   settled,
+  storedSessions,
   testConfig,
   until,
 } from "./helpers.ts";
@@ -84,6 +85,7 @@ function setup({
     queryFn: fake.queryFn,
     config: testConfig({ workspaces: dirs, running, director }),
     changes,
+    sessions: storedSessions(),
   });
   supervisor.init();
   const task = (id: string) => log.state.tasks[id];

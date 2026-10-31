@@ -9,7 +9,17 @@ import {
   type Usage,
 } from "../shared/events.ts";
 import type { AgentView, Column, FleetState } from "../shared/reducer.ts";
-import { agentState, columnOf, needsUser, taskOf } from "../shared/tasks.ts";
+import { agentState, columnOf, needsUser, type TaskView, taskOf } from "../shared/tasks.ts";
+
+/**
+ * What a queued task waits for: its pinned worker, or why that one cannot take it; else the
+ * workspace another task holds, or a free worker and room in the limits.
+ */
+export function waitsFor(task: TaskView, heldWorkspace: string | undefined): string {
+  if (task.pinNote !== undefined) return `Cannot start: ${task.pinNote}`;
+  if (task.pin !== undefined) return `Waits on ${task.pin}`;
+  return `Waits for ${heldWorkspace ?? "its worker or a running slot"}`;
+}
 
 /** The board's columns; dropped tasks are not shown. */
 export const COLUMNS: Array<{ id: Column; label: string }> = [
