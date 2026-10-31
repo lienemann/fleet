@@ -15,8 +15,7 @@ import { movesOf, useTaskMoves } from "../taskMoves.ts";
 import { Hunk, type PlacedThread, type Selection } from "./Hunk.tsx";
 import { languageOf } from "./highlight.ts";
 import { EMPTY_FORM, type Reviewed, type Side, Thread, threadPlace } from "./Thread.tsx";
-
-export type Layout = "inline" | "split";
+import type { Layout } from "./types.ts";
 
 interface Focus {
   file: FileView;
