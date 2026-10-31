@@ -30,6 +30,8 @@ export function demoQuery(delayMs = 400): QueryFn {
     const fleetDirector = tools.some((t) => t.name === "add_project");
     let interrupted = false;
     let closed = false;
+    /** Aborted by an interrupt, so a permission prompt the turn waits on goes stale, as in the CLI. */
+    let turnSignal = new AbortController();
     const pause = () => new Promise((resolve) => setTimeout(resolve, delayMs));
     /** Shells started in the background, by task id: when they started. */
     const shells = new Map<string, number>();
@@ -97,7 +99,7 @@ export function demoQuery(delayMs = 400): QueryFn {
       }
       if (step.type === "bash") {
         const verdict = await options.canUseTool?.("Bash", step.input, {
-          signal: new AbortController().signal,
+          signal: turnSignal.signal,
           toolUseID: step.id,
           requestId: `req-${step.id}`,
         });
@@ -128,9 +130,16 @@ export function demoQuery(delayMs = 400): QueryFn {
       for await (const prompt of params.prompt as AsyncIterable<SDKUserMessage>) {
         if (closed) return;
         interrupted = false;
+        turnSignal = new AbortController();
         turn++;
         const text = typeof prompt.message.content === "string" ? prompt.message.content : "";
         if (turn === 1) scenario = scenarioOf(text);
+        if (turn === 1 && scenario.crashes && !fleetDirector && !director) {
+          // The CLI ends without a result, as when its process dies.
+          await pause();
+          yield say("Starting on it.");
+          return;
+        }
         const steps = fleetDirector
           ? fleetDirectorScript(turn)
           : director
@@ -205,6 +214,7 @@ export function demoQuery(delayMs = 400): QueryFn {
       },
       interrupt: async () => {
         interrupted = true;
+        turnSignal.abort();
       },
       close: () => {
         closed = true;
@@ -315,6 +325,8 @@ interface Scenario {
   walkthrough: string;
   /** The last thing the worker says, in the inbox's Finished item. */
   closing: string;
+  /** Its CLI dies in the first turn, which leaves a Stopped item in the inbox. */
+  crashes?: boolean;
 }
 
 const FLAKY_TEST: Scenario = {
@@ -370,6 +382,9 @@ const LONG_REPORT: Scenario = {
   closing: `${Array.from({ length: 120 }, (_, i) => `Timing ${i + 1}: the replay stayed within the jitter bound.`).join("\n\n")}\n\nThat is every timing.`,
 };
 
+/** A worker whose CLI dies before it gets anywhere. */
+const CRASH: Scenario = { ...FLAKY_TEST, crashes: true };
+
 const scenarioOf = (prompt: string): Scenario =>
   prompt.includes("Batch the event log writes")
     ? BATCHED_WRITES
@@ -377,7 +392,9 @@ const scenarioOf = (prompt: string): Scenario =>
       ? REVIEW_FILES
       : prompt.includes("long report")
         ? LONG_REPORT
-        : FLAKY_TEST;
+        : prompt.includes("crash mid-turn")
+          ? CRASH
+          : FLAKY_TEST;
 
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string, scenario: Scenario): Step[] {
@@ -416,6 +433,18 @@ function workerScript(turn: number, prompt: string, session: string, scenario: S
           body: "Fifty runs is where the old tolerance failed at least once in every try; with twenty it passed by luck about half the time.",
         },
       },
+    ];
+  }
+  // A parked task's handover note goes where fleet asks for it.
+  const parked = /^Your task \S+ is parked\..*Write it to (\S+) and reply/s.exec(prompt)?.[1];
+  if (parked) {
+    return [
+      {
+        type: "write",
+        path: parked,
+        content: `Done: ${scenario.summary}\nLeft: ${scenario.openPoints[0]}\nLook at ${scenario.file.path} first.\n`,
+      },
+      { type: "say", text: `The handover note is in ${parked}.` },
     ];
   }
   if (prompt.startsWith("Message from") || turn > 1) {
@@ -669,11 +698,14 @@ export const demoSessions: SessionSource = {
   fork: async (sessionId) => `${sessionId}-fork`,
 };
 
-/** The demo's workspaces are plain directories, so tickets start where they are. */
+/**
+ * The demo's workspaces are plain directories, so tickets start where they are. Every demo
+ * worker changes a file, so a task it holds always holds work.
+ */
 export const demoChanges: Changes = {
   startChange: async () => undefined,
   currentChange: async () => undefined,
-  holdsWork: async () => false,
+  holdsWork: async () => true,
 };
 
 const stored = (

@@ -8,9 +8,12 @@ export interface Changes {
    * to start from, so its working copy stays as it is.
    */
   startChange(dir: string, base: "trunk" | string): Promise<void>;
-  /** The id of the workspace's working-copy change. */
+  /**
+   * The change that keeps the workspace's work, as of now: the working copy when it holds edits,
+   * else its parent unless that is part of trunk. Undefined when there is no work above trunk.
+   */
   currentChange(dir: string): Promise<string | undefined>;
-  /** Whether the working-copy change holds edits, as of now. */
+  /** Whether the workspace holds edits above trunk, as of now. */
   holdsWork(dir: string): Promise<boolean>;
 }
 
@@ -20,11 +23,14 @@ export const jjChanges: Changes = {
     await jj(dir, "new", base === "trunk" ? "trunk()" : base);
   },
   async currentChange(dir) {
-    return (await show(dir, "@", "change_id")) || undefined;
+    // jj looks at the files first, so edits since the agent's last jj command count.
+    const own = await show(dir, "@ ~ empty()", "change_id", { snapshot: true });
+    // An empty working copy on top of the work, as after `jj commit`; a merge names its first parent.
+    const below = await show(dir, "@- ~ ::trunk()", 'change_id ++ "\\n"');
+    return own || below.split("\n")[0] || undefined;
   },
   async holdsWork(dir) {
-    // jj looks at the files first, so edits since the agent's last jj command count.
-    return (await show(dir, "@", "empty", { snapshot: true })) === "false";
+    return (await show(dir, "trunk()..@ ~ empty()", "change_id", { snapshot: true })) !== "";
   },
 };
 

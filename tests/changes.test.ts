@@ -68,6 +68,18 @@ describe("jjChanges", () => {
     // A file written since the last jj command counts.
     writeFileSync(join(repo, "new.py"), "b = 1\n");
     expect(await jjChanges.holdsWork(repo)).toBe(true);
+    expect(await jjChanges.currentChange(repo)).toBe(changeOf("@"));
+  });
+
+  it("sees the work below an empty working copy, but not trunk's", async () => {
+    makeRepo(true);
+    jj("new");
+    expect(await jjChanges.currentChange(repo)).toBe(changeOf("@-"));
+    expect(await jjChanges.holdsWork(repo)).toBe(true);
+
+    await jjChanges.startChange(repo, "trunk");
+    expect(await jjChanges.currentChange(repo)).toBeUndefined();
+    expect(await jjChanges.holdsWork(repo)).toBe(false);
   });
 
   it("fails outside a repo", async () => {

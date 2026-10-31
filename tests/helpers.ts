@@ -166,6 +166,9 @@ export const noChanges: Changes = {
   holdsWork: async () => false,
 };
 
+/** Like `noChanges`, but every workspace holds work, so dropping a task asks first. */
+export const withWork: Changes = { ...noChanges, holdsWork: async () => true };
+
 export function newSession(queryFn: QueryFn, extra: Partial<SessionOptions> = {}) {
   const log = new EventLog(":memory:");
   log.append(worker("a1"));

@@ -203,8 +203,8 @@ describe("a task that had a conversation", () => {
         "belongs to another worker now: read and write only under /work/ws2.\n\n" +
         "You take task t1 up again. Carry on where you left off.",
     );
-    // Without a change of its own, the fork goes on where the worker stands.
-    expect(changes.startChange).not.toHaveBeenCalled();
+    // Without a change of its own, the fork starts from trunk like a fresh ticket.
+    expect(changes.startChange.mock.calls).toEqual([["/work/ws2", "trunk"]]);
   });
 
   it("starts fresh from the brief and the handover note when the fork fails", async () => {
@@ -220,7 +220,7 @@ describe("a task that had a conversation", () => {
     expect(started("bravo")).toEqual(expect.not.objectContaining({ fork: expect.anything() }));
     expect(callIn("/work/ws2")?.options?.resume).toBeUndefined();
     expect(sent("bravo")).toBe(
-      "brief of t1\n\nHandover note from the previous conversation:\n\n" +
+      "brief of t1\n\nHandover note from the last worker:\n\n" +
         "The parser is done; the tests are next.",
     );
     expect(changes.startChange.mock.calls).toEqual([["/work/ws2", "trunk"]]);

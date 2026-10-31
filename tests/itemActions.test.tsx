@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { movesOf, removable } from "../src/web/taskMoves.ts";
+import { movesOf } from "../src/web/taskMoves.ts";
 import { ItemActions } from "../src/web/ui/ItemActions.tsx";
 
 const labels = (html: string): string[] =>
@@ -45,22 +45,15 @@ describe("ItemActions", () => {
 });
 
 describe("task moves", () => {
-  it("offer the verdict while a task waits for one, in Review and after a revision", () => {
+  it("offer the verdict and Park while a task waits for one, in Review and after a revision", () => {
     for (const state of ["review", "changes_requested"] as const)
-      expect(movesOf({ state })).toEqual(["accept", "changes"]);
+      expect(movesOf({ state })).toEqual(["accept", "changes", "park", "drop"]);
   });
 
-  it("offer what the board offers in the other states, and nothing once a task is final", () => {
-    expect(movesOf({ state: "in_progress" })).toEqual(["review"]);
-    for (const state of ["queued", "parked", "done", "dropped"] as const) {
-      expect(movesOf({ state })).toEqual([]);
-    }
-  });
-
-  it("let a task be removed until it is done or dropped", () => {
-    expect(removable({ state: "review" })).toBe(true);
-    expect(removable({ state: "queued" })).toBe(true);
-    expect(removable({ state: "done" })).toBe(false);
-    expect(removable({ state: "dropped" })).toBe(false);
+  it("park a running task, unpark a parked one, and drop any until it is final", () => {
+    expect(movesOf({ state: "in_progress" })).toEqual(["review", "park", "drop"]);
+    expect(movesOf({ state: "parked" })).toEqual(["unpark", "drop"]);
+    expect(movesOf({ state: "queued" })).toEqual(["drop"]);
+    for (const state of ["done", "dropped"] as const) expect(movesOf({ state })).toEqual([]);
   });
 });

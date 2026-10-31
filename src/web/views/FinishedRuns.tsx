@@ -6,7 +6,7 @@ import { useFleet } from "../fleet.tsx";
 import { useCommands } from "../keys/keymap.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
-import { movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
+import { CONTINUE_KEYS, movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel } from "../ui/AgentLabel.tsx";
 import { CutText } from "../ui/CutText.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
@@ -110,7 +110,6 @@ export function FinishedGroup({
   active,
   onOpen,
   onOpenTab,
-  onRemove,
   onFocus,
 }: {
   agent: AgentView;
@@ -119,7 +118,6 @@ export function FinishedGroup({
   active: boolean;
   onOpen: () => void;
   onOpenTab: (tab: Tab) => void;
-  onRemove: () => void;
   onFocus: () => void;
 }) {
   const { state, send } = useFleet();
@@ -131,57 +129,50 @@ export function FinishedGroup({
   const ids = runs.map((run) => run.id);
   const text = comment.trim();
   const read = () => send({ type: "finished_read", agent: agent.name, ids });
-  // A verdict deals with the run, as the buttons do, so the item leaves with the review.
-  const verdict = {
-    accept: () => {
-      if (task) moves.accept(task.id);
-      read();
-    },
-    changes: () => {
-      if (task) moves.changes(task.id, text || undefined);
-      read();
-      setComment("");
-    },
-  };
   const reviewable = task !== undefined && movesOf(task).includes("accept");
-  const stopped = newest?.stopped !== undefined && agent.activity === "stopped";
+  // While the task waits for a verdict, the item offers the task's moves. A verdict deals with
+  // the run, as the buttons do, so the item leaves with the review.
+  const offered = task && reviewable ? movesOf(task) : [];
+  const runMove = (move: TaskMove) => () => {
+    if (!task) return;
+    moves[move](task.id, move === "changes" ? text || undefined : undefined);
+    if (move !== "accept" && move !== "changes") return;
+    read();
+    if (move === "changes") setComment("");
+  };
+  // An agent that stopped without the user waits until it is told to go on.
+  const stopped =
+    newest?.stopped !== undefined && agent.activity !== "working" && agent.activity !== "detached";
+  const goOn = () => send({ type: "continue", agent: agent.name });
   const submit = () => {
     if (text) send({ type: "finished_reply", agent: agent.name, ids, text });
     else read();
     setComment("");
   };
-  const act = (move: TaskMove) => ({
-    label: TASK_MOVES[move].button,
-    keys: TASK_MOVES[move].keys,
-  });
 
   // While the group is the one the keys act on, so do the moves' own keys.
   const inbox = { group: "Inbox", scope: "main" } as const;
-  const movesWhere = (what: string) => `${what} the focused run's task`;
-  useCommands(
-    active && reviewable
+  useCommands([
+    ...(active && stopped
       ? [
           {
             ...inbox,
-            id: "inbox.accept",
-            label: movesWhere(TASK_MOVES.accept.label),
-            keys: [TASK_MOVES.accept.keys],
-            run: verdict.accept,
+            id: "inbox.continue",
+            label: "Continue the focused run's agent",
+            keys: [CONTINUE_KEYS],
+            run: goOn,
           },
-          {
+        ]
+      : []),
+    ...(active && reviewable
+      ? [
+          ...offered.map((move) => ({
             ...inbox,
-            id: "inbox.changes",
-            label: movesWhere(TASK_MOVES.changes.label),
-            keys: [TASK_MOVES.changes.keys],
-            run: verdict.changes,
-          },
-          {
-            ...inbox,
-            id: "inbox.remove",
-            label: movesWhere(TASK_MOVES.remove.label),
-            keys: [TASK_MOVES.remove.keys],
-            run: onRemove,
-          },
+            id: `inbox.${move}`,
+            label: `${TASK_MOVES[move].button} the focused run's task`,
+            keys: [TASK_MOVES[move].keys],
+            run: runMove(move),
+          })),
           {
             ...inbox,
             id: "inbox.diff",
@@ -195,8 +186,8 @@ export function FinishedGroup({
             run: () => onOpenTab("report"),
           },
         ]
-      : [],
-  );
+      : []),
+  ]);
 
   if (!newest) return null;
   const pressed = (event: KeyboardEvent) => {
@@ -236,24 +227,18 @@ export function FinishedGroup({
       />
       <ItemActions
         actions={[
-          ...(reviewable
-            ? [
-                { ...act("accept"), tone: "primary" as const, run: verdict.accept },
-                {
-                  ...act("changes"),
-                  title: text ? "Sends your comment with the held threads and edits" : undefined,
-                  run: verdict.changes,
-                },
-              ]
-            : []),
+          ...offered.map((move) => ({
+            label: TASK_MOVES[move].button,
+            keys: TASK_MOVES[move].keys,
+            tone: move === "accept" ? ("primary" as const) : TASK_MOVES[move].tone,
+            title:
+              move === "changes" && text
+                ? "Sends your comment with the held threads and edits"
+                : undefined,
+            run: runMove(move),
+          })),
           ...(stopped
-            ? [
-                {
-                  label: "Start",
-                  tone: "primary" as const,
-                  run: () => send({ type: "start", agent: agent.name }),
-                },
-              ]
+            ? [{ label: "Continue", keys: CONTINUE_KEYS, tone: "primary" as const, run: goOn }]
             : []),
           {
             label: text ? "Send" : "Mark read",
@@ -267,7 +252,6 @@ export function FinishedGroup({
             title: text ? "Send covers what you wrote" : undefined,
             run: () => send({ type: "finished_reply", agent: agent.name, ids, text: GO }),
           },
-          ...(reviewable ? [{ ...act("remove"), tone: "danger" as const, run: onRemove }] : []),
         ]}
       />
       {earlier.map((run) => (

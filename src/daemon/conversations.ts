@@ -24,6 +24,6 @@ export const movedBriefing = (move: {
   `Your earlier turns ran in ${move.from}, which belongs to another worker now: ` +
   `read and write only under ${move.cwd}.`;
 
-/** A fresh conversation on a task: its brief, and the handover note it was left with, if any. */
-export const freshStart = (brief: string, note?: string): string =>
-  note ? `${brief}\n\nHandover note from the previous conversation:\n\n${note}` : brief;
+/** A first prompt on a task, followed by the handover note it was parked with, if any. */
+export const withNote = (prompt: string, note?: string): string =>
+  note ? `${prompt}\n\nHandover note from the last worker:\n\n${note}` : prompt;

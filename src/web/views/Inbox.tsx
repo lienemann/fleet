@@ -31,12 +31,9 @@ export function Inbox({
   onOpen,
   onOpenTab,
   onOpenThread,
-  onRemove,
 }: {
   onOpen: (agent: string) => void;
   onOpenTab: (agent: string, tab: "diff" | "report") => void;
-  /** Removes a task, by its id. */
-  onRemove: (task: string) => void;
   /** Opens a task's diff at one of its threads. */
   onOpenThread: (task: string, thread: string) => void;
 }) {
@@ -145,7 +142,6 @@ export function Inbox({
                   active={group?.agent === agent}
                   onOpen={() => onOpen(agent)}
                   onOpenTab={(tab) => onOpenTab(agent, tab)}
-                  onRemove={() => view.task !== undefined && onRemove(view.task)}
                   onFocus={() => setLastGroup(agent)}
                 />
               )

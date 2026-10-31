@@ -18,6 +18,7 @@ import {
   settled,
   testConfig,
   testProject,
+  withWork,
 } from "./helpers.ts";
 
 // Real directories, since a new task's brief is written into its workspace.
@@ -33,10 +34,10 @@ const repoB = join(root, "b");
 const b1 = { name: "b1", path: join(repoB, "b1"), allowedTools: ["Read"] };
 mkdirSync(b1.path, { recursive: true });
 
-function setup(director?: string, withB = false) {
+function setup(director?: string, withB = false, changes = noChanges) {
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
-    changes: noChanges,
+    changes,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: withB
@@ -298,7 +299,7 @@ describe("MCP server", () => {
   });
 
   it("renames tasks, and leaves removing work to the user", async () => {
-    const { log, supervisor } = setup();
+    const { log, supervisor } = setup(undefined, false, withWork);
     const call = await connect(supervisor, log);
     await call("create_task", { title: "Fix it", context: "Do it." });
 

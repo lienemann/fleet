@@ -109,8 +109,8 @@ describe("routing", () => {
     expect(routeCommand({ type: "prompt", agent: "pod1/alpha", text: "hi" }, remotes)).toEqual([
       { host: "pod1", message: { type: "prompt", agent: "alpha", text: "hi" } },
     ]);
-    expect(routeCommand({ type: "stop", agent: "alpha" }, remotes)).toEqual([
-      { host: LOCAL, message: { type: "stop", agent: "alpha" } },
+    expect(routeCommand({ type: "interrupt", agent: "alpha" }, remotes)).toEqual([
+      { host: LOCAL, message: { type: "interrupt", agent: "alpha" } },
     ]);
   });
 

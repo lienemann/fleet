@@ -176,7 +176,9 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
     }
-    case "remove":
+    case "park":
+    case "unpark":
+    case "drop":
     case "move":
     case "thread_open":
     case "thread_reply":

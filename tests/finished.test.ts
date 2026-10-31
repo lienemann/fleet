@@ -157,25 +157,14 @@ describe("Finished runs", () => {
     expect(alpha()?.finished).toEqual([]);
   });
 
-  it("leaves out runs the user stopped", async () => {
-    const { script, release } = held();
-    const { supervisor, alpha } = setup(script);
-    supervisor.createTask("Fix it", "Do it.", "ws1");
-    await until(() => alpha()?.stretch?.text === "Halfway there.");
-    supervisor.handle({ type: "stop", agent: "alpha" });
-    release();
-    await until(() => alpha()?.activity === "stopped");
-    expect(alpha()?.finished).toEqual([]);
-  });
-
-  it("leaves out the run of a task the user removed; an accepted one runs on to its end", async () => {
+  it("leaves out the run of a task the user dropped; an accepted one runs on to its end", async () => {
     const finishedAfter = async (to: "done" | "dropped") => {
       const { script, release } = held(result());
       const { supervisor, alpha, log } = setup(script);
       const task = supervisor.createTask("Fix it", "Do it.", "ws1") ?? "";
       await until(() => alpha()?.stretch?.text === "Halfway there.");
-      supervisor.handle(to === "done" ? { type: "move", task, to } : { type: "remove", task });
-      expect(log.state.tasks[task]?.state).toBe(to);
+      supervisor.handle(to === "done" ? { type: "move", task, to } : { type: "drop", task });
+      await until(() => log.state.tasks[task]?.state === to);
       release();
       await until(idle(alpha));
       return log.since(0).filter((e) => e.kind === "run_finished");

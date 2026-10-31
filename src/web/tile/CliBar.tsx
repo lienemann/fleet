@@ -94,15 +94,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
             </option>
           ))}
         </select>
-        {live ? (
-          <button
-            type="button"
-            className="outline"
-            onClick={() => send({ type: "stop", agent: name })}
-          >
-            Stop
-          </button>
-        ) : agent.activity === "detached" ? (
+        {agent.activity === "detached" ? (
           <button
             type="button"
             className="outline"
@@ -116,20 +108,16 @@ export function CliBar({ agent }: { agent: AgentView }) {
           <button
             type="button"
             className="outline"
-            onClick={() => send({ type: "start", agent: name })}
+            disabled={agent.activity !== "working"}
+            title="End the current turn; the agent waits with its task (Esc)"
+            onClick={() => send({ type: "interrupt", agent: name })}
           >
-            Start
+            Interrupt
           </button>
         )}
         <Menu
           label="Session actions"
           items={[
-            {
-              label: "Interrupt",
-              title: "Esc",
-              disabled: agent.activity !== "working",
-              run: () => send({ type: "interrupt", agent: name }),
-            },
             {
               label: "/compact",
               title: "Summarise the conversation to free the context window",

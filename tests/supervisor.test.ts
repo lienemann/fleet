@@ -118,9 +118,8 @@ describe("Supervisor", () => {
     await until(() => log.state.agents.alpha?.effort === "xhigh");
     expect(queries[0]?.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "xhigh" });
 
-    supervisor.handle({ type: "stop", agent: "alpha" });
-    await until(() => log.state.agents.alpha?.activity === "stopped");
-    supervisor.handle({ type: "start", agent: "alpha" });
+    await supervisor.stopTask("alpha");
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Carry on" });
     await until(() => calls.length === 2);
     expect(calls[1]?.options?.effort).toBe("xhigh");
 
@@ -183,16 +182,17 @@ describe("Supervisor", () => {
     await settled();
     supervisor.handle({ type: "move", task: "t1", to: "done" });
     supervisor.handle({ type: "move", task: "t1", to: "in_progress" });
-    supervisor.handle({ type: "remove", task: "t1" });
+    supervisor.handle({ type: "drop", task: "t1" });
+    await settled();
     expect(task("t1")?.state).toBe("done");
   });
 
-  it("drops a removed task and frees its worker for the next one", async () => {
+  it("drops a task and frees its worker for the next one", async () => {
     const { log, supervisor, task } = setup();
     supervisor.createTask("first", "one", "ws1");
     supervisor.createTask("second", "two", "ws1");
-    supervisor.handle({ type: "remove", task: "t1" });
-    expect(task("t1")?.state).toBe("dropped");
+    supervisor.handle({ type: "drop", task: "t1" });
+    await until(() => task("t1")?.state === "dropped");
     await until(() => log.state.agents.alpha?.task === "t2");
   });
 
@@ -386,9 +386,8 @@ describe("restart", () => {
 
     await expect(ask()).resolves.toBe("About: why?");
     expect(log.state.agents.alpha?.log).toHaveLength(lines ?? 0);
-    supervisor.handle({ type: "stop", agent: "alpha" });
-    await until(() => log.state.agents.alpha?.activity === "stopped");
-    await expect(ask()).rejects.toThrow("Start alpha to ask about its session.");
+    await supervisor.stopTask("alpha");
+    await expect(ask()).rejects.toThrow("alpha is not running; ask once it is.");
   });
 });
 

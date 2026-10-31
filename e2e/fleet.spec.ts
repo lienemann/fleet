@@ -378,11 +378,18 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
     return group;
   };
 
-  // The item offers the board's moves: the verdict first and filled, Remove last and apart.
+  // The item offers the board's moves: the verdict first and filled, Drop last and apart.
   const accepted = "Order the replay imports";
   const group = await finishedTask(accepted, "ws1");
   const labels = group.locator("footer.actions button");
-  await expect(labels).toHaveText([/^Accept/, /^Request changes/, /^Mark read/, "Go", /^Remove/]);
+  await expect(labels).toHaveText([
+    /^Accept/,
+    /^Request changes/,
+    /^Park/,
+    /^Mark read/,
+    "Go",
+    /^Drop/,
+  ]);
   await expect(labels.first()).toHaveClass(/primary/);
   await expect(labels.last()).toHaveClass(/danger/);
   await expect(group.getByRole("button", { name: "Diff", exact: true })).toBeVisible();
@@ -1056,7 +1063,7 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await expect(drawer.locator(".log")).toContainText(
     "This conversation started in another Claude Code client",
   );
-  await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Interrupt" })).toBeVisible();
 
   // A terminal still has the other one, in the middle of a turn: the tile says so, and Attach
   // asks before it ends the terminal.
@@ -1072,7 +1079,7 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await prompt.fill("");
   page.once("dialog", (dialog) => dialog.accept());
   await drawer.getByRole("button", { name: "Attach", exact: true }).click();
-  await expect(drawer.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Interrupt" })).toBeVisible();
   await expect(drawer.locator(".banner")).toBeHidden();
 
   // Imported once, the session is marked in the list.
@@ -1084,7 +1091,15 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   );
 });
 
-test("removing a task asks first while its workspace holds its work", async ({ page }) => {
+/** The inbox's question whether `title` goes, answered with `choice`. */
+async function answerDrop(page: Page, title: string, choice: "Drop" | "Keep") {
+  await page.keyboard.press("Alt+2");
+  const question = page.locator(".inbox .decision", { hasText: `"${title}"?` });
+  await question.getByRole("button", { name: choice, exact: true }).click();
+  await expect(question).toBeHidden();
+}
+
+test("dropping a task asks in the inbox while its change holds work", async ({ page }) => {
   await page.goto("/");
   const rail = page.locator(".rail");
   const title = "Polish the homepage";
@@ -1092,19 +1107,67 @@ test("removing a task asks first while its workspace holds its work", async ({ p
   const row = rail.locator(".rail-row", { hasText: title });
   const name = (await row.locator(".name").textContent()) ?? "";
 
-  page.once("dialog", (dialog) => dialog.dismiss());
   await row.hover();
-  await row.getByRole("button", { name: `Remove ${name}'s task` }).click();
+  await row.getByRole("button", { name: `Drop ${name}'s task` }).click();
+  await answerDrop(page, title, "Keep");
   await expect(rail).toContainText(title);
 
-  page.once("dialog", (dialog) => dialog.accept());
-  // Firefox forgets the hover once the confirmation closes.
   await row.hover();
-  await row.getByRole("button", { name: `Remove ${name}'s task` }).click();
+  await row.getByRole("button", { name: `Drop ${name}'s task` }).click();
+  await answerDrop(page, title, "Drop");
   await expect(rail).not.toContainText(title);
   await expect(page.locator(".card", { hasText: title })).toBeHidden();
   // The agent stays, free for the next task.
   await expect(rail.locator(".rail-item", { hasText: name })).toBeVisible();
+});
+
+test("a parked task keeps its note and starts again once unparked", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const title = "Draft the changelog page";
+  await newTask(page, title, "pages", "site");
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+
+  // The agent is interrupted, writes its note, and the task waits in Parked with it.
+  await card(page, "Needs you", title).getByRole("button", { name: "Park" }).click();
+  const parked = card(page, "Parked", title);
+  await expect(parked).toContainText("Done: Replaced the fixed 1 ms tolerance", {
+    timeout: 15_000,
+  });
+  await parked.locator(".card-main").click();
+  const note = page.locator(".drawer .handover-note");
+  await expect(note).toContainText("Left: Apply the same fix to the two similar tests?");
+
+  // Unpark queues it, and the worker that had it takes it up again.
+  await parked.getByRole("button", { name: "Unpark" }).click();
+  await expect(card(page, "Needs you", title)).toBeVisible({ timeout: 15_000 });
+  await card(page, "Needs you", title).getByRole("button", { name: "Drop" }).click();
+  await answerDrop(page, title, "Drop");
+  await page.keyboard.press("Alt+1");
+  await expect(page.locator(".card", { hasText: title })).toBeHidden();
+});
+
+test("a run that stopped without the user offers Continue", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const title = "Let the worker crash mid-turn";
+  await newTask(page, title, "pages", "site");
+  await page.keyboard.press("Alt+2");
+  const group = page.locator(".finished", { hasText: title });
+  await expect(group).toContainText("Stopped", { timeout: 15_000 });
+  await expect(group).toContainText("crashed");
+  const labels = group.locator("footer.actions button");
+  await expect(labels.first()).toHaveText(/^Continue/);
+  await expect(labels.first()).toHaveClass(/primary/);
+
+  // The agent goes on with its task, up to its next question.
+  await labels.first().click();
+  await expect(page.locator(".inbox .decision", { hasText: title }).first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.keyboard.press("Alt+1");
+  await card(page, "Needs you", title).getByRole("button", { name: "Drop" }).click();
+  await answerDrop(page, title, "Drop");
 });
 
 test("a workspace in use stays, and a free one can be removed", async ({ page }) => {

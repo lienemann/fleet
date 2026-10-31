@@ -86,13 +86,20 @@ export const CommandSchema = z.discriminatedUnion("type", [
     brief: z.string().trim().min(1),
     workspace: z.string().min(1).optional(),
   }),
-  z.object({ type: z.literal("start"), agent }),
-  z.object({ type: z.literal("stop"), agent }),
   z.object({ type: z.literal("detach"), agent }),
   /** Ends the client that holds a detached session and runs the session in fleet. */
   z.object({ type: z.literal("attach"), agent }),
-  /** Drops a task; its changes stay in the workspace. The browser asks first. */
-  z.object({ type: z.literal("remove"), task }),
+  /** Tells an agent that stopped without the user, offline or after a crash, to go on. */
+  z.object({ type: z.literal("continue"), agent }),
+  /**
+   * Parks a task: its agent leaves a handover note, its change stays in the history, and the
+   * agent is free.
+   */
+  z.object({ type: z.literal("park"), task }),
+  /** Queues a parked task again; with `sameWorker`, for the worker that held it. */
+  z.object({ type: z.literal("unpark"), task, sameWorker: z.boolean().optional() }),
+  /** Closes a task as dropped; when its change holds work, the user is asked in the inbox first. */
+  z.object({ type: z.literal("drop"), task }),
   /** In progress for a queued task starts it now, past the limits. */
   z.object({ type: z.literal("move"), task, to: z.enum(USER_MOVES) }),
   z.object({ type: z.literal("set_mode"), agent, mode: z.enum(PERMISSION_MODES) }),

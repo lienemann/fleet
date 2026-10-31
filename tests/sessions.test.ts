@@ -154,7 +154,7 @@ describe("importing a session", () => {
     const listed = await supervisor.call({ type: "list_sessions", id: "1", workspace: "ws1" });
     expect(listed[0]?.imported).toBe(true);
 
-    supervisor.handle({ type: "start", agent: "bravo" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await until(() => calls.length === 1);
     expect(calls[0]?.options?.resume).toBe(ID);
     expect(calls[0]?.options?.cwd).toBe("/work/ws1");

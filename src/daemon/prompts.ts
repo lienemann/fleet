@@ -167,6 +167,14 @@ and test, and open questions. Write it for a capable colleague taking over, then
 `.trim();
 }
 
+/** What the agent that holds a task is asked when the task is parked. */
+export function parkRequest(task: string, path: string): string {
+  return `
+Your task ${task} is parked. Write a short handover note for whoever continues it: what is done, what is
+left, where to look. Write it to ${path} and reply with one line.
+`.trim();
+}
+
 /** The first prompt of a director started from the handover of the user's own session. */
 export function directorHandoverStart(path: string): string {
   return `

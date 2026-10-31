@@ -1047,6 +1047,8 @@ describe("tasks", () => {
     );
     expect(parked).toMatchObject({ note: "Half done.", change: "kxyz", pinNote: "gone" });
     expect(parked.agent).toBeUndefined();
+    // Parking frees the agent for the next task.
+    expect(runState(running, taskState(T, "parked")).agents.a?.task).toBeUndefined();
   });
 
   it("are changed by task_updated; a null pin releases the task to any worker", () => {

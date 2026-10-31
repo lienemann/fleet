@@ -265,7 +265,7 @@ describe("watching who holds a session", () => {
     await importIt();
     expect(agent()?.activity).toBe("detached");
     expect(log.since(0).some((e) => e.kind === "holder")).toBe(false);
-    supervisor.handle({ type: "start", agent: "bravo" });
+    supervisor.handle({ type: "attach", agent: "bravo" });
     await until(() => calls.length === 1);
   });
 });
@@ -281,11 +281,10 @@ describe("telling a session where it is", () => {
     expect(userLines()[0]).toContain(BRIEFING_ACK);
     expect(agent()?.briefing).toBe("done");
 
-    supervisor.handle({ type: "stop", agent: "bravo" });
-    await until(() => agent()?.activity === "stopped");
-    supervisor.handle({ type: "start", agent: "bravo" });
+    await supervisor.stopTask("bravo");
+    supervisor.handle({ type: "prompt", agent: "bravo", text: "Carry on" });
     await until(() => calls.length === 2);
-    expect(userLines()).toHaveLength(1);
+    expect(userLines()).toEqual([expect.stringContaining('You are "bravo"'), "Carry on"]);
   });
 
   it("puts the briefing in front of what the user typed", async () => {
@@ -630,8 +629,7 @@ describe("review fixes", () => {
     const { agent, calls, importIt, supervisor } = setup(host);
     await importIt();
     await until(() => agent()?.activity === "idle");
-    supervisor.handle({ type: "stop", agent: "bravo" });
-    await until(() => agent()?.activity === "stopped");
+    await supervisor.stopTask("bravo");
     hold(904);
     await supervisor.watchHolders();
     expect(agent()?.activity).toBe("detached");

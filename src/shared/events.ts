@@ -332,8 +332,8 @@ export type EventBody =
       /** Set for a prompt copied from a transcript: history, not work that starts a stretch. */
       replayed?: boolean;
     }
-  /** The user interrupted, stopped or handed over the agent, so its stretch of work ends with the user there. */
-  | { kind: "ended_by_user"; how: "interrupt" | "stop" | "handover" }
+  /** The user interrupted or handed over the agent, so its stretch of work ends with the user there. */
+  | { kind: "ended_by_user"; how: "interrupt" | "handover" }
   /** A stretch of work ended in a Finished item for the inbox; `replaces` is the unread item it continues. */
   | { kind: "run_finished"; item: FinishedRun; replaces?: string }
   /** The user marked these Finished items read. */

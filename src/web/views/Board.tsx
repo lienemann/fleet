@@ -14,7 +14,7 @@ import {
 import { agentStyle } from "../agentStyle.ts";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
-import { COLUMNS, contextPercent, currentWork, duration } from "../labels.ts";
+import { COLUMNS, contextPercent, currentWork, duration, firstLine } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel, useProjectColor } from "../ui/AgentLabel.tsx";
@@ -141,9 +141,11 @@ function Card({
     ? "reconnecting…"
     : column === "queued"
       ? `Waits for ${holder ? workspace : "its worker or a running slot"}`
-      : agent
-        ? (currentWork(state, agent) ?? agent.activity)
-        : (task.status ?? column);
+      : column === "parked" && task.note !== undefined
+        ? firstLine(task.note)
+        : agent
+          ? (currentWork(state, agent) ?? agent.activity)
+          : (task.status ?? column);
   const points = openPointDocs(state)
     .filter((doc) => doc.agent === agent?.name)
     .flatMap((doc) => doc.points)
@@ -223,7 +225,7 @@ function Card({
           <button
             key={move}
             type="button"
-            className={`small ${move === "accept" ? "primary" : ""}`}
+            className={`small ${move === "accept" ? "primary" : (TASK_MOVES[move].tone ?? "")}`}
             onClick={() => moves[move](task.id)}
           >
             {TASK_MOVES[move].button}

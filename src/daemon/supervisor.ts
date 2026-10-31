@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Options, PermissionResult, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { defaultProjectColor } from "../shared/colors.ts";
@@ -48,6 +56,7 @@ import {
   HOLDS_WORKSPACE,
   holderOf,
   holdsWorkspace,
+  lastAgentOf,
   linksOf,
   type TaskView,
   taskList,
@@ -79,7 +88,7 @@ import {
   type Workspace,
   writeConfig,
 } from "./config.ts";
-import { continueTask, freshStart, movedBriefing } from "./conversations.ts";
+import { continueTask, movedBriefing, withNote } from "./conversations.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
   agentNotes,
@@ -110,6 +119,7 @@ import {
   handoverRequest,
   handoverStart,
   importBriefing,
+  parkRequest,
   SETUP_CHANGED,
   workerPrompt,
 } from "./prompts.ts";
@@ -161,6 +171,15 @@ const ACTIVE: ReadonlySet<TaskState> = new Set(["in_progress", "changes_requeste
 
 const NO_TASK =
   "You hold no task; this tool reports on a task you work on. Answer with send_message instead.";
+
+/** What an agent that stopped without the user is told when the user lets it go on. */
+const CONTINUE_NOTE = "Continue where you left off.";
+
+/** The handover note of a parked task whose agent wrote none. */
+const NO_NOTE = "no note: the agent wrote none";
+
+/** How long an agent may take to rest and to write its handover note when its task is parked. */
+export const PARK_NOTE_MS = 3 * 60_000;
 
 const RESTART_NOTE =
   "The fleet daemon restarted while you were working. Continue where you left off; " +
@@ -277,6 +296,12 @@ export class Supervisor implements ToolHost {
    */
   private readonly starting = new Map<string, string>();
   private readonly importing = new Set<string>();
+  /** Tasks being parked; a second Park waits for nothing. */
+  private readonly parking = new Set<string>();
+  /** Tasks whose drop waits for the user's answer. */
+  private readonly asking = new Set<string>();
+  /** Workers whose workspace is moving on to a new change; nothing takes them meanwhile. */
+  private readonly cleaning = new Set<string>();
   private readonly holders: HolderHost | undefined;
   /** The pid of the holder each detached agent waits for; it is picked up once that exits. */
   private readonly seen = new Map<string, number>();
@@ -362,6 +387,7 @@ export class Supervisor implements ToolHost {
     return (
       agent.task === undefined &&
       ![...this.starting.values()].includes(agent.name) &&
+      !this.cleaning.has(agent.name) &&
       agent.activity !== "working" &&
       agent.activity !== "detached" &&
       agent.pending === 0
@@ -631,22 +657,23 @@ export class Supervisor implements ToolHost {
       case "create_task":
         this.createTask(message.title, message.brief, message.workspace);
         return;
-      case "start": {
-        const agent = this.agent(message.agent);
-        if (agent?.activity === "detached") this.background(this.attach(agent.name));
-        else if (agent) this.session(agent.name)?.start();
-        return;
-      }
-      case "stop":
-        this.endByUser(message.agent, "stop");
-        this.background(this.sessions.get(message.agent)?.stop());
+      case "continue":
+        this.continueAgent(message.agent);
         return;
       case "detach":
         this.background(this.detach(message.agent));
         return;
-      case "remove":
-        this.drop(message.task);
+      case "park":
+        this.background(this.park(message.task));
         return;
+      case "unpark":
+        this.unpark(message.task, message.sameWorker ?? false);
+        return;
+      case "drop": {
+        const task = this.task(message.task);
+        if (task && !CLOSED.has(task.state)) this.background(this.removeTask(task.id, USER));
+        return;
+      }
       case "move":
         this.move(message.task, message.to);
         return;
@@ -782,7 +809,7 @@ export class Supervisor implements ToolHost {
       }
       case "side_question": {
         const session = this.sessions.get(agent.name);
-        if (!session?.isRunning) throw new Error(`Start ${agent.name} to ask about its session.`);
+        if (!session?.isRunning) throw new Error(`${agent.name} is not running; ask once it is.`);
         return session.askSideQuestion(call.question);
       }
     }
@@ -1446,15 +1473,22 @@ export class Supervisor implements ToolHost {
     await this.continueFrom(director.name, path, directorHandoverStart(path));
   }
 
-  /** Resolves once `ready` holds, checked after every event. */
-  private until(ready: () => boolean): Promise<void> {
+  /**
+   * Resolves once `ready` holds, checked after every event, or after `ms` if given; to whether
+   * it holds.
+   */
+  private until(ready: () => boolean, ms?: number): Promise<boolean> {
     return new Promise((resolve) => {
-      if (ready()) return resolve();
+      if (ready()) return resolve(true);
+      const timer = ms === undefined ? undefined : setTimeout(() => done(false), ms);
       const off = this.log.subscribe(() => {
-        if (!ready()) return;
-        off();
-        resolve();
+        if (ready()) done(true);
       });
+      const done = (held: boolean): void => {
+        clearTimeout(timer);
+        off();
+        resolve(held);
+      };
     });
   }
 
@@ -1848,41 +1882,57 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Drops a task. A task whose workspace holds its work goes only once the user agrees: the
-   * director waits for the answer, a session outside fleet does not.
+   * Drops a task, by the user, a director or a session outside fleet. A task whose change holds
+   * work goes only once the user agrees in the inbox: a director waits for the answer, the user
+   * and a session outside fleet do not.
    */
   async removeTask(id: string, requester: string): Promise<string> {
     const task = this.namedTask(id);
     if (CLOSED.has(task.state)) throw new ToolError(`${id} is ${task.state} already.`);
     this.checkReach(requester, id, task.project);
-    const holder = task.agent;
-    if (!holdsWorkspace(task) || holder === undefined) {
-      this.drop(id);
+    const holder = holderOf(this.state, task);
+    const workspace = workspaceOf(this.state, task);
+    if (this.asking.has(id)) return `The user decides in the inbox whether ${id} goes.`;
+    if (!holder || !holdsWorkspace(task) || !(await this.holdsWork(holder))) {
+      await this.drop(id);
       return `Dropped ${id}.`;
     }
-    const question = `Remove the task ${id} "${task.title}"?`;
-    // The director asks in its own name; for a session outside fleet, the task's agent asks.
+    const question = `Drop the task ${id} "${task.title}"?`;
+    // A director asks in its own name; for the user or a session outside fleet, the task's agent asks.
     const fromFleet = this.agent(requester) !== undefined;
-    const asker = fromFleet ? requester : holder;
+    const asker = fromFleet ? requester : holder.name;
+    const who = requester === USER ? "You asked" : `${requester} asks`;
     this.session(asker);
-    const workspace = workspaceOf(this.state, task);
+    this.asking.add(id);
     const confirmation = this.ask(asker, {
       decision: "question",
       toolName: "remove_task",
       input: {},
-      explanation: `${requester} asks to remove it. Its changes stay in ${workspace}, and the next task there starts on top of them.`,
+      explanation: `${who} to drop it. Its change in ${workspace} holds work, which stays in the jj history.`,
       risk: [],
-      questions: [{ question, options: [{ label: "Remove" }, { label: "Keep" }] }],
-    }).then((answer) => {
-      if (answer.behavior !== "answers" || answer.answers[question] !== "Remove") {
-        return `The user keeps ${id}.`;
-      }
-      this.drop(id);
-      return `Dropped ${id}.`;
-    });
+      questions: [{ question, options: [{ label: "Drop" }, { label: "Keep" }] }],
+    })
+      .then(async (answer) => {
+        if (answer.behavior !== "answers" || answer.answers[question] !== "Drop") {
+          return `The user keeps ${id}.`;
+        }
+        await this.drop(id);
+        return `Dropped ${id}.`;
+      })
+      .finally(() => this.asking.delete(id));
     if (fromFleet) return confirmation;
     confirmation.catch((error: unknown) => console.error("fleet:", error));
     return `${id} holds work in ${workspace}; the user decides in the inbox whether it goes.`;
+  }
+
+  /** Whether the workspace of the agent holds work above trunk; true when jj cannot tell. */
+  private async holdsWork(agent: AgentView): Promise<boolean> {
+    try {
+      return await this.changes.holdsWork(agent.cwd);
+    } catch (error) {
+      console.error(`fleet: looking for work in ${agent.workspace} failed:`, error);
+      return true;
+    }
   }
 
   async stopTask(agent: string, by?: string): Promise<string> {
@@ -2082,19 +2132,137 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Closes a task as dropped. Its agent is free again: one at work on it is interrupted, and the
-   * next task there starts on top of whatever it changed.
+   * Closes a task as dropped. Its agent is free again: one at work on it is interrupted, and its
+   * workspace moves on to a new change from trunk.
    */
-  private drop(id: string): void {
+  private async drop(id: string): Promise<void> {
     const task = this.task(id);
     if (!task || CLOSED.has(task.state)) return;
     const holder = holderOf(this.state, task);
-    this.append(DAEMON, { kind: "task_state", task: id, state: "dropped" });
     if (holder?.activity === "working") {
       this.endByUser(holder.name, "interrupt");
       this.background(this.sessions.get(holder.name)?.interrupt());
     }
-    this.schedule(); // its workspace may be free now
+    await this.letGoOf(task, { kind: "task_state", task: id, state: "dropped" });
+  }
+
+  /**
+   * Parks a task: its agent, interrupted if it works, writes a handover note, the task keeps
+   * the change its work is in, and the agent is free.
+   */
+  private async park(id: string): Promise<void> {
+    const task = this.task(id);
+    if (!task || !HOLDS_WORKSPACE.has(task.state) || this.parking.has(id)) return;
+    this.parking.add(id);
+    try {
+      const holder = holderOf(this.state, task);
+      const note = holder ? await this.handoverNote(task, holder) : NO_NOTE;
+      const change = holder && task.role === "worker" ? await this.changeOf(holder) : undefined;
+      // Meanwhile the user may have dropped the task, or moved it on.
+      const now = this.task(id);
+      if (!now || !HOLDS_WORKSPACE.has(now.state) || now.agent !== task.agent) return;
+      await this.letGoOf(now, { kind: "task_state", task: id, state: "parked", note, change });
+    } finally {
+      this.parking.delete(id);
+    }
+  }
+
+  /**
+   * Asks the agent that holds a task being parked for a short handover note, and returns it.
+   * An agent at work is interrupted first; one that is stopped, detached or offline is not asked.
+   */
+  private async handoverNote(task: TaskView, holder: AgentView): Promise<string> {
+    const { name } = holder;
+    if (holder.activity === "stopped" || holder.activity === "detached" || holder.offline) {
+      return `no note: ${name} could not be reached`;
+    }
+    const session = this.session(name);
+    const rests = () => this.agent(name)?.activity !== "working";
+    if (holder.activity === "working") {
+      this.endByUser(name, "interrupt");
+      await session?.interrupt();
+      await this.until(rests, PARK_NOTE_MS);
+    }
+    const path = join(".fleet", name, task.id, "handover.md");
+    const file = join(holder.cwd, path);
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      rmSync(file, { force: true }); // a note from an earlier park is not this one
+    } catch {
+      // In a read-only workspace the agent's own write fails too, and the note says so.
+    }
+    session?.prompt(parkRequest(task.id, path), [], { by: "fleet" });
+    // After the prompt: it is the turn that opens the stretch to end.
+    this.endByUser(name, "handover");
+    session?.start();
+    if (!(await this.until(rests, PARK_NOTE_MS))) {
+      this.endByUser(name, "interrupt");
+      await session?.interrupt();
+    }
+    try {
+      return readFileSync(file, "utf8").trim() || NO_NOTE;
+    } catch {
+      return NO_NOTE;
+    }
+  }
+
+  /** The change that keeps an agent's work; undefined when jj cannot tell. */
+  private async changeOf(agent: AgentView): Promise<string | undefined> {
+    try {
+      return await this.changes.currentChange(agent.cwd);
+    } catch (error) {
+      console.error(`fleet: reading the change in ${agent.workspace} failed:`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Logs a move that takes a task from its agent. A worker's workspace then moves on to a new
+   * change from trunk, so its next task starts clean; the pool leaves the worker alone until then.
+   */
+  private async letGoOf(task: TaskView, move: AgentEvent & { kind: "task_state" }): Promise<void> {
+    const holder = holderOf(this.state, task);
+    const worker =
+      holder && holdsWorkspace(task) && !this.workspace(holder.workspace)?.explicit
+        ? holder
+        : undefined;
+    if (worker) this.cleaning.add(worker.name);
+    this.append(DAEMON, move);
+    if (worker) {
+      try {
+        await this.changes.startChange(worker.cwd, "trunk");
+      } catch (error) {
+        console.error(`fleet: starting a change from trunk in ${worker.workspace} failed:`, error);
+      } finally {
+        this.cleaning.delete(worker.name);
+      }
+    }
+    this.schedule();
+  }
+
+  /** Queues a parked task again; with `sameWorker`, for the worker that held it last. */
+  private unpark(id: string, sameWorker: boolean): void {
+    const task = this.task(id);
+    if (task?.state !== "parked") return;
+    const last = lastAgentOf(this.state, task);
+    if (sameWorker && last !== undefined) {
+      this.append(DAEMON, { kind: "task_updated", task: id, pin: last });
+    }
+    this.append(DAEMON, { kind: "task_state", task: id, state: "queued" });
+    this.schedule();
+  }
+
+  /**
+   * Tells an agent that stopped without the user, offline, after a failed request or a crash,
+   * to go on. Any other agent is left alone.
+   */
+  private continueAgent(name: string): void {
+    const agent = this.agent(name);
+    if (!agent || agent.activity === "working" || agent.activity === "detached") return;
+    const stopped =
+      agent.finished.at(-1)?.stopped !== undefined ||
+      (agent.activity === "stopped" && agent.task !== undefined);
+    if (stopped) this.prompt(name, CONTINUE_NOTE, "user");
   }
 
   /** Keeps a claim, until `until` if given, otherwise for as long as its holder wants. */
@@ -2418,8 +2586,8 @@ export class Supervisor implements ToolHost {
 
   /**
    * Readies a worker for a task: its session ends, the task's conversation is forked over if it
-   * moves, and its workspace gets a new change: from trunk for a fresh conversation, on top of
-   * the task's change for one that continues. Never in an explicit workspace, the user's checkout.
+   * moves, and its workspace gets a new change: on top of the task's change when it has one,
+   * else from trunk. Never in an explicit workspace, the user's checkout.
    * What fails is logged, and the task starts anyway; a fork that fails starts fresh.
    */
   private async prepare(task: TaskView, worker: AgentView, planned: Opening): Promise<Readied> {
@@ -2434,10 +2602,9 @@ export class Supervisor implements ToolHost {
         opening = { kind: "fresh" };
       }
     }
-    const base = task.change ?? (opening.kind === "fresh" ? "trunk" : undefined);
-    if (base !== undefined && !this.workspace(worker.workspace)?.explicit) {
+    if (!this.workspace(worker.workspace)?.explicit) {
       try {
-        await this.changes.startChange(worker.cwd, base);
+        await this.changes.startChange(worker.cwd, task.change ?? "trunk");
       } catch (error) {
         console.error(
           `fleet: starting a change for ${task.id} in ${worker.workspace} failed:`,
@@ -2476,9 +2643,10 @@ export class Supervisor implements ToolHost {
     session?.start();
   }
 
+  /** The brief, or a note to go on, for a moved conversation after a briefing; then the handover note. */
   private firstPrompt(task: TaskView, worker: AgentView, opening: Opening): string {
-    if (opening.kind === "fresh") return freshStart(task.brief, task.note);
-    if (opening.kind === "resume") return continueTask(task.id);
+    if (opening.kind === "fresh") return withNote(task.brief, task.note);
+    if (opening.kind === "resume") return withNote(continueTask(task.id), task.note);
     const briefing = movedBriefing({
       task: task.id,
       worker: worker.name,
@@ -2486,7 +2654,7 @@ export class Supervisor implements ToolHost {
       from: opening.from.workspace,
       cwd: worker.cwd,
     });
-    return `${briefing}\n\n${continueTask(task.id)}`;
+    return withNote(`${briefing}\n\n${continueTask(task.id)}`, task.note);
   }
 
   /** Ends the agent's session without a word; the next one starts afresh or resumes another. */
@@ -2635,7 +2803,7 @@ export class Supervisor implements ToolHost {
   }
 
   /** The user ends what the agent is doing, so nothing it ends with is news to them. */
-  private endByUser(name: string, how: "interrupt" | "stop" | "handover"): void {
+  private endByUser(name: string, how: "interrupt" | "handover"): void {
     if (this.agent(name)) this.append(name, { kind: "ended_by_user", how });
   }
 

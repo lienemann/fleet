@@ -4,13 +4,11 @@ import { lastWorkspace } from "../shared/hosts.ts";
 import { agentList, pendingDecisions, unreadFinished } from "../shared/reducer.ts";
 import {
   CLOSED,
-  HOLDS_WORKSPACE,
   isTaskId,
   selectionOf,
   taskList,
   taskOf,
   workspaceInUse,
-  workspaceOf,
   workspaceUse,
 } from "../shared/tasks.ts";
 import { useFleet } from "./fleet.tsx";
@@ -30,7 +28,7 @@ import { NewTask } from "./shell/NewTask.tsx";
 import { ProjectColor } from "./shell/ProjectColor.tsx";
 import { Rail } from "./shell/Rail.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
-import { TASK_MOVES, useTaskMoves } from "./taskMoves.ts";
+import { CONTINUE_KEYS, MOVE_ORDER, TASK_MOVES, useTaskMoves } from "./taskMoves.ts";
 import { attachAgent } from "./tile/attach.ts";
 import { canHandOver } from "./tile/CliBar.tsx";
 import { ResizeHandle } from "./ui/ResizeHandle.tsx";
@@ -149,16 +147,6 @@ export function App() {
     select(target);
     setEnlarged(target);
     setView("grid");
-  };
-  /** Removes a task; one whose workspace still holds its work asks first. */
-  const remove = (id: string): void => {
-    const target = state.tasks[id];
-    if (!target) return;
-    const where = workspaceOf(state, target);
-    const question = `Remove the task "${target.title}"? Its changes stay in ${where}, and the next task there starts on top of them.`;
-    if (HOLDS_WORKSPACE.has(target.state) && !window.confirm(question)) return;
-    send({ type: "remove", task: id });
-    if (selected === id) setSelected(undefined);
   };
 
   // An agent on screen counts as seen, even if its outcome changes while the user looks at it.
@@ -465,18 +453,18 @@ export function App() {
         run: () => send({ type: "interrupt", agent: name }),
       },
       {
-        id: "agent.session",
-        label: live
-          ? "Stop the session"
-          : current?.activity === "detached"
-            ? "Attach the session"
-            : "Start the session",
+        id: "agent.attach",
+        label: "Attach the session",
         group: "Selected agent",
         keys: ["alt+s"],
-        run: () =>
-          current?.activity === "detached"
-            ? attachAgent(current, send)
-            : send({ type: live ? "stop" : "start", agent: name }),
+        run: () => current?.activity === "detached" && attachAgent(current, send),
+      },
+      {
+        id: "agent.continue",
+        label: "Continue after a stop",
+        group: "Selected agent",
+        keys: [CONTINUE_KEYS],
+        run: () => send({ type: "continue", agent: name }),
       },
       {
         id: "agent.handover",
@@ -525,12 +513,12 @@ export function App() {
         keys: ["alt+r"],
         run: answer("deny"),
       },
-      ...(["review", "changes", "accept", "remove"] as const).map((m) => ({
+      ...MOVE_ORDER.map((m) => ({
         id: TASK_MOVES[m].id,
         label: TASK_MOVES[m].label,
         group: "Move the selected task",
         keys: [TASK_MOVES[m].keys],
-        run: () => taskId && (m === "remove" ? remove(taskId) : moves[m](taskId)),
+        run: () => taskId && moves[m](taskId),
       })),
       {
         id: "drawer.next",
@@ -623,7 +611,6 @@ export function App() {
         <Rail
           selected={selected}
           onSelect={view === "grid" ? open : select}
-          onRemove={remove}
           onImport={() => show("import")}
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
@@ -643,7 +630,6 @@ export function App() {
                 goTab(next);
               }}
               onOpenThread={showThread}
-              onRemove={remove}
             />
           )}
           {view === "grid" && (

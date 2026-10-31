@@ -29,9 +29,10 @@ import {
   testConfig,
   testProject,
   until,
+  withWork,
 } from "./helpers.ts";
 
-function setup(review = 2) {
+function setup(review = 2, changes = noChanges) {
   const root = mkdtempSync(join(tmpdir(), "fleet-tools-"));
   const workspaces = ["ws1", "ws2"].map((name) => {
     const path = join(root, name);
@@ -43,7 +44,7 @@ function setup(review = 2) {
   const log = new EventLog(":memory:");
   const { queryFn } = fakeQuery(echoing(result()));
   const supervisor = new Supervisor({
-    changes: noChanges,
+    changes,
     log,
     queryFn,
     config: testConfig({ workspaces, review, director }),
@@ -137,7 +138,7 @@ describe("director", () => {
   });
 
   it("removes a queued task at once, and work only once the user agrees", async () => {
-    const { log, supervisor } = setup();
+    const { log, supervisor } = setup(2, withWork);
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", workspace: "ws1" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "y", workspace: "ws1" });
     await settled();
@@ -164,17 +165,17 @@ describe("director", () => {
 
     // A session outside fleet does not; the task's agent asks.
     expect(await supervisor.removeTask("t1", "outside")).toContain("decides in the inbox");
-    expect((await answer("Remove"))?.agent).toBe("alpha");
+    expect((await answer("Drop"))?.agent).toBe("alpha");
     await until(() => log.state.tasks.t1?.state === "dropped");
     expect(log.state.agents.alpha).toBeDefined();
   });
 
-  it("drops a task the user removes from the board, and leaves its agent", () => {
+  it("drops a task the user drops from the board, and leaves its agent", async () => {
     const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", workspace: "ws1" });
-    supervisor.handle({ type: "remove", task: "t1" });
-    supervisor.handle({ type: "remove", task: "t9" });
-    expect(log.state.tasks.t1?.state).toBe("dropped");
+    supervisor.handle({ type: "drop", task: "t1" });
+    supervisor.handle({ type: "drop", task: "t9" });
+    await until(() => log.state.tasks.t1?.state === "dropped");
     expect(log.state.agents.alpha?.task).toBeUndefined();
   });
 

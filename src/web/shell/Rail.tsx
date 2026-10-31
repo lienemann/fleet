@@ -8,6 +8,7 @@ import { useFleet } from "../fleet.tsx";
 import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
 import { useLocalProjects, useProjects } from "../projects.tsx";
+import { useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel, useProjectColor, useProjectColors } from "../ui/AgentLabel.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { useNow } from "../useNow.ts";
@@ -19,7 +20,6 @@ const clock = (ts: number): string =>
 interface Props {
   selected: string | undefined;
   onSelect: (name: string) => void;
-  onRemove: (name: string) => void;
   onImport: () => void;
   onAddWorkspace: (project?: string) => void;
   onAddProject: () => void;
@@ -61,7 +61,6 @@ function useFolded(): [ReadonlySet<string>, (project: string) => void] {
 export function Rail({
   selected,
   onSelect,
-  onRemove,
   onImport,
   onAddWorkspace,
   onAddProject,
@@ -90,7 +89,7 @@ export function Rail({
   );
   const inProject = (project: string) => agents.filter((a) => a.project === project);
   const tree = (list: AgentView[]) => (
-    <AgentTree agents={list} selected={selected} onSelect={onSelect} onRemove={onRemove} />
+    <AgentTree agents={list} selected={selected} onSelect={onSelect} />
   );
 
   return (
@@ -213,19 +212,18 @@ function ColorDot({ project, onColor }: { project: string; onColor: (project: st
   );
 }
 
-/** Agents with their running subagents; a worker's task can be removed from its row. */
+/** Agents with their running subagents; a worker's task can be dropped from its row. */
 function AgentTree({
   agents,
   selected,
   onSelect,
-  onRemove,
 }: {
   agents: AgentView[];
   selected: string | undefined;
   onSelect: (name: string) => void;
-  onRemove: (task: string) => void;
 }) {
   const { state } = useFleet();
+  const { drop } = useTaskMoves();
   return (
     <ul className="tree">
       {agents.map((agent) => (
@@ -236,9 +234,9 @@ function AgentTree({
               <button
                 type="button"
                 className="link remove-x"
-                aria-label={`Remove ${agent.name}'s task`}
-                title={`Remove ${agent.name}'s task "${taskOf(state, agent)?.title}"; ${agent.name} stays`}
-                onClick={() => agent.task !== undefined && onRemove(agent.task)}
+                aria-label={`Drop ${agent.name}'s task`}
+                title={`Drop ${agent.name}'s task "${taskOf(state, agent)?.title}"; ${agent.name} stays`}
+                onClick={() => agent.task !== undefined && drop(agent.task)}
               >
                 ×
               </button>

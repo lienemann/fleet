@@ -284,6 +284,12 @@ function PastConversations({ task }: { task: TaskView }) {
           {last ? `${last} worked on this task last.` : "No agent has worked on this task."}
         </p>
       )}
+      {task.note !== undefined && (
+        <section className="handover-note">
+          <h3>Handover note</h3>
+          <Markdown text={task.note} />
+        </section>
+      )}
       {conversations.map((c, i) => (
         <section key={`${c.agent}-${c.sessionId ?? i}`}>
           <h3>
