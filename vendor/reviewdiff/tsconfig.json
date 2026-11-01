@@ -1,0 +1,16 @@
+{
+  // Declarations only; esbuild bundles the code. Settings follow ReviewDiff's own tsconfig.
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types",
+    "skipLibCheck": true
+  },
+  "include": ["index.ts"]
+}

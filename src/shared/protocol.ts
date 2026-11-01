@@ -1,0 +1,478 @@
+import { z } from "zod";
+import { HEX_COLOR } from "./colors.ts";
+import type { FleetEvent } from "./events.ts";
+import { EFFORT_LEVELS, PERMISSION_MODES, TINTS, USER_MOVES } from "./events.ts";
+import { type FleetState, QUOTE_LIMIT } from "./reducer.ts";
+import type { ReviewModel } from "./review.ts";
+
+const agent = z.string().min(1);
+/** A task id, `t1`, `t2`, … */
+const task = z.string().regex(/^t\d+$/);
+/** The user's comment that goes with a move, with what it answers; see each command for when it arrives. */
+const note = z.string().trim().min(1).optional();
+
+/** Lines from `start` up to, not including, `endExclusive`: at least one. */
+const nonEmpty = [
+  ({ start, endExclusive }: { start: number; endExclusive: number }) => endExclusive > start,
+  "endExclusive must be after start",
+] as const;
+
+const AnswerSchema = z.discriminatedUnion("behavior", [
+  /** A message with an approval reaches the agent as its next prompt; the SDK's allow has none. */
+  z.object({
+    behavior: z.literal("allow"),
+    alwaysAllow: z.boolean().optional(),
+    message: z.string().optional(),
+  }),
+  z.object({ behavior: z.literal("deny"), message: z.string().optional() }),
+  z.object({
+    behavior: z.literal("answers"),
+    answers: z.record(z.string(), z.string()),
+    message: z.string().optional(),
+  }),
+  z.object({
+    behavior: z.literal("review"),
+    approved: z.boolean(),
+    message: z.string().optional(),
+  }),
+]);
+
+export const CommandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("subscribe"), since: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal("prompt"),
+    agent,
+    text: z.string().min(1),
+    attachments: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(200),
+          mediaType: z.string().max(200),
+          // 10 MB per file, as base64.
+          data: z
+            .string()
+            .max(14_000_000)
+            .regex(/^[A-Za-z0-9+/]*=*$/),
+        }),
+      )
+      .max(10)
+      .optional(),
+  }),
+  z.object({ type: z.literal("interrupt"), agent }),
+  /** Stops a shell, subagent or monitor the session runs. */
+  z.object({ type: z.literal("stop_task"), agent, taskId: z.string().min(1) }),
+  /** Lets the tool call that waits for a task go on while the task runs in the background. */
+  z.object({ type: z.literal("background_task"), agent, taskId: z.string().min(1) }),
+  z.object({ type: z.literal("clear_tasks"), agent }),
+  z.object({ type: z.literal("answer"), requestId: z.string().min(1), answer: AnswerSchema }),
+  z.object({
+    type: z.literal("answer_point"),
+    docId: z.string().min(1),
+    pointId: z.string().min(1),
+    answer: z.string().trim().min(1),
+  }),
+  z.object({ type: z.literal("open"), agent }),
+  z.object({ type: z.literal("mark_all_seen") }),
+  z.object({ type: z.literal("set_lid_mode"), on: z.boolean() }),
+  /** Makes an existing jj workspace a fleet workspace, and writes it into config.toml. */
+  z.object({
+    type: z.literal("add_workspace"),
+    name: z.string().regex(/^[\w.-]+$/),
+    path: z.string().min(1),
+    /** The project it joins. */
+    project: z.string().min(1),
+    /** Only tasks that name it go there, e.g. for a directory of another project. */
+    explicit: z.boolean().optional(),
+  }),
+  /** Ends a claim a session outside fleet holds on a workspace, e.g. one it forgot to release. */
+  z.object({ type: z.literal("release_workspace"), workspace: z.string().min(1) }),
+  /** Takes a free workspace out of fleet and its config; jj and the directory stay. */
+  z.object({ type: z.literal("remove_workspace"), workspace: z.string().min(1) }),
+  /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
+  z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
+  /**
+   * A task for the workspace's worker, or for the named `worker`; without either, for any free
+   * agent of `project` and `kind`. With `sameWorker`, the named worker takes it in its own
+   * conversation.
+   */
+  z.object({
+    type: z.literal("create_task"),
+    title: z.string().trim().min(1),
+    brief: z.string().trim().min(1),
+    project: z.string().min(1).optional(),
+    kind: z.enum(["worker", "investigator"]).optional(),
+    workspace: z.string().min(1).optional(),
+    worker: agent.optional(),
+    sameWorker: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal("detach"), agent }),
+  /** Ends the client that holds a detached session and runs the session in fleet. */
+  z.object({ type: z.literal("attach"), agent }),
+  /**
+   * Tells an agent that stopped without the user, offline or after a crash, to go on; the note
+   * goes along in the same prompt.
+   */
+  z.object({ type: z.literal("continue"), agent, note }),
+  /**
+   * Parks a task: its agent leaves a handover note, its change stays in the history, and the
+   * agent is free. The user's note joins the handover note, for whoever continues the task.
+   */
+  z.object({ type: z.literal("park"), task, note }),
+  /** Queues a parked task again; with `sameWorker`, for the worker that held it. */
+  z.object({ type: z.literal("unpark"), task, sameWorker: z.boolean().optional() }),
+  /** Releases a queued task that waits for one worker to any worker. */
+  z.object({ type: z.literal("unpin"), task }),
+  /**
+   * Closes a task as dropped; when its change holds work, the user is asked in the inbox first.
+   * The note reaches the agent once the task is dropped, before it takes another.
+   */
+  z.object({ type: z.literal("drop"), task, note }),
+  /**
+   * In progress for a queued task starts it now, past the limits. The note goes with Done and
+   * reaches the agent once the task is accepted, before it takes another.
+   */
+  z.object({ type: z.literal("move"), task, to: z.enum(USER_MOVES), note }),
+  z.object({ type: z.literal("set_mode"), agent, mode: z.enum(PERMISSION_MODES) }),
+  z.object({ type: z.literal("set_model"), agent, model: z.string().min(1) }),
+  /** null goes back to the model's own default. */
+  z.object({ type: z.literal("set_effort"), agent, effort: z.enum(EFFORT_LEVELS).nullable() }),
+  /** Changes the color a project's tickets wear, and writes it into config.toml. */
+  z.object({
+    type: z.literal("set_project_color"),
+    project: z.string().min(1),
+    color: z.string().regex(HEX_COLOR),
+  }),
+  z.object({ type: z.literal("set_tint"), agent, tint: z.enum(TINTS) }),
+  /** Continues the task in a fresh session, after the old one wrote a handover file. */
+  z.object({ type: z.literal("handover"), agent }),
+  /** Opens a thread on selected lines; held ones wait for "Request changes", the others go to the agent at once. */
+  z.object({
+    type: z.literal("thread_open"),
+    task,
+    path: z.string().min(1),
+    side: z.enum(["head", "base"]),
+    lines: z
+      .object({
+        start: z.number().int().positive(),
+        endExclusive: z.number().int().positive(),
+      })
+      .refine(...nonEmpty),
+    quote: z.array(z.string()).min(1).max(QUOTE_LIMIT),
+    commit: z.string().min(1).optional(),
+    body: z.string().trim().min(1),
+    held: z.boolean(),
+    fold: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("thread_reply"),
+    task,
+    threadId: z.string().min(1),
+    body: z.string().trim().min(1),
+    held: z.boolean(),
+    fold: z.string().min(1).optional(),
+  }),
+  /** Only held messages can still be changed or taken back. */
+  z.object({
+    type: z.literal("thread_edit"),
+    task,
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+    body: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("thread_remove"),
+    task,
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+  }),
+  /** The user read these Finished items of the agent, and its messages with them. */
+  z.object({ type: z.literal("finished_read"), agent, ids: z.array(z.string().min(1)).min(1) }),
+  /** The user read these messages the agent wrote to them. */
+  z.object({
+    type: z.literal("messages_read"),
+    agent,
+    seqs: z.array(z.number().int().positive()).min(1),
+  }),
+  /** Answers an agent's inbox group with a comment, or Go, and reads its items and messages. */
+  z.object({
+    type: z.literal("finished_reply"),
+    agent,
+    ids: z.array(z.string().min(1)),
+    seqs: z.array(z.number().int().positive()),
+    text: z.string().trim().min(1),
+  }),
+  z.object({ type: z.literal("thread_read"), task, threadId: z.string().min(1) }),
+  z.object({
+    type: z.literal("thread_resolve"),
+    task,
+    threadId: z.string().min(1),
+    resolved: z.boolean(),
+  }),
+  /**
+   * Makes an existing Claude Code session a task. It starts detached: the CLI may still have
+   * it open, and only one process may write a transcript.
+   */
+  z.object({
+    type: z.literal("import_session"),
+    sessionId: z.string().uuid(),
+    workspace: z.string().min(1),
+    title: z.string().trim().min(1),
+  }),
+  /**
+   * Starts the director fresh from a handover that a fork of an existing session writes; the
+   * session itself stays as it is.
+   */
+  z.object({
+    type: z.literal("adopt_director"),
+    sessionId: z.string().uuid(),
+    workspace: z.string().min(1),
+  }),
+  /** Sends the held thread messages and the user's edits as one message and moves the task to "changes requested". */
+  z.object({ type: z.literal("request_changes"), task, message: z.string().optional() }),
+]);
+
+const id = z.string().min(1);
+
+/** Requests that get an answer: a `reply` message with the same id. */
+export const CallSchema = z.discriminatedUnion("type", [
+  /**
+   * A file to show: one of the agent's roots, or one of its outputs or attached files in a
+   * place agents keep their documents. Relative paths are the workspace's.
+   */
+  z.object({ type: z.literal("read_file"), id, agent, path: z.string().min(1) }),
+  /** Loads the diff view; without a scope, the task's whole change since trunk. */
+  z.object({
+    type: z.literal("review_load"),
+    id,
+    task,
+    scope: z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("branch") }),
+        z.object({ kind: z.literal("commit"), change: z.string().regex(/^[k-z]+$/) }),
+      ])
+      .optional(),
+  }),
+  /** Paths of the agent's workspace, for @ mentions. */
+  z.object({ type: z.literal("list_files"), id, agent }),
+  /** The jj workspaces of a project's repo, for adding existing ones. */
+  z.object({ type: z.literal("list_jj_workspaces"), id, project: z.string().min(1) }),
+  /** Adds the jj repo containing a directory as a project; its director starts at once. */
+  z.object({
+    type: z.literal("add_project"),
+    id,
+    path: z.string().min(1).max(4096),
+    name: z
+      .string()
+      .regex(/^[\w.-]+$/)
+      .optional(),
+  }),
+  /** Any directory, e.g. another repo, checked before it is added as a workspace. */
+  z.object({ type: z.literal("inspect_directory"), id, path: z.string().min(1).max(4096) }),
+  /** Claude Code sessions recorded for a workspace's directory, newest first. */
+  z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
+  /** The end of a shell's or monitor's output; `all` reads more of a finished one. */
+  z.object({
+    type: z.literal("task_output"),
+    id,
+    agent,
+    taskId: z.string().min(1),
+    all: z.boolean().optional(),
+  }),
+  /** Tasks closed at or after `since` that the state no longer keeps (past DONE_LIMIT). */
+  z.object({ type: z.literal("done_tasks"), id, since: z.number().int().min(0) }),
+  /** The whole text of an agent's log line, which the state keeps cut to TEXT_LIMIT. */
+  z.object({ type: z.literal("log_text"), id, agent, seq: z.number().int().min(1) }),
+  /** A question about the session that adds nothing to it, like /btw in the CLI. */
+  z.object({
+    type: z.literal("side_question"),
+    id,
+    agent,
+    question: z.string().trim().min(1).max(20_000),
+  }),
+  /** Files the agent keeps for the user under .fleet/<agent>/. */
+  z.object({ type: z.literal("notes"), id, agent }),
+  /**
+   * Opens a terminal on the daemon's computer in a directory, over ssh when it is on a remote's
+   * host; with a session, continues that session there.
+   */
+  z.object({
+    type: z.literal("open_terminal"),
+    id,
+    dir: z.string().min(1).max(4096),
+    remote: z
+      .string()
+      .regex(/^[\w.-]+$/)
+      .optional(),
+    session: z.string().uuid().optional(),
+  }),
+  z.object({
+    type: z.literal("review_approve"),
+    id,
+    task,
+    ids: z.array(z.string()),
+    approved: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("review_edit"),
+    id,
+    task,
+    hunkId: z.string().min(1),
+    lines: z.array(z.string()),
+  }),
+  /** The commit that last changed lines of the review head, for folding a fix into it. */
+  z
+    .object({
+      type: z.literal("review_origin"),
+      id,
+      task,
+      path: z.string().min(1),
+      start: z.number().int().min(1),
+      endExclusive: z.number().int().min(1),
+    })
+    .refine(...nonEmpty),
+]);
+
+export type Answer = z.infer<typeof AnswerSchema>;
+export type Command = z.infer<typeof CommandSchema>;
+export type Call = z.infer<typeof CallSchema>;
+
+/** Whether the terminal opened, and if not, why, with the line to run by hand. */
+export type TerminalReply = { opened: true } | { opened: false; reason: string; command: string };
+
+/** A file as the viewer gets it; `text` only for kind "text". */
+export interface FileContent {
+  kind: "text" | "binary" | "too_large";
+  size: number;
+  text?: string;
+}
+
+/** What each call answers with. */
+export interface CallResults {
+  read_file: FileContent;
+  list_files: string[];
+  list_sessions: SessionSummary[];
+  list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
+  add_project: { name: string };
+  inspect_directory: DirectoryInfo;
+  notes: Array<{ path: string; modified: number; size: number }>;
+  task_output: TaskOutput;
+  done_tasks: ClosedTasks;
+  /** null when the agent has no such log line. */
+  log_text: string | null;
+  /** null when Claude gave no answer. */
+  side_question: string | null;
+  open_terminal: TerminalReply;
+  review_load: ReviewModel;
+  review_approve: ReviewModel;
+  review_edit: ReviewModel;
+  /** null when the lines come from several commits, the working copy or trunk. */
+  review_origin: { change: string; short: string } | null;
+}
+
+/** A done or dropped task as the event log has it, once the state let go of it. */
+export interface ClosedTask {
+  id: string;
+  title: string;
+  project: string;
+  state: "done" | "dropped";
+  closedAt: number;
+  /** The agent that held it last. */
+  agent?: string;
+}
+
+export interface ClosedTasks {
+  /** Newest first. */
+  tasks: ClosedTask[];
+  /** Whether the log has more of them, closed before the time asked for. */
+  more: boolean;
+}
+
+/** The end of a task's output. */
+export interface TaskOutput {
+  output: string;
+  /** Size of the whole output. */
+  totalBytes: number;
+  /** `output` is only the end of it. */
+  truncated: boolean;
+  /**
+   * How long the output has not grown, as far as the daemon saw; absent once the task ended.
+   * A duration, since the browser's clock may differ from the daemon's.
+   */
+  quietMs?: number;
+}
+
+/** A directory that could become a workspace. */
+export interface DirectoryInfo {
+  /** Absolute, with `~` expanded. */
+  path: string;
+  /** The workspace's name: its own once added, else a free one made from the directory name. */
+  name: string;
+  /** The version control at its root, if any. */
+  vcs?: "jj" | "git";
+  /** Claude Code sessions recorded for it, which can be imported once it is added. */
+  sessions: number;
+  added: boolean;
+}
+
+/** A Claude Code session that could be imported. */
+export interface SessionSummary {
+  sessionId: string;
+  title: string;
+  lastModified: number;
+  branch?: string;
+  /** Already an agent in fleet. */
+  imported: boolean;
+}
+
+interface WorkspaceInfo {
+  name: string;
+  path: string;
+  host: string;
+  /** The project whose repo it belongs to. */
+  project: string;
+  /** Only tasks that name it or its worker go there; the pool leaves it out. */
+  explicit?: boolean;
+}
+
+/** How many tasks may run and wait in review; a limit that is absent is no limit. */
+export interface Limits {
+  running?: number;
+  review?: number;
+}
+
+/** One jj repo with its director and limits; its workspaces name it as their project. */
+export interface ProjectInfo {
+  name: string;
+  /** `#rrggbb`: what the project's tickets and agents wear. */
+  color: string;
+  /** The default workspace: the checkout the user works in, and its director's. */
+  path: string;
+  /** The director's agent name, if it has one. */
+  director?: string;
+  /** Name of the default workspace, for importing the sessions there. */
+  defaultWorkspace: string;
+  wip: Limits;
+}
+
+/** Static facts about the daemon that are not part of the event log. */
+export interface DaemonInfo {
+  host: string;
+  workspaces: WorkspaceInfo[];
+  projects: ProjectInfo[];
+  /** The limits of the whole fleet, on top of each project's. */
+  wip: Limits;
+  /** Whether a run that ends while the user has the agent open goes straight to Read. */
+  readWhileWatching: boolean;
+  /** Daemons on other hosts this one relays at `/remote/<name>/ws`. */
+  remotes: string[];
+  /** Build number of the web UI the daemon serves; absent when it serves none. */
+  build?: number;
+}
+
+export type ServerMessage =
+  | { type: "info"; info: DaemonInfo }
+  /** Sent instead of a long run of events: the whole state as of `state.lastSeq`. */
+  | { type: "snapshot"; state: FleetState }
+  | { type: "events"; events: FleetEvent[] }
+  | { type: "reply"; id: string; value?: unknown; error?: string }
+  | { type: "error"; message: string };

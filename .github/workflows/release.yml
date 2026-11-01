@@ -1,0 +1,67 @@
+# A tag v<version> releases fleet: once lint and the unit tests pass, it publishes a GitHub
+# release with the built web UI, whose notes list the commits since the previous tag.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install jj
+        env:
+          JJ_VERSION: 0.44.0
+        run: |
+          mkdir -p "$RUNNER_TEMP/jj"
+          curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/jj"
+          bin=$(dirname "$(find "$RUNNER_TEMP/jj" -type f -name jj | head -n1)")
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/jj" --version
+          "$bin/jj" config set --user user.name "fleet CI"
+          "$bin/jj" config set --user user.email "ci@example.com"
+
+      - name: Check that the tag matches package.json
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "The tag is $GITHUB_REF_NAME, but package.json says $version." >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:web
+
+      - name: Package
+        run: |
+          name="fleet-${GITHUB_REF_NAME#v}"
+          git archive --prefix "$name/" -o "$name.tar" "$GITHUB_REF_NAME"
+          tar -rf "$name.tar" --transform "s,^,$name/," dist/web
+          gzip "$name.tar"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          range=${previous:+$previous..}$GITHUB_REF_NAME
+          git log --reverse --format='- %s' "$range" > notes.md
+          gh release create "$GITHUB_REF_NAME" "fleet-${GITHUB_REF_NAME#v}.tar.gz" \
+            --title "fleet ${GITHUB_REF_NAME#v}" --notes-file notes.md

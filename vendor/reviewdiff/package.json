@@ -1,0 +1,20 @@
+{
+  "name": "@zhinst/reviewdiff-core",
+  "version": "0.2.0",
+  "description": "ReviewDiff's headless core: hunks, approvals, moves, walkthroughs and the git/jj adapters",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "esbuild index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.js --log-level=warning && tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,503 @@
+import { type CSSProperties, useState } from "react";
+import type { Usage } from "../../shared/events.ts";
+import { lastWorkspace } from "../../shared/hosts.ts";
+import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
+import { type AgentView, agentList, type FleetState } from "../../shared/reducer.ts";
+import {
+  holderOf,
+  lastTaskOf,
+  needsYou,
+  taskOf,
+  workspaceInUse,
+  workspaceUse,
+} from "../../shared/tasks.ts";
+import { useFleet } from "../fleet.tsx";
+import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
+import { agentStatus, usageDetails, usageText } from "../labels.ts";
+import { useLocalProjects, useProjects } from "../projects.tsx";
+import { useTaskMoves } from "../taskMoves.ts";
+import { useTerminals } from "../terminal.tsx";
+import { AgentLabel, useProjectColor, useProjectColors } from "../ui/AgentLabel.tsx";
+import { Icon } from "../ui/Icon.tsx";
+import { useNow } from "../useNow.ts";
+import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
+import { isFree } from "../views/Grid.tsx";
+
+const clock = (ts: number): string =>
+  new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+interface Props {
+  selected: string | undefined;
+  onSelect: (name: string) => void;
+  onImport: () => void;
+  onAddWorkspace: (project?: string) => void;
+  onAddProject: () => void;
+  /** Opens the color picker of a project. */
+  onColor: (project: string) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}
+
+const FOLDED_KEY = "fleet.rail.folded";
+
+/** Directors head the list, the fleet director first. */
+const DIRECTOR_RANK: Partial<Record<AgentView["role"], number>> = {
+  "fleet-director": 0,
+  director: 1,
+};
+
+/**
+ * Agents in the rail's order: directors first, then by what they need from the user (Needs you,
+ * working, waiting, free), and the older one first within each.
+ */
+export function railOrder(state: FleetState, agents: readonly AgentView[]): AgentView[] {
+  const rank = (agent: AgentView): number =>
+    DIRECTOR_RANK[agent.role] ??
+    (needsYou(state, agent) ? 2 : agent.activity === "working" ? 3 : isFree(agent) ? 5 : 4);
+  return [...agents].sort((a, b) => rank(a) - rank(b) || a.createdSeq - b.createdSeq);
+}
+
+/**
+ * The rail's agents: those above every project's block (with one project, all of them), then
+ * each project's when there are several.
+ */
+export function railGroups(
+  state: FleetState,
+  projects: ReadonlyArray<{ name: string }>,
+): { loose: AgentView[]; projects: Array<{ name: string; agents: AgentView[] }> } {
+  const agents = agentList(state);
+  if (projects.length <= 1) return { loose: railOrder(state, agents), projects: [] };
+  const known = new Set(projects.map((p) => p.name));
+  return {
+    loose: railOrder(
+      state,
+      agents.filter((a) => a.project === undefined || !known.has(a.project)),
+    ),
+    projects: projects.map(({ name }) => ({
+      name,
+      agents: railOrder(
+        state,
+        agents.filter((a) => a.project === name),
+      ),
+    })),
+  };
+}
+
+/** Every agent in the order the rail lists them. */
+export const railSequence = (state: FleetState, projects: ReadonlyArray<{ name: string }>) => {
+  const { loose, projects: blocks } = railGroups(state, projects);
+  return [...loose, ...blocks.flatMap((b) => b.agents)];
+};
+
+/** Projects folded in the rail, remembered per browser. */
+function useFolded(): [ReadonlySet<string>, (project: string) => void] {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggle = (project: string): void => {
+    const next = new Set(folded);
+    if (!next.delete(project)) next.add(project);
+    setFolded(next);
+    try {
+      localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+    } catch {
+      // Without storage the fold lasts until the page reloads.
+    }
+  };
+  return [folded, toggle];
+}
+
+/**
+ * Agents and workspaces. With one project, a tree of the directors, workers and their subagents,
+ * then the workspaces. With several, the fleet director on top and a foldable section per
+ * project with its director, its workers and its workspaces.
+ */
+export function Rail({
+  selected,
+  onSelect,
+  onImport,
+  onAddWorkspace,
+  onAddProject,
+  onColor,
+  collapsed,
+  onToggleCollapsed,
+}: Props) {
+  const { state, info } = useFleet();
+  const projects = useProjects();
+  const local = useLocalProjects();
+  const colorOf = useProjectColors();
+  const [folded, toggle] = useFolded();
+  const groups = railGroups(state, projects);
+  const grouped = projects.length > 1;
+  useCommands(
+    grouped
+      ? projects.map(
+          ({ name }): Command => ({
+            id: `rail.fold.${name}`,
+            label: `${folded.has(name) ? "Unfold" : "Fold"} ${name} in the rail`,
+            group: "Projects",
+            run: () => toggle(name),
+          }),
+        )
+      : [],
+  );
+  const tree = (list: AgentView[]) => (
+    <AgentTree agents={list} selected={selected} onSelect={onSelect} />
+  );
+
+  return (
+    <aside
+      className={`rail ${collapsed ? "collapsed" : ""}`}
+      aria-label="Agents"
+      data-pane="rail"
+      tabIndex={-1}
+    >
+      <h2 className="rail-head">
+        <span className="rail-label">Agents</span>
+        <span className="rail-actions">
+          {!grouped && local[0] && <ColorDot project={local[0].name} onColor={onColor} />}
+          <button
+            type="button"
+            className="link"
+            title={`Import Claude Code sessions (${keyLabel("alt+i")})`}
+            onClick={onImport}
+          >
+            + Add
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={collapsed ? "Show the rail" : "Collapse the rail"}
+            aria-expanded={!collapsed}
+            title={`${collapsed ? "Show" : "Collapse"} the rail (${keyLabel(SIDEBAR_KEYS.rail)})`}
+            onClick={onToggleCollapsed}
+          >
+            <Icon name="sidebarLeft" />
+          </button>
+        </span>
+      </h2>
+      {Object.keys(state.agents).length === 0 && <p className="empty">None yet.</p>}
+      {tree(groups.loose)}
+      {groups.projects.map(({ name, agents: own }) => {
+        const open = !folded.has(name);
+        return (
+          <section
+            key={name}
+            className="rail-project"
+            style={{ "--project": colorOf(name) } as CSSProperties}
+          >
+            <h2 className="rail-head">
+              <button
+                type="button"
+                className="project-toggle"
+                aria-expanded={open}
+                onClick={() => toggle(name)}
+              >
+                <span className="caret" aria-hidden="true" />
+                {name}
+              </button>
+              {local.some((p) => p.name === name) && <ColorDot project={name} onColor={onColor} />}
+              {!open && own.some((a) => needsYou(state, a)) && (
+                <span className="dot col-needs_you" title={`An agent of ${name} needs you`} />
+              )}
+            </h2>
+            {open && (
+              <div className="rail-body">
+                {tree(own)}
+                <WorkspaceList project={name} onSelect={onSelect} onAdd={onAddWorkspace} />
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {!grouped && info && (
+        <WorkspaceList
+          title={`Workspaces · ${info.host}`}
+          onSelect={onSelect}
+          onAdd={onAddWorkspace}
+        />
+      )}
+      <button
+        type="button"
+        className="link add-project"
+        title="Add a jj repo as a project"
+        onClick={onAddProject}
+      >
+        + Add project
+      </button>
+      <footer className="rail-foot">
+        <span title={`Built ${new Date(__FLEET_BUILD__).toLocaleString()}`}>
+          fleet {__FLEET_VERSION__} ·{" "}
+          <a href={NOTICE_URL} target="_blank" rel="noreferrer" title={LEGAL_NOTICE}>
+            AGPL
+          </a>
+        </span>
+        {state.usage && state.usage.limits.length > 0 && <PlanUsage usage={state.usage} />}
+      </footer>
+    </aside>
+  );
+}
+
+/** A dot in the project's color that opens the picker for it. */
+function ColorDot({ project, onColor }: { project: string; onColor: (project: string) => void }) {
+  const color = useProjectColor(project);
+  return (
+    <button
+      type="button"
+      className="color-dot"
+      aria-label={`Color of ${project}`}
+      title={`Color of ${project} (${keyLabel("alt+k")})`}
+      onClick={() => onColor(project)}
+    >
+      <span className="dot" style={{ background: color }} />
+    </button>
+  );
+}
+
+/** Agents with their running subagents; a worker's task can be dropped from its row. */
+function AgentTree({
+  agents,
+  selected,
+  onSelect,
+}: {
+  agents: AgentView[];
+  selected: string | undefined;
+  onSelect: (name: string) => void;
+}) {
+  const { state } = useFleet();
+  const { drop } = useTaskMoves();
+  return (
+    <ul className="tree">
+      {agents.map((agent) => (
+        <li key={agent.name}>
+          <div className="rail-row">
+            <AgentRow agent={agent} selected={agent.name === selected} onSelect={onSelect} />
+            {agent.task !== undefined && (
+              <button
+                type="button"
+                className="link remove-x"
+                aria-label={`Drop ${agent.name}'s task`}
+                title={`Drop ${agent.name}'s task "${taskOf(state, agent)?.title}"; ${agent.name} stays`}
+                onClick={() => agent.task !== undefined && drop(agent.task)}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {agent.subagents.some((s) => !s.done) && (
+            <ul>
+              {agent.subagents
+                .filter((s) => !s.done)
+                .map((s) => (
+                  <li key={s.toolUseId} className="subagent" title={s.description}>
+                    {s.description}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The workspaces of one project, or of all with a single project, under their own heading. */
+function WorkspaceList({
+  project,
+  title = "Workspaces",
+  onSelect,
+  onAdd,
+}: {
+  project?: string;
+  title?: string;
+  onSelect: (agent: string) => void;
+  onAdd: (project?: string) => void;
+}) {
+  const { info } = useFleet();
+  if (!info) return null;
+  const workspaces = info.workspaces.filter(
+    (ws) => project === undefined || ws.project === project,
+  );
+  // Within a project's section, a heading a level below the project's.
+  const Heading = project === undefined ? "h2" : "h3";
+  return (
+    <>
+      <Heading className={project === undefined ? "rail-head" : "rail-head rail-sub"}>
+        {title}
+        <button
+          type="button"
+          className="link"
+          title={`Add an existing jj workspace${project ? ` to ${project}` : ""}`}
+          onClick={() => onAdd(project)}
+        >
+          + Add
+        </button>
+      </Heading>
+      <ul className="workspaces">
+        {workspaces.map((ws) => (
+          <WorkspaceRow
+            key={ws.name}
+            name={ws.name}
+            path={ws.path}
+            only={lastWorkspace(info, ws.name)}
+            onSelect={onSelect}
+          />
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function AgentRow({
+  agent,
+  selected,
+  onSelect,
+}: {
+  agent: AgentView;
+  selected: boolean;
+  onSelect: (n: string) => void;
+}) {
+  const { state } = useFleet();
+  const { label: status, dot } = agentStatus(state, agent);
+  // Without a task, the row names the one the agent worked on last, as long as the state keeps it.
+  const task = lastTaskOf(state, agent);
+  const past = task !== undefined && agent.task === undefined;
+  const free = isFree(agent) && !needsYou(state, agent);
+  return (
+    <button
+      type="button"
+      className={`rail-item ${selected ? "active" : ""} ${agent.unseen ? "unseen" : ""} ${free ? "free" : ""}`}
+      title={`${agent.name}: ${status}${past ? `; last worked on ${task.id} "${task.title}"` : ""}`}
+      onClick={() => onSelect(agent.name)}
+    >
+      <span className={`dot col-${dot} act-${agent.activity}`} />
+      <AgentLabel agent={agent.name} chip={false} />
+      <span className="rail-title">{task?.title ?? agent.title}</span>
+      {agent.unseen && <span className="new">new</span>}
+    </button>
+  );
+}
+
+/**
+ * A workspace with whoever is in it and what they do there: a task's agent, a session outside
+ * fleet that claimed it, or nobody. Only a workspace nobody uses can be removed.
+ */
+function WorkspaceRow({
+  name,
+  path,
+  only,
+  onSelect,
+}: {
+  name: string;
+  path: string;
+  /** The last workspace stays, so that tasks have somewhere to go. */
+  only: boolean;
+  onSelect: (agent: string) => void;
+}) {
+  const { state, send } = useFleet();
+  const terminals = useTerminals();
+  const use = workspaceUse(state, name);
+  const { claim } = use;
+  const task = use.tasks[0];
+  const holder = task && holderOf(state, task);
+  const status = holder && agentStatus(state, holder);
+  const kept = only ? "it is the only one" : workspaceInUse(use);
+  const detail = claim ? claim.note : task?.title;
+  // Agents in one directory see each other's edits: a worker with guests, or the checkout's
+  // director with investigators.
+  const sharing = agentList(state).filter((a) => a.workspace === name);
+
+  return (
+    <li title={path}>
+      <div className="ws-line">
+        <span className="name">{name}</span>
+        <span className="ws-use">
+          {claim ? (
+            <span
+              className="dim"
+              title={
+                claim.until
+                  ? `The session ended; a new session in ${name} takes it over, or it is released at ${clock(claim.until)}.`
+                  : `Claimed by a session outside fleet since ${clock(claim.since)}`
+              }
+            >
+              {claim.holder}
+              {claim.until !== undefined && ` until ${clock(claim.until)}`}{" "}
+              <button
+                type="button"
+                className="link"
+                title={`Release ${name}: tasks waiting for it start`}
+                onClick={() => send({ type: "release_workspace", workspace: name })}
+              >
+                release
+              </button>
+            </span>
+          ) : task && holder && status ? (
+            <button
+              type="button"
+              className="link ws-agent"
+              title={`${holder.name}: ${task.title}`}
+              onClick={() => onSelect(holder.name)}
+            >
+              <span className={`dot col-${status.dot} act-${holder.activity}`} />
+              <AgentLabel agent={holder.name} chip={false} />
+              <span className="dim">{status.label}</span>
+            </button>
+          ) : (
+            <span className="dim">free</span>
+          )}
+          {use.queued > 0 && <span className="dim">+{use.queued} queued</span>}
+          <button
+            type="button"
+            className="link ws-terminal"
+            aria-label={`Open a terminal in ${name}`}
+            title={`Open a terminal in ${path}`}
+            onClick={() => terminals.open(name, path)}
+          >
+            <Icon name="terminal" size={13} />
+          </button>
+          <button
+            type="button"
+            className="link remove-x"
+            aria-label={`Remove ${name}`}
+            title={
+              kept
+                ? `${name} stays in fleet: ${kept}`
+                : `Remove ${name} from fleet; jj and the directory stay`
+            }
+            disabled={kept !== undefined}
+            onClick={() => send({ type: "remove_workspace", workspace: name })}
+          >
+            ×
+          </button>
+        </span>
+      </div>
+      {detail && <div className="ws-detail">{detail}</div>}
+      {sharing.length > 1 && (
+        <div className="ws-shared" title={`${sharing.length} agents share ${path}`}>
+          Shared by
+          {sharing.map((a) => (
+            <AgentLabel key={a.name} agent={a.name} chip={false} onOpen={onSelect} />
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** The plan's usage; it ticks on its own, so the rest of the rail does not re-render with it. */
+function PlanUsage({ usage }: { usage: Usage }) {
+  const now = useNow();
+  return (
+    <span
+      className={`usage${usage.limits.some((l) => l.percent >= 80) ? " high" : ""}`}
+      title={usageDetails(usage, now)}
+    >
+      {usageText(usage)}
+    </span>
+  );
+}
