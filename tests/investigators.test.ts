@@ -8,6 +8,7 @@ import {
   echoing,
   fakeQuery,
   init,
+  noChanges,
   result,
   settled,
   storedSessions,
@@ -20,6 +21,7 @@ function setup({ running = 4 }: { running?: number } = {}) {
   const log = new EventLog(":memory:");
   const fake = fakeQuery(echoing(init("s-1"), result()));
   const changes = {
+    ...noChanges,
     startChange: vi.fn(async () => undefined),
     currentChange: vi.fn(async () => undefined),
     holdsWork: vi.fn(async () => false),

@@ -181,6 +181,8 @@ export const noChanges: Changes = {
   startChange: async () => undefined,
   currentChange: async () => undefined,
   holdsWork: async () => false,
+  describeWork: async () => undefined,
+  setAside: async () => undefined,
 };
 
 /** Like `noChanges`, but every workspace holds work, so dropping a task asks first. */

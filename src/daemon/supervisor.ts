@@ -79,7 +79,7 @@ import {
 } from "../shared/tasks.ts";
 import { secretFile } from "./auth.ts";
 import { changeRequest, threadMessage } from "./changeRequest.ts";
-import { type Changes, jjChanges } from "./changes.ts";
+import { type Changes, jjChanges, type Work } from "./changes.ts";
 import { CLOSED_TASK_KINDS, closedTasks } from "./closedTasks.ts";
 import {
   allWorkspaces,
@@ -387,9 +387,12 @@ export class Supervisor implements ToolHost {
   private readonly workspaceHost: WorkspaceHost;
   /**
    * Workers being readied outside the pool: their workspace moves on to a new change, or an
-   * imported session moves in. Nothing takes them meanwhile.
+   * imported session moves in, or the user decides about their loose work. Nothing takes them
+   * meanwhile.
    */
   private readonly reserved = new Set<string>();
+  /** Loose work the user kept, by worker: the change its next task starts on top of. */
+  private readonly kept = new Map<string, string>();
   private readonly holders: HolderHost | undefined;
   /** The pid of the holder each detached agent waits for; it is picked up once that exits. */
   private readonly seen = new Map<string, number>();
@@ -3578,14 +3581,18 @@ export class Supervisor implements ToolHost {
 
   private async ready(task: TaskView, worker: AgentView, planned: Opening): Promise<void> {
     let ready: Readied | undefined;
+    let held = false;
     try {
+      held = await this.heldByLooseWork(worker, planned);
       // A pinned task never starts without its conversation, so that is looked for first.
-      if (task.pin === undefined || (await this.hasTranscript(planned, worker))) {
+      if (!held && (task.pin === undefined || (await this.hasTranscript(planned, worker)))) {
         ready = await this.prepare(task, worker, planned);
       }
     } finally {
       this.starting.delete(task.id);
     }
+    // The task waits for another worker, or for this one once the user has decided.
+    if (held) return this.schedule();
     // Meanwhile the task may have been dropped, the worker removed or busy with a command, and
     // its workspace claimed.
     const now = this.task(task.id);
@@ -3620,14 +3627,106 @@ export class Supervisor implements ToolHost {
   }
 
   /**
+   * Whether work that no task owns holds the worker up: what it did while free, on a prompt or a
+   * command without a ticket. Fleet asks the user what becomes of it, and the worker takes no
+   * task until the user answers. A task that follows the worker's conversation takes the work
+   * along unasked, and so does the next task once the user kept it.
+   */
+  private async heldByLooseWork(worker: AgentView, planned: Opening): Promise<boolean> {
+    if (planned.kind === "follow" || worker.role !== "worker") return false;
+    if (this.workspace(worker.workspace)?.explicit) return false;
+    let work: Work | undefined;
+    try {
+      work = await this.changes.describeWork(worker.cwd);
+    } catch (error) {
+      console.error(`fleet: looking for work in ${worker.workspace} failed:`, error);
+    }
+    if (!work || this.kept.get(worker.name) === work.change) return false;
+    this.reserved.add(worker.name);
+    this.background(this.askAboutLooseWork(worker, work));
+    return true;
+  }
+
+  /**
+   * Asks the user in the inbox, in the worker's name, what becomes of its loose work: Make it a
+   * task puts it in Review, held by the worker; Keep lets its next task start on top of it;
+   * Abandon moves the workspace to trunk and leaves the work in the jj history. A question that
+   * goes stale, as on a restart, comes again when the pool next readies the worker.
+   */
+  private async askAboutLooseWork({ name, workspace }: AgentView, work: Work): Promise<void> {
+    const question = `${name} has loose work in ${workspace}`;
+    const title = `Loose work of ${name} in ${workspace}`;
+    const files = `\`\`\`\n${work.stat}\n\`\`\``;
+    try {
+      this.session(name);
+      const answer = await this.ask(name, {
+        decision: "question",
+        toolName: "loose_work",
+        input: {},
+        explanation: `${name} changed these files while it held no task, so no task owns the change ${work.change}. It takes no task until you decide.\n\n${files}`,
+        risk: [],
+        questions: [
+          {
+            question,
+            options: [
+              { label: "Make it a task", description: `A task in Review that ${name} holds.` },
+              { label: "Keep", description: `${name}'s next task starts on top of it.` },
+              {
+                label: "Abandon",
+                description: `${workspace} starts from trunk; the change stays in the jj history.`,
+              },
+            ],
+          },
+        ],
+      }).catch(() => undefined);
+      const choice = answer?.behavior === "answers" ? answer.answers[question] : undefined;
+      const worker = this.agent(name);
+      if (!answer || !worker) return;
+      if (choice === "Make it a task") {
+        this.taskOfLooseWork(worker, title, `${title}, the change ${work.change}:\n\n${files}`);
+      } else if (choice === "Abandon") {
+        // A prompt meanwhile may have woken the worker; its working copy moves once it rests.
+        await this.until(() => this.agent(name)?.activity !== "working");
+        await this.changes.setAside(worker.cwd, title);
+      } else {
+        // Keep, or no choice at all: nothing moves.
+        this.kept.set(name, work.change);
+      }
+    } finally {
+      this.reserved.delete(name);
+      this.schedule();
+    }
+  }
+
+  /** The user made a worker's loose work a task: it is in Review, and the worker holds it. */
+  private taskOfLooseWork(worker: AgentView, title: string, brief: string): void {
+    if (worker.task !== undefined || worker.project === undefined) return;
+    const id = `t${this.log.state.taskCount + 1}`;
+    this.append(DAEMON, {
+      kind: "task_created",
+      id,
+      title,
+      brief,
+      project: worker.project,
+      role: "worker",
+      by: USER,
+    });
+    this.append(DAEMON, { kind: "task_state", task: id, state: "review", holder: worker.name });
+    this.tellMove(id, "made from loose work", USER, worker.name);
+  }
+
+  /**
    * Readies a worker for a task: its session ends, the task's conversation is forked over if it
    * moves, and its workspace gets a new change: on top of the task's change when it has one, on
-   * top of the worker's own work when the task follows its conversation, else from trunk. Never
-   * in an explicit workspace, the user's checkout.
+   * top of the worker's own work when the task follows its conversation, else from trunk. Loose
+   * work the user kept goes under it as well. Never in an explicit workspace, the user's
+   * checkout.
    * What fails is logged, and the task starts anyway; a fork that fails starts fresh.
    */
   private async prepare(task: TaskView, worker: AgentView, planned: Opening): Promise<Readied> {
     const own = planned.kind === "follow" ? await this.changeOf(worker) : undefined;
+    const kept = this.kept.get(worker.name);
+    this.kept.delete(worker.name);
     await this.closeSession(worker.name);
     let opening = planned;
     let resume =
@@ -3642,8 +3741,10 @@ export class Supervisor implements ToolHost {
     }
     // Investigators read the user's checkout, where fleet never moves the working copy.
     if (worker.role === "worker" && !this.workspace(worker.workspace)?.explicit) {
+      const base = task.change ?? kept ?? own ?? "trunk";
+      const alongside = kept !== undefined && kept !== base ? [kept] : [];
       try {
-        await this.changes.startChange(worker.cwd, task.change ?? own ?? "trunk");
+        await this.changes.startChange(worker.cwd, base, ...alongside);
       } catch (error) {
         console.error(
           `fleet: starting a change for ${task.id} in ${worker.workspace} failed:`,

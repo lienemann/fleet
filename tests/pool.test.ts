@@ -11,6 +11,7 @@ import {
   echoing,
   fakeQuery,
   init,
+  noChanges,
   result,
   settled,
   storedSessions,
@@ -52,6 +53,7 @@ function setup({
   for (const event of before) log.append(event);
   const fake = fakeQuery(echoing(init("s-new"), assistantText("ok"), result()));
   const changes = {
+    ...noChanges,
     startChange: vi.fn(startChange),
     currentChange: vi.fn(async (): Promise<string | undefined> => undefined),
     holdsWork: vi.fn(async () => false),

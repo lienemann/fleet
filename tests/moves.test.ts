@@ -12,6 +12,7 @@ import {
   DIRECTOR,
   fakeQuery,
   init,
+  noChanges,
   result,
   settled,
   stopSession,
@@ -77,6 +78,7 @@ function setup({
   const worker = cli(note);
   const fake = fakeQuery(script ?? worker.script);
   const changes = {
+    ...noChanges,
     startChange: vi.fn(async () => undefined),
     currentChange: vi.fn(async () => "kxqv"),
     holdsWork: vi.fn(async () => holdsWork),

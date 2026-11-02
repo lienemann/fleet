@@ -832,12 +832,14 @@ export const demoSessions: SessionSource = {
 
 /**
  * The demo's workspaces are plain directories, so tickets start where they are. Every demo
- * worker changes a file, so a task it holds always holds work.
+ * worker changes a file, so a task it holds always holds work, and a free worker holds none.
  */
 export const demoChanges: Changes = {
   startChange: async () => undefined,
   currentChange: async () => undefined,
   holdsWork: async () => true,
+  describeWork: async () => undefined,
+  setAside: async () => undefined,
 };
 
 const stored = (

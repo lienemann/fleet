@@ -82,6 +82,61 @@ describe("jjChanges", () => {
     expect(await jjChanges.holdsWork(repo)).toBe(false);
   });
 
+  it("starts a change on top of two, as a merge", async () => {
+    makeRepo(true);
+    const earlier = changeOf("@");
+    await jjChanges.startChange(repo, "trunk");
+    writeFileSync(join(repo, "other.py"), "c = 1\n");
+    const loose = changeOf("@");
+    await jjChanges.startChange(repo, earlier, loose);
+    expect(jj("log", "--no-graph", "-r", "@-", "-T", 'change_id ++ "\\n"').split("\n")).toEqual(
+      expect.arrayContaining([earlier, loose]),
+    );
+  });
+
+  it("describes the work above trunk with jj's diff stat, cut short when long", async () => {
+    makeRepo(true);
+    jj("new");
+    writeFileSync(join(repo, "new.py"), "b = 1\n");
+    expect(await jjChanges.describeWork(repo)).toEqual({
+      change: changeOf("@"),
+      stat: "lib.py | 2 +-\nnew.py | 1 +\n2 files changed, 2 insertions(+), 1 deletion(-)",
+    });
+
+    for (let i = 0; i < 30; i++) writeFileSync(join(repo, `f${String(i).padStart(2, "0")}.py`), "");
+    const stat = (await jjChanges.describeWork(repo))?.stat.split("\n") ?? [];
+    expect(stat).toHaveLength(21);
+    expect(stat.at(-2)).toBe("… 13 more files");
+    expect(stat.at(-1)).toMatch(/^32 files changed/);
+
+    await jjChanges.startChange(repo, "trunk");
+    expect(await jjChanges.describeWork(repo)).toBeUndefined();
+  });
+
+  it("sees no work in a repo without a trunk", async () => {
+    makeRepo(false);
+    expect(await jjChanges.describeWork(repo)).toBeUndefined();
+  });
+
+  it("sets work aside: the workspace starts from trunk, the work stays in the history", async () => {
+    makeRepo(true);
+    jj("describe", "-m", "");
+    const loose = changeOf("@");
+    await jjChanges.setAside(repo, "Loose work of alpha in ws1");
+    expect(changeOf("@-")).toBe(changeOf("main"));
+    expect(jj("log", "--no-graph", "-r", loose, "-T", "description").trim()).toBe(
+      "Loose work of alpha in ws1",
+    );
+    expect(jj("file", "show", "-r", loose, "lib.py")).toBe("a = 2");
+
+    // A change that has a description keeps it.
+    writeFileSync(join(repo, "lib.py"), "a = 3\n");
+    jj("describe", "-m", "mine");
+    const described = changeOf("@");
+    await jjChanges.setAside(repo, "Loose work of alpha in ws1");
+    expect(jj("log", "--no-graph", "-r", described, "-T", "description").trim()).toBe("mine");
+  });
+
   it("fails outside a repo", async () => {
     repo = mkdtempSync(join(tmpdir(), "fleet-no-repo-"));
     await expect(jjChanges.startChange(repo, "trunk")).rejects.toThrow();
