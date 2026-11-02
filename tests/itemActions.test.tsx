@@ -45,7 +45,7 @@ describe("ItemActions", () => {
     expect(html).not.toContain(' disabled=""');
   });
 
-  it("puts ⌘↵ on the primary action only, before the key of its command", () => {
+  it("shows ⌘↵ alone on the primary action, and the others' own keys", () => {
     const html = renderToStaticMarkup(
       <ItemActions
         actions={[
@@ -55,7 +55,8 @@ describe("ItemActions", () => {
       />,
     );
     const submit = `<kbd>${keyLabel("mod+enter")}</kbd>`;
-    expect(html).toContain(`Approve ${submit} <kbd>${keyLabel("alt+a")}</kbd></button>`);
+    expect(html).toContain(`Approve ${submit}</button>`);
+    expect(html).toContain(`Reject <kbd>${keyLabel("alt+r")}</kbd></button>`);
     expect(html.match(new RegExp(submit.replace(/[+]/g, "\\+"), "g"))).toHaveLength(1);
   });
 });

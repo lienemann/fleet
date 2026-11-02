@@ -54,9 +54,8 @@ export function ItemActions({ actions, note }: { actions: ItemAction[]; note?: R
     <footer className="actions" ref={footer}>
       {note}
       {ordered.map((action, i) => {
-        const keys = [action === primary ? SUBMIT_KEYS : undefined, action.keys].filter(
-          (k) => k !== undefined,
-        );
+        // The primary action shows ⌘↵ alone; its command's own key stays in the help and palette.
+        const keys = action === primary ? SUBMIT_KEYS : action.keys;
         return (
           <Fragment key={action.label}>
             {i === firstDanger && i > 0 && <span className="spacer" />}
@@ -69,12 +68,12 @@ export function ItemActions({ actions, note }: { actions: ItemAction[]; note?: R
               onClick={() => !action.inactive && action.run()}
             >
               {action.label}
-              {keys.map((k) => (
-                <Fragment key={k}>
+              {keys && (
+                <>
                   {" "}
-                  <kbd>{keyLabel(k)}</kbd>
-                </Fragment>
-              ))}
+                  <kbd>{keyLabel(keys)}</kbd>
+                </>
+              )}
             </button>
           </Fragment>
         );
