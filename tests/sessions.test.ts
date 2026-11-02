@@ -88,7 +88,7 @@ describe("transcriptEvents", () => {
 });
 
 describe("importing a session", () => {
-  function setup() {
+  function setup(workspaces = [{ name: "ws1", path: "/work/ws1", allowedTools: [] as string[] }]) {
     const log = new EventLog(":memory:");
     const source: SessionSource = {
       list: async () => [
@@ -103,10 +103,7 @@ describe("importing a session", () => {
       log,
       queryFn: fake.queryFn,
       sessions: source,
-      config: testConfig({
-        workspaces: [{ name: "ws1", path: "/work/ws1", allowedTools: [] }],
-        director: "/work/repo",
-      }),
+      config: testConfig({ workspaces, director: "/work/repo" }),
     });
     supervisor.init();
     return { log, supervisor, calls: fake.calls };
@@ -159,7 +156,28 @@ describe("importing a session", () => {
     expect(calls[0]?.options?.cwd).toBe("/work/ws1");
   });
 
-  it("makes it a guest beside a worker that holds a task, which takes no tickets", async () => {
+  it("beside a worker that holds a task, continues a fork with a free worker", async () => {
+    const { log, supervisor, calls } = setup([
+      { name: "ws1", path: "/work/ws1", allowedTools: [] },
+      { name: "ws2", path: "/work/ws2", allowedTools: [] },
+    ]);
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => log.state.agents.alpha?.activity === "idle");
+    supervisor.handle({ type: "import_session", sessionId: ID, workspace: "ws1", title: "Sweep" });
+    await until(() => log.state.agents.bravo?.sessionId === "forked");
+    expect(log.state.agents.bravo).toMatchObject({ workspace: "ws2", cwd: "/work/ws2" });
+    expect(Object.values(log.state.agents).some((a) => a.guest)).toBe(false);
+    expect(log.state.agents.bravo?.log.map((l) => l.text)).toContain("It re-uploads the waveform.");
+    // Nobody holds a fork, so it runs at once and learns where it is.
+    await until(() => calls.length === 2);
+    expect(calls[1]?.options).toMatchObject({ resume: "forked", cwd: "/work/ws2" });
+    await until(() => log.state.agents.bravo?.activity === "idle");
+    expect(log.state.agents.bravo?.log.map((l) => l.text).join("\n")).toContain(
+      "Your earlier turns ran in /work/ws1",
+    );
+  });
+
+  it("makes it a guest beside a busy worker when no workspace opens for it", async () => {
     const { log, supervisor } = setup();
     supervisor.createTask("Fix it", "Do it.", "ws1");
     await until(() => log.state.agents.alpha?.activity === "idle");

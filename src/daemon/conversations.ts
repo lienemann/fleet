@@ -36,6 +36,11 @@ export const madeWorkerBriefing = (move: {
   `share; what you changed there stays there. Read and write only under ${move.cwd}. From now ` +
   `on fleet gives you tasks like any worker. Confirm in one line, then wait.`;
 
+/** Follows the briefing of an imported session whose fork goes on in another directory. */
+export const forkedImportNote = (from: string, cwd: string): string =>
+  `Your earlier turns ran in ${from}, where another worker is busy; the session there stays as ` +
+  `it was, and you continue a copy of it. Read and write only under ${cwd}.`;
+
 /** A first prompt on a task, followed by the handover note it was parked with, if any. */
 export const withNote = (prompt: string, note?: string): string =>
   note ? `${prompt}\n\nHandover note from the last worker:\n\n${note}` : prompt;

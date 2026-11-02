@@ -100,7 +100,13 @@ import {
   type Workspace,
   writeConfig,
 } from "./config.ts";
-import { continueTask, madeWorkerBriefing, movedBriefing, withNote } from "./conversations.ts";
+import {
+  continueTask,
+  forkedImportNote,
+  madeWorkerBriefing,
+  movedBriefing,
+  withNote,
+} from "./conversations.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
   agentNotes,
@@ -1448,9 +1454,10 @@ export class Supervisor implements ToolHost {
 
   /**
    * Makes an existing session an agent, with its transcript in the tile, and no task. In the
-   * workspace of a free worker it becomes that worker's conversation. Anywhere else, in the
-   * project's checkout or beside a worker that holds a task, it is a guest that takes no
-   * tickets. It stays detached until the user takes it back: the CLI may still have it open.
+   * workspace of a free worker it becomes that worker's conversation. Beside a worker that holds
+   * a task, a fork of it goes on elsewhere (see `importFork`). In the project's checkout it is
+   * a guest that takes no tickets. It stays detached until the user takes it back: the CLI may
+   * still have it open.
    */
   private async importSession(sessionId: string, workspace: string, title: string): Promise<void> {
     const dir = this.workspaceDir(workspace);
@@ -1461,6 +1468,21 @@ export class Supervisor implements ToolHost {
       worker && this.isFree(worker) && workspaceHolder(this.state, workspace) === undefined
         ? worker
         : undefined;
+    const project = projectOf(this.config, workspace);
+    if (!host && project && dir !== project.path) {
+      return this.importFork(sessionId, workspace, dir, project, title);
+    }
+    return this.importHere(sessionId, workspace, dir, title, host);
+  }
+
+  /** Imports a session as the conversation of `host`, its workspace's free worker, or as a guest. */
+  private async importHere(
+    sessionId: string,
+    workspace: string,
+    dir: string,
+    title: string,
+    host: AgentView | undefined,
+  ): Promise<void> {
     // Reading the transcript takes a moment; a second click must not import the session twice,
     // and the pool must not hand the worker a task meanwhile.
     this.importing.add(sessionId);
@@ -1486,6 +1508,53 @@ export class Supervisor implements ToolHost {
     if (!holder) return this.pickUp(name);
     this.seen.set(name, holder.pid);
     this.append(name, { kind: "holder", holder });
+  }
+
+  /**
+   * Imports a session from a workspace whose worker is busy: a fork of it becomes the
+   * conversation of a free worker of the project, or of the worker of a workspace fleet opens
+   * for it, and the session itself stays as it is wherever it is open. Without a worker or a
+   * fork, it joins as a guest after all.
+   */
+  private async importFork(
+    sessionId: string,
+    workspace: string,
+    dir: string,
+    project: Project,
+    title: string,
+  ): Promise<void> {
+    this.importing.add(sessionId);
+    let worker: AgentView | undefined;
+    let reserved: string | undefined;
+    try {
+      worker = this.pool(project.name)
+        .flatMap((ws) => this.workerOf(ws) ?? [])
+        .find((w) => this.isFree(w) && workspaceHolder(this.state, w.workspace) === undefined);
+      if (!worker) {
+        const opened = await this.openWorkspace(project);
+        this.schedule();
+        worker = this.workerOf(opened.name);
+      }
+      if (worker) {
+        reserved = worker.name;
+        this.reserved.add(reserved);
+        const [messages, fork] = await Promise.all([
+          this.sessionSource.messages(sessionId, dir),
+          this.sessionSource.fork(sessionId, dir),
+        ]);
+        await this.moveIn(worker.name, fork);
+        for (const event of transcriptEvents(messages)) this.append(worker.name, event);
+        this.hold(worker.name, forkedImportNote(dir, worker.cwd), "fleet");
+      }
+    } catch (error) {
+      console.error(`fleet: importing a fork of ${sessionId} failed:`, error);
+      worker = undefined;
+    } finally {
+      this.importing.delete(sessionId);
+      if (reserved) this.reserved.delete(reserved);
+    }
+    if (worker) return this.pickUp(worker.name);
+    return this.importHere(sessionId, workspace, dir, title, undefined);
   }
 
   /** An imported session becomes the free worker's conversation; the one it had is archived. */
