@@ -1,5 +1,5 @@
 import { type DragEvent, type ReactNode, useRef, useState } from "react";
-import type { TaskState } from "../../shared/events.ts";
+import type { ChangeRequest, TaskState } from "../../shared/events.ts";
 import type { ClosedTask } from "../../shared/protocol.ts";
 import { type FleetState, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
 import {
@@ -103,8 +103,8 @@ function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">)
   const dropAction = (column: TaskState): (() => void) | undefined => {
     if (!dragged) return undefined;
     const { id } = dragged;
-    if (column === "in_progress") {
-      return dragged.state === "queued" && startBlocker(state, dragged) === undefined
+    if (column === "in_progress" && dragged.state === "queued") {
+      return startBlocker(state, dragged) === undefined
         ? () => send({ type: "move", task: id, to: "in_progress" })
         : undefined;
     }
@@ -135,9 +135,6 @@ function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">)
         const open = byColumn.get(id) ?? [];
         const shown = id === "done" ? closed.done.length : open.length;
         const limit = limits[id];
-        // Tasks sent back count against the in-progress limit.
-        const count =
-          id === "in_progress" ? shown + (byColumn.get("changes_requested")?.length ?? 0) : shown;
         const action = dropAction(id);
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: dropping is a mouse shortcut; the card buttons make the same moves
@@ -162,10 +159,10 @@ function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">)
               <span className="dim">{shown}</span>
               {limit !== undefined && (
                 <span
-                  className={`wip ${count > limit ? "over" : ""}`}
+                  className={`wip ${shown > limit ? "over" : ""}`}
                   title="Work in progress: tasks in this column and its limit"
                 >
-                  WIP {count}/{limit}
+                  WIP {shown}/{limit}
                 </span>
               )}
             </header>
@@ -380,6 +377,7 @@ function Card({
             {task.reviewProgress.approved}/{task.reviewProgress.total} hunks approved
           </span>
         )}
+        {task.changesRequested && <ChangesMark changes={task.changesRequested} />}
         {points > 0 && <span className="warn">{points} open points</span>}
         {context !== undefined && <span>ctx {context}%</span>}
       </span>
@@ -438,5 +436,16 @@ function Card({
         )}
       </footer>
     </article>
+  );
+}
+
+/** A task back at work because the user wants changes; the title says what the user asked for. */
+function ChangesMark({ changes: { note, threads = [] } }: { changes: ChangeRequest }) {
+  const held = threads.length === 1 ? "1 thread" : `${threads.length} threads`;
+  const title = [note, threads.length > 0 && `with ${held}`].filter(Boolean).join("\n\n");
+  return (
+    <span className="chg" title={title || "The user asked for changes"}>
+      changes requested{threads.length > 0 && ` · ${held}`}
+    </span>
   );
 }

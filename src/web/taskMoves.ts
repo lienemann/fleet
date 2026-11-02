@@ -54,30 +54,35 @@ const BY_STATE: Record<TaskState, TaskMove[]> = {
   parked: ["unpark", "drop"],
   in_progress: ["review", "park", "drop"],
   review: ["accept", "changes", "park", "drop"],
-  changes_requested: ["accept", "changes", "park", "drop"],
   done: [],
   dropped: [],
 };
 
 /**
- * The moves a task offers in its state, Unpin only while it waits for one worker; the same on
- * the board, in the inbox and in the palette.
+ * The moves a task offers in its state, the same on the board, in the inbox and in the palette.
+ * A task back in progress with changes requested still waits for the verdict, so it offers the
+ * moves of Review; Unpin only while the task waits for one worker.
  */
-export const movesOf = (task: Pick<TaskView, "state" | "pin">): TaskMove[] =>
-  BY_STATE[task.state].filter((move) => move !== "unpin" || task.pin !== undefined);
+export function movesOf(task: Pick<TaskView, "state" | "pin" | "changesRequested">): TaskMove[] {
+  const state = task.changesRequested && task.state === "in_progress" ? "review" : task.state;
+  return BY_STATE[state].filter((move) => move !== "unpin" || task.pin !== undefined);
+}
 
-/** The move that dragging a card into a column makes; In progress takes Start now instead. */
+/**
+ * The move that dragging a card into a column makes: into In progress, a task in review goes
+ * back with changes requested; a queued one starts now, which the board handles itself.
+ */
 const INTO: Partial<Record<TaskState, TaskMove>> = {
   queued: "unpark",
   parked: "park",
+  in_progress: "changes",
   review: "review",
-  changes_requested: "changes",
   done: "accept",
 };
 
 /** The move a card dropped into `column` makes, if the task offers it in its state. */
 export function moveInto(
-  task: Pick<TaskView, "state" | "pin">,
+  task: Pick<TaskView, "state" | "pin" | "changesRequested">,
   column: TaskState,
 ): TaskMove | undefined {
   const move = INTO[column];

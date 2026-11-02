@@ -13,14 +13,7 @@ export type TaskRole = "worker" | "investigator";
  * Lifecycle of a task, set by the daemon and by the user. "Needs you" is no state but a mark
  * on the agent, from what it has in the inbox (see `needsYou`). Done and dropped are final.
  */
-export type TaskState =
-  | "queued"
-  | "parked"
-  | "in_progress"
-  | "review"
-  | "changes_requested"
-  | "done"
-  | "dropped";
+export type TaskState = "queued" | "parked" | "in_progress" | "review" | "done" | "dropped";
 
 /** What the session process is doing right now, independent of the task. */
 export type Activity = "stopped" | "working" | "idle" | "detached";
@@ -32,12 +25,21 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
 
 /** Moves the user can make on the board; the daemon owns every other transition. */
-export const USER_MOVES = ["in_progress", "review", "changes_requested", "done"] as const;
+export const USER_MOVES = ["in_progress", "review", "done"] as const;
 export type UserMove = (typeof USER_MOVES)[number];
 
 /** How strongly its project's color tints an agent's tile and card. */
 export const TINTS = ["none", "soft", "medium", "strong"] as const;
 export type Tint = (typeof TINTS)[number];
+
+/**
+ * What the user wants changed when a task in review goes back to work: the note and the threads
+ * whose held messages went along with Request changes, or what the user sent the agent directly.
+ */
+export interface ChangeRequest {
+  note?: string;
+  threads?: string[];
+}
 
 /** Who a prompt comes from. */
 export type PromptOrigin = "user" | "agent" | "fleet";
@@ -265,6 +267,8 @@ export type EventBody =
       pinNote?: string;
       /** The user would rather wait for a worker than open a workspace for it. */
       workspaceDeclined?: true;
+      /** The user sent a task in review back to work; kept until it leaves In progress. */
+      changes?: ChangeRequest;
     }
   /** The task was changed after it was created; `pin: null` releases it to any worker. */
   | {

@@ -269,7 +269,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   // Accepting now would leave the held question unsent, so Accept says so too.
   await expect(diff.getByRole("button", { name: /^Accept.* · 2 held/ })).toBeVisible();
   await diff.getByRole("button", { name: /Request changes · 2 held/ }).click();
-  // The card is in Changes requested only while the revision runs, too briefly to wait for.
+  // The card is back in progress only while the revision runs, too briefly to wait for.
   await expect(card(page, "Review", "Fix the flaky replay test")).toBeVisible({ timeout: 10_000 });
   await page.getByRole("button", { name: /^Messages/ }).click();
   await expect(page.locator(".drawer")).toContainText("Was 1 run ever enough?");
@@ -1526,7 +1526,6 @@ test("a card's Needs you mark goes with its inbox item, and accepting on the boa
     "Parked",
     "In progress",
     "Review",
-    "Changes requested",
     "Done",
   ]);
   const stopped = async (title: string) => {

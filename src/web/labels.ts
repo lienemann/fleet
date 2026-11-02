@@ -42,7 +42,6 @@ export const COLUMNS: Array<{ id: TaskState; label: string }> = [
   { id: "parked", label: "Parked" },
   { id: "in_progress", label: "In progress" },
   { id: "review", label: "Review" },
-  { id: "changes_requested", label: "Changes requested" },
   { id: "done", label: "Done" },
 ];
 
@@ -51,7 +50,6 @@ const COLUMN_LABELS: Record<TaskState, string> = {
   parked: "parked",
   in_progress: "in progress",
   review: "in review",
-  changes_requested: "changes requested",
   done: "done",
   dropped: "dropped",
 };

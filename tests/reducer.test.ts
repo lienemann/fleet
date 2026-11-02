@@ -185,7 +185,8 @@ describe("Needs you", () => {
       expect(marked(running, item("r1", T), taskState(T, end))).toBe(false);
     }
     // Back to work after a change request, the item stays.
-    expect(marked(running, item("r1", T), taskState(T, "changes_requested"))).toBe(true);
+    const back = taskState(T, "in_progress", { changes: {} });
+    expect(marked(running, item("r1", T), taskState(T, "review"), back)).toBe(true);
   });
 
   it("records when the task entered its column", () => {
@@ -1137,9 +1138,15 @@ describe("tasks", () => {
     expect(held.agents.a?.task).toBe(T);
     expect(taskOf(held, held.agents.a as AgentView)?.id).toBe(T);
     expect(holderOf(held, held.tasks[T] as TaskView)?.name).toBe("a");
-    // Review and changes requested keep the holder.
-    const back = runState(running, taskState(T, "review"), taskState(T, "changes_requested"));
-    expect(back.tasks[T]?.agent).toBe("a");
+    // Review, and back in progress with changes requested, keep the holder.
+    const changes = { note: "rename it", threads: ["th1"] };
+    const back = runState(
+      running,
+      taskState(T, "review"),
+      taskState(T, "in_progress", { changes }),
+    );
+    expect(back.tasks[T]).toMatchObject({ agent: "a", changesRequested: changes });
+    expect(back.agents.a?.task).toBe(T);
     for (const end of ["done", "dropped"] as const) {
       const closed = runState(running, taskState(T, end));
       expect(closed.tasks[T]).toMatchObject({ state: end, closedAt: 3000 });

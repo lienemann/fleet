@@ -225,7 +225,10 @@ export const CommandSchema = z.discriminatedUnion("type", [
     sessionId: z.string().uuid(),
     workspace: z.string().min(1),
   }),
-  /** Sends the held thread messages and the user's edits as one message and moves the task to "changes requested". */
+  /**
+   * Sends the held thread messages and the user's edits as one message; the task goes back to
+   * In progress, marked "changes requested".
+   */
   z.object({ type: z.literal("request_changes"), task, message: z.string().optional() }),
 ]);
 

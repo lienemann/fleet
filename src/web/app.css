@@ -199,11 +199,6 @@ h2 {
   --cbg: var(--revbg);
   --cfg: var(--revfg);
 }
-.col-changes_requested {
-  --c: var(--chg);
-  --cbg: var(--chgbg);
-  --cfg: var(--chg);
-}
 .col-done {
   --c: var(--ok);
   --cbg: var(--okbg);
@@ -897,6 +892,9 @@ button.link.accent {
 }
 .card-meta .warn {
   color: var(--warn);
+}
+.card-meta .chg {
+  color: var(--chg);
 }
 .card footer {
   display: flex;

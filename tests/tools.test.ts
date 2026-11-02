@@ -424,7 +424,7 @@ describe("director tools", () => {
     expect(log.state.agents.alpha?.task).toBeUndefined();
     expect(supervisor.ledger(DIRECTOR)).toContain("- handover note: no note: the agent wrote none");
     await expect(supervisor.parkTask("t1", DIRECTOR)).rejects.toThrow(
-      "t1 is parked; only a task in progress, in review or with changes requested parks.",
+      "t1 is parked; only a task in progress or in review parks.",
     );
 
     const unparked = await callTool(supervisor, DIRECTOR, "director", "unpark_task", {

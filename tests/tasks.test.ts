@@ -23,7 +23,7 @@ const holding = (
   id: string,
   agent: string,
   workspace: string,
-  ...states: Array<"review" | "changes_requested">
+  ...states: Array<"review" | "in_progress">
 ): NewEvent[] => [
   taskCreated(id, { workspace }),
   taskState(id, "in_progress", { holder: agent }),
@@ -135,10 +135,10 @@ describe("pickWorker", () => {
       ...workers,
       ...holding("t1", "alpha", "ws1"),
       ...holding("t2", "bravo", "ws2", "review"),
-      ...holding("t3", "charlie", "ws3", "review", "changes_requested"),
+      ...holding("t3", "charlie", "ws3", "review", "in_progress"),
     ];
 
-    it("names the one furthest along, Review before Changes requested before In progress", () => {
+    it("names the one furthest along, Review before In progress", () => {
       expect(pick(busy)).toEqual({
         agent: "bravo",
         reason: "all busy; bravo frees up first (in review)",
@@ -148,8 +148,8 @@ describe("pickWorker", () => {
     it("prefers the one with the fewest tasks queued for it", () => {
       const queued = [...busy, taskCreated("t4", { workspace: "ws2" })];
       expect(pick(queued)).toEqual({
-        agent: "charlie",
-        reason: "all busy; charlie frees up first (changes requested)",
+        agent: "alpha",
+        reason: "all busy; alpha frees up first (in progress)",
       });
     });
 

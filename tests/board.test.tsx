@@ -131,13 +131,17 @@ describe("Board", () => {
     expect(cardOf("Parked one")).toContain("Done: half of it");
   });
 
-  it("counts Changes requested against the In progress limit and flags going over it", () => {
+  it("puts a task sent back into In progress with its mark, and flags going over the limit", () => {
+    const changes = { note: "Rename it", threads: ["th1", "th2"] };
     const sentBack = reduceAll(
-      stamped([taskState("t3", "changes_requested")], state.lastSeq + 1),
+      stamped([taskState("t3", "in_progress", { changes })], state.lastSeq + 1),
       state,
     );
     expect(render(sentBack)).toContain('class="wip over"');
     expect(render(sentBack)).toContain("WIP 2/1");
+    expect(render(sentBack)).toContain(
+      '<span class="chg" title="Rename it\n\nwith 2 threads">changes requested · 2 threads</span>',
+    );
     expect(html).toContain("WIP 1/1");
   });
 
@@ -192,7 +196,7 @@ describe("dragging a card", () => {
     expect(moveInto({ state: "in_progress" }, "parked")).toBe("park");
     expect(moveInto({ state: "parked" }, "queued")).toBe("unpark");
     expect(moveInto({ state: "review" }, "done")).toBe("accept");
-    expect(moveInto({ state: "review" }, "changes_requested")).toBe("changes");
+    expect(moveInto({ state: "review" }, "in_progress")).toBe("changes");
     expect(moveInto({ state: "in_progress" }, "review")).toBe("review");
     expect(moveInto({ state: "in_progress" }, "done")).toBeUndefined();
     expect(moveInto({ state: "queued" }, "parked")).toBeUndefined();

@@ -1,6 +1,7 @@
 /** Tasks: the tickets on the board, what each keeps, and how events change them. */
 import {
   type AttachedFile,
+  type ChangeRequest,
   type FleetEvent,
   type Report,
   type TaskRole,
@@ -42,7 +43,7 @@ export interface TaskView {
   by: string;
   /** The workspace it was created for. */
   workspace?: string;
-  /** The agent that holds it while it is in progress, in review or sent back. */
+  /** The agent that holds it while it is in progress or in review. */
   agent?: string;
   /** The worker it waits for. */
   pin?: string;
@@ -54,6 +55,8 @@ export interface TaskView {
   change?: string;
   /** The handover note of a parked task. */
   note?: string;
+  /** Set while the task is back in progress because the user wants changes after a review. */
+  changesRequested?: ChangeRequest;
   report?: Report;
   /** Files the agent attached for the user, newest first. */
   attached: AttachedEntry[];
@@ -77,11 +80,7 @@ export interface TaskView {
 }
 
 /** A task in these states has an agent, and a worker's task holds its workspace. */
-export const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set([
-  "in_progress",
-  "review",
-  "changes_requested",
-]);
+export const HOLDS_WORKSPACE: ReadonlySet<TaskState> = new Set(["in_progress", "review"]);
 
 /** Final states. */
 export const CLOSED: ReadonlySet<TaskState> = new Set(["done", "dropped"]);
@@ -224,7 +223,6 @@ export interface Pick {
 /** How far a busy worker's task is, the furthest first. */
 const STAGES: ReadonlyArray<[TaskState, string]> = [
   ["review", "in review"],
-  ["changes_requested", "changes requested"],
   ["in_progress", "in progress"],
 ];
 
@@ -472,7 +470,8 @@ export function applyTask(state: FleetState, event: FleetEvent): FleetState | un
 
 /**
  * The task is in a new state; the agent that takes it holds it, the one that let go is free.
- * The edits the user allowed an agent for its task end when it lets go of the task.
+ * The edits the user allowed an agent for its task end when it lets go of the task. A change
+ * request stays with the task while it stays in progress.
  */
 function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): FleetState {
   const task = state.tasks[event.task];
@@ -489,10 +488,19 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
   }
   const closed = CLOSED.has(event.state);
   const { note, change, pinNote, workspaceDeclined } = event;
+  const changesRequested =
+    event.state !== "in_progress"
+      ? undefined
+      : event.changes
+        ? capChanges(event.changes)
+        : task.state === "in_progress"
+          ? task.changesRequested
+          : undefined;
   const moved: TaskView = {
     ...task,
     state: event.state,
     agent: holder,
+    changesRequested,
     closedAt: closed ? event.ts : undefined,
     ...(note !== undefined && { note }),
     ...(change !== undefined && { change }),
@@ -532,6 +540,12 @@ const changeThread = (
   change: (thread: LineThread) => LineThread,
 ): FleetState =>
   patch(state, task, (t) => ({ threads: t.threads.map((th) => (th.id === id ? change(th) : th)) }));
+
+/** A change request is cut like log text and threads; the event log has all of it. */
+const capChanges = ({ note, threads }: ChangeRequest): ChangeRequest => ({
+  ...(note !== undefined && { note: note.slice(0, TEXT_LIMIT) }),
+  ...(threads !== undefined && { threads: threads.slice(0, THREAD_LIMIT) }),
+});
 
 /** The agent's answers are cut like log text; the event log has all of it. */
 const cap = (message: ThreadMessage): ThreadMessage =>

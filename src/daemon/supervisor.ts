@@ -14,6 +14,7 @@ import { defaultProjectColor } from "../shared/colors.ts";
 import {
   type AgentEvent,
   type AttachedFile,
+  type ChangeRequest,
   DAEMON,
   directorOf,
   type EffortLevel,
@@ -27,7 +28,6 @@ import {
   type Role,
   type SessionHolder,
   type TaskRole,
-  type TaskState,
   USER,
   type UserMove,
 } from "../shared/events.ts";
@@ -191,8 +191,6 @@ const NAMES = [
   "zulu",
 ];
 
-const ACTIVE: ReadonlySet<TaskState> = new Set(["in_progress", "changes_requested"]);
-
 const NO_TASK =
   "You hold no task; this tool reports on a task you work on. Answer with send_message instead.";
 
@@ -225,7 +223,6 @@ interface MoveNotice {
 const USER_MOVE_NAMES: Record<UserMove, string> = {
   in_progress: "back in progress",
   review: "moved to review",
-  changes_requested: "sent back with changes requested",
   done: "accepted",
 };
 
@@ -618,7 +615,9 @@ export class Supervisor implements ToolHost {
   /** The limit that leaves no room, as "count/limit" and where it applies. */
   private fullLimit(project: string | undefined, kind: keyof Limits): string | undefined {
     const counted = taskList(this.state).filter((t) =>
-      kind === "running" ? ACTIVE.has(t.state) || this.starting.has(t.id) : t.state === "review",
+      kind === "running"
+        ? t.state === "in_progress" || this.starting.has(t.id)
+        : t.state === "review",
     );
     const own = counted.filter((a) => a.project === project).length;
     const ownLimit = this.config.projects.find((p) => p.name === project)?.wip[kind];
@@ -708,6 +707,7 @@ export class Supervisor implements ToolHost {
       case "subscribe":
         return; // the server's business
       case "prompt":
+        this.wokenByUser(message.agent, { note: message.text });
         if (this.agent(message.agent)?.activity === "detached") {
           this.background(this.attach(message.agent, message.text, message.attachments));
         } else {
@@ -1229,7 +1229,7 @@ export class Supervisor implements ToolHost {
     const tasks = taskList(this.state).filter((t) => t.project === project.name);
     return {
       workspaces: project.workspaces.filter((ws) => !ws.fallback).length,
-      inProgress: tasks.filter((t) => ACTIVE.has(t.state)).length,
+      inProgress: tasks.filter((t) => t.state === "in_progress").length,
       inReview: tasks.filter((t) => t.state === "review").length,
       limits: project.wip,
     };
@@ -2010,7 +2010,7 @@ export class Supervisor implements ToolHost {
   report(agent: string, report: Report): string {
     const task = this.heldTask(agent);
     this.append(agent, { kind: "report", task: task.id, report });
-    if (ACTIVE.has(task.state)) {
+    if (task.state === "in_progress") {
       this.append(DAEMON, { kind: "task_state", task: task.id, state: "review" });
       this.schedule(); // review frees a running slot
     }
@@ -2497,9 +2497,7 @@ export class Supervisor implements ToolHost {
     const task = this.namedTask(id);
     this.checkReach(by, id, task.project);
     if (!HOLDS_WORKSPACE.has(task.state)) {
-      throw new ToolError(
-        `${id} is ${task.state}; only a task in progress, in review or with changes requested parks.`,
-      );
+      throw new ToolError(`${id} is ${task.state}; only a task in progress or in review parks.`);
     }
     if (this.parking.has(id)) return `${id} is being parked already.`;
     await this.park(id, by);
@@ -2920,12 +2918,31 @@ export class Supervisor implements ToolHost {
     const holder = task?.agent;
     if (!task || holder === undefined) return;
     const body = changeRequest(task, note);
+    const threads = task.threads.filter((t) => t.messages.some((m) => m.held)).map((t) => t.id);
     this.append(holder, { kind: "review_sent", task: id });
-    if (task.state !== "changes_requested") {
-      this.append(DAEMON, { kind: "task_state", task: id, state: "changes_requested" });
-      this.tellMove(id, "sent back with changes requested", USER);
-    }
+    this.sendBack(task, {
+      ...(note?.trim() && { note: note.trim() }),
+      ...(threads.length > 0 && { threads }),
+    });
     this.tell(holder, body);
+  }
+
+  /**
+   * Moves a task the user wants changed back to In progress, with what the user asked for. A
+   * task already back at work keeps its place and takes the newer request.
+   */
+  private sendBack(task: TaskView, changes: ChangeRequest): void {
+    if (!HOLDS_WORKSPACE.has(task.state)) return;
+    const moved = task.state === "review";
+    this.append(DAEMON, { kind: "task_state", task: task.id, state: "in_progress", changes });
+    if (moved) this.tellMove(task.id, "sent back with changes requested", USER);
+  }
+
+  /** The user woke the agent: a task of its that waits for review goes back to work. */
+  private wokenByUser(name: string, changes: ChangeRequest): void {
+    const agent = this.agent(name);
+    const task = agent && taskOf(this.state, agent);
+    if (task?.state === "review") this.sendBack(task, changes);
   }
 
   private hasThread(task: string, threadId: string): boolean {
@@ -2989,6 +3006,7 @@ export class Supervisor implements ToolHost {
     const thread = task?.threads.find((t) => t.id === threadId);
     const message = thread?.messages.at(-1);
     if (!task?.agent || !thread || !message) return;
+    this.wokenByUser(task.agent, { threads: [threadId] });
     this.sendToThread(task.agent, threadMessage(thread, message, task.edits), threadId);
     if (task.edits.length > 0) this.append(task.agent, { kind: "edits_reported", task: id });
   }
@@ -3102,7 +3120,7 @@ export class Supervisor implements ToolHost {
     this.tellMove(id, USER_MOVE_NAMES[to], USER, task.agent);
     const holder = holderOf(this.state, task);
     // A session another client holds runs again once fleet takes it back.
-    if (ACTIVE.has(to) && holder && holder.activity !== "detached") {
+    if (to === "in_progress" && holder && holder.activity !== "detached") {
       this.session(holder.name)?.start();
     }
     // Told before the pool runs, so the note lands in the conversation it answers.

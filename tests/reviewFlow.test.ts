@@ -189,20 +189,38 @@ describe("review flow", () => {
     expect(t1(log).reviewProgress).toEqual({ approved: 0, total: 1 });
   });
 
-  it("sends a thread message at once without moving the card", async () => {
+  it("sends a thread message at once and the task back to work with the thread", async () => {
     const { log, supervisor } = await review();
     await until(() => t1(log).state === "review");
     const before = log.state.messages.length;
     supervisor.handle(open(false));
     const [created] = t1(log).threads;
-    expect(t1(log).state).toBe("review");
+    expect(t1(log)).toMatchObject({
+      state: "in_progress",
+      changesRequested: { threads: [created?.id] },
+    });
     expect(log.state.messages).toHaveLength(before);
     await until(() =>
       promptsOf(log).some(
         (l) => l.thread === created?.id && l.text.includes("Answer with the reply_thread tool"),
       ),
     );
+  });
+
+  it("sends a task in review back to work when the user prompts its agent, not a director", async () => {
+    const { log, supervisor } = await review();
+    await until(() => t1(log).state === "review");
+    supervisor.message("director", "alpha", "Also look at the docs");
     expect(t1(log).state).toBe("review");
+
+    supervisor.handle({ type: "prompt", agent: "alpha", text: "Rename it" });
+    expect(t1(log)).toMatchObject({
+      state: "in_progress",
+      changesRequested: { note: "Rename it" },
+    });
+    supervisor.report("alpha", { summary: "Renamed", changes: [], openQuestions: [] });
+    expect(t1(log).state).toBe("review");
+    expect(t1(log).changesRequested).toBeUndefined();
   });
 
   it("keeps only the thread's own fields in the log", async () => {
@@ -288,8 +306,12 @@ describe("review flow", () => {
     expect(heldMessages(t1(log))).toBe(2);
     expect(promptsOf(log)).toHaveLength(0);
 
-    supervisor.handle({ type: "request_changes", task: "t1" });
-    expect(t1(log).state).toBe("changes_requested");
+    const threads = t1(log).threads.map((t) => t.id);
+    supervisor.handle({ type: "request_changes", task: "t1", message: " Tidy up " });
+    expect(t1(log)).toMatchObject({
+      state: "in_progress",
+      changesRequested: { note: "Tidy up", threads },
+    });
     expect(heldMessages(t1(log))).toBe(0);
     const body = log.state.messages.at(-1)?.body ?? "";
     expect(body).toContain("thread ");

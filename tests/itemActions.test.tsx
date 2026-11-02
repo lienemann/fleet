@@ -46,8 +46,13 @@ describe("ItemActions", () => {
 
 describe("task moves", () => {
   it("offer the verdict and Park while a task waits for one, in Review and after a revision", () => {
-    for (const state of ["review", "changes_requested"] as const)
-      expect(movesOf({ state })).toEqual(["accept", "changes", "park", "drop"]);
+    expect(movesOf({ state: "review" })).toEqual(["accept", "changes", "park", "drop"]);
+    expect(movesOf({ state: "in_progress", changesRequested: {} })).toEqual([
+      "accept",
+      "changes",
+      "park",
+      "drop",
+    ]);
   });
 
   it("park a running task, unpark a parked one, and drop any until it is final", () => {
