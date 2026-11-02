@@ -3425,15 +3425,20 @@ export class Supervisor implements ToolHost {
 
   /**
    * Turns a stretch of work that just ended into a Finished item: one that stopped without
-   * the user always, one the user started only when it took long enough.
+   * the user or put the task up for review always, one the user started only when it took
+   * long enough.
    */
   private finishRun({ name, activity, stretch, finished, task }: AgentView): void {
     // A failed turn with more queued behind it is no end; the idle that follows decides.
     if (!stretch || stretch.endedByUser || activity === "working") return;
     const stopped = stretch.failed ?? (activity === "stopped" ? "crashed" : undefined);
     const long = stretch.by === "user" && stretch.workMs >= this.config.finishedAfterMs;
+    // The item is the task's review in the inbox, so it comes whoever started the run and
+    // whomever the agent wrote to.
+    const forReview =
+      stretch.reported === true && task !== undefined && this.state.tasks[task]?.state === "review";
     // An item this stretch continues is kept current, not doubled, whatever the stretch is.
-    if (stopped === undefined && !long && !stretch.continues) return;
+    if (stopped === undefined && !long && !forReview && !stretch.continues) return;
     // A retry that stops for the same reason again is the same news, so it keeps the id and
     // raises no new notification.
     const continued = finished.find((r) => r.id === stretch.continues);

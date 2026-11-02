@@ -144,6 +144,8 @@ interface Stretch {
   failed?: string;
   /** The agent the stretch last wrote to, unless it wrote to the user after that. */
   messaged?: string;
+  /** The agent reported its task's result in this stretch. */
+  reported?: boolean;
 }
 
 /**
@@ -854,6 +856,7 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
   if (event.kind === "message") {
     stretch = { ...stretch, messaged: event.to === USER ? undefined : event.to };
   }
+  if (event.kind === "report") stretch = { ...stretch, reported: true };
   if (event.kind === "resumed" && stretch.countingSince !== undefined) {
     // The daemon was down: what it did until it went away counts, the time after does not.
     const { countingSince, ...rest } = stretch;

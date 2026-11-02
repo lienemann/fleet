@@ -24,8 +24,8 @@ const workspaces = [{ name: "ws1", path: "/work/ws1", allowedTools: ["Read"] }];
 
 type Script = Parameters<typeof fakeQuery>[0];
 
-/** A supervisor whose threshold for Finished items is `finishedAfterMs`. */
-function setup(script: Script, finishedAfterMs = 0, path = "/work/ws1") {
+/** A supervisor whose threshold for Finished items is `finishedAfterMs`; `director` is its repo. */
+function setup(script: Script, finishedAfterMs = 0, path = "/work/ws1", director?: string) {
   const log = new EventLog(":memory:");
   const fake = fakeQuery(script);
   const supervisor = new Supervisor({
@@ -33,7 +33,10 @@ function setup(script: Script, finishedAfterMs = 0, path = "/work/ws1") {
     log,
     queryFn: fake.queryFn as QueryFn,
     config: {
-      ...testConfig({ workspaces: [{ name: "ws1", path, allowedTools: ["Read"] }] }),
+      ...testConfig({
+        workspaces: [{ name: "ws1", path, allowedTools: ["Read"] }],
+        ...(director && { director }),
+      }),
       finishedAfterMs,
     },
   });
@@ -360,6 +363,63 @@ describe("Finished runs", () => {
     await until(idle(alpha));
     expect(alpha()?.finished).toEqual([]);
     expect(alpha()?.task).toBe("t1");
+  });
+});
+
+describe("Finished runs that put the task into review", () => {
+  const report = { summary: "Fixed.", changes: [], openQuestions: [] };
+
+  /** A short run per prompt; `during[n]` runs mid-turn n, as the agent's tool calls do. */
+  function acting() {
+    const during: Array<() => void> = [];
+    const script: Script = async function* (params) {
+      let turn = 0;
+      for await (const _ of params.prompt as AsyncIterable<unknown>) {
+        during[turn++]?.();
+        yield assistantText(`Turn ${turn} done.`);
+        yield result();
+      }
+    };
+    return { script, during };
+  }
+
+  /** The task's first run makes no item, being short; then the director wakes the agent. */
+  async function directorRun(second: (supervisor: Supervisor) => void) {
+    const { script, during } = acting();
+    const test = setup(script, 15_000, "/work/ws1", "/work/test");
+    during[1] = () => second(test.supervisor);
+    test.supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(idle(test.alpha));
+    test.supervisor.message(DIRECTOR, "alpha", "Please also check the docs.");
+    await until(() => test.prompts().length === 2);
+    await until(idle(test.alpha));
+    return test;
+  }
+
+  it("makes an item though the director started the run and the agent messaged it", async () => {
+    const { alpha, log } = await directorRun((supervisor) => {
+      supervisor.report("alpha", report);
+      supervisor.message("alpha", DIRECTOR, "Done, see my report.");
+    });
+    expect(log.state.tasks.t1?.state).toBe("review");
+    expect(alpha()?.finished).toMatchObject([{ text: "Turn 2 done.", task: "t1", read: false }]);
+  });
+
+  it("makes an item for a short run the user started", async () => {
+    const { script, during } = acting();
+    const { supervisor, alpha } = setup(script, 15_000);
+    during[0] = () => supervisor.report("alpha", report);
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => alpha()?.finished.length === 1);
+    expect(alpha()?.finished[0]).toMatchObject({ text: "Turn 1 done.", task: "t1" });
+  });
+
+  it("makes none for the director's run that leaves the task where it was", async () => {
+    const { alpha, log } = await directorRun((supervisor) =>
+      supervisor.message("alpha", DIRECTOR, "The docs are fine."),
+    );
+    expect(log.state.tasks.t1?.state).toBe("in_progress");
+    expect(alpha()?.finished).toEqual([]);
   });
 });
 
