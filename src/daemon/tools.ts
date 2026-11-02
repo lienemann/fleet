@@ -405,6 +405,7 @@ function fleetDirectorTools(agent: string, host: ToolHost) {
 
 /** The fleet tools for one agent, served in-process. */
 export function fleetServer(agent: string, role: Role, host: ToolHost): McpServerConfig {
+  const directing = role === "director" || role === "fleet-director";
   const everyone = [
     tool(
       "list_agents",
@@ -414,7 +415,11 @@ export function fleetServer(agent: string, role: Role, host: ToolHost): McpServe
     ),
     tool(
       "send_message",
-      `Send a message to another agent by name, or to "you" (the user). Bodies are Markdown and may be long.`,
+      `Send a message to another agent by name, or to "you" (the user). Bodies are Markdown and may be long.${
+        directing
+          ? " A worker or a guest that holds no task takes no new work this way, which goes through spawn_task: a message to it must name a task (t1, t2, …), as a question about it. Investigators take questions either way."
+          : ""
+      }`,
       { to: z.string(), body: z.string() },
       (args) => run(() => host.message(agent, args.to, args.body)),
     ),

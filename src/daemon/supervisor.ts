@@ -2259,10 +2259,26 @@ export class Supervisor implements ToolHost {
           `${to} works in the project ${recipient.project}; ask ${director} to link your tasks.`,
         );
       }
+      if (this.bringsNewWork(from, recipient, body)) {
+        throw new ToolError(
+          `${to} holds no task; new work goes through spawn_task; ask a question by naming a task, or message an investigator.`,
+        );
+      }
     }
     this.append(from, { kind: "message", to, body });
     if (to !== USER) this.deliver(to, from, body);
     return `Sent to ${to}.`;
+  }
+
+  /**
+   * Whether a director's message would hand a worker or a guest work off the board: it holds no
+   * task, and the message names none to ask about.
+   */
+  private bringsNewWork(from: string, recipient: AgentView, body: string): boolean {
+    const sender = this.agent(from);
+    if (!sender || isWorker(sender)) return false;
+    if (recipient.role !== "worker" || recipient.task !== undefined) return false;
+    return ![...body.matchAll(/\bt\d+\b/g)].some(([id]) => this.task(id) !== undefined);
   }
 
   /**

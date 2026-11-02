@@ -37,6 +37,7 @@ import {
   testProject,
   until,
   withWork,
+  worker,
 } from "./helpers.ts";
 
 function setup(review = 2, changes = noChanges) {
@@ -755,6 +756,43 @@ describe("worker tools", () => {
         log.state.agents[DIRECTOR]?.log.some((l) => l.text.startsWith("Message from alpha")) ??
         false,
     );
+  });
+});
+
+describe("a director's message to an agent without a task", () => {
+  const NEW_WORK =
+    "new work goes through spawn_task; ask a question by naming a task, or message an investigator.";
+
+  it("is refused for a free worker or a guest, so new work goes on the board", () => {
+    const { log, supervisor } = setup();
+    log.append(worker("visitor", { workspace: "ws1", guest: true }));
+    log.append(worker(FLEET_DIRECTOR, { role: "fleet-director", workspace: "" }));
+    for (const director of [DIRECTOR, FLEET_DIRECTOR]) {
+      for (const to of ["alpha", "visitor"]) {
+        expect(() => supervisor.message(director, to, "Please also fix X.")).toThrow(
+          `${to} holds no task; ${NEW_WORK}`,
+        );
+      }
+    }
+    // A task that does not exist names nothing.
+    expect(() => supervisor.message(DIRECTOR, "alpha", "Fix t99 as well.")).toThrow(NEW_WORK);
+    expect(log.state.messages).toEqual([]);
+    expect(log.state.agents.alpha?.log).toEqual([]);
+  });
+
+  it("goes through as a question about a task, to an investigator, or to an agent with a task", async () => {
+    const { log, supervisor } = setup();
+    supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    log.append(worker("ivy", { role: "investigator" }));
+
+    expect(supervisor.message(DIRECTOR, "alpha", "Please also fix X.")).toBe("Sent to alpha.");
+    expect(supervisor.message(DIRECTOR, "bravo", "Why did t1 pick the slow path?")).toBe(
+      "Sent to bravo.",
+    );
+    expect(supervisor.message(DIRECTOR, "ivy", "What does X do?")).toBe("Sent to ivy.");
+    // Between workers, nothing changes.
+    expect(supervisor.message("alpha", "bravo", "Which test fails?")).toBe("Sent to bravo.");
   });
 });
 

@@ -145,7 +145,7 @@ The machine tools come with Machine tools below:
 
 **Open-point documents.** When a worker writes "I've put the open points in X.md for you", the prompt contract makes it call `submit_open_points`. As a fallback the daemon also watches for new `.md` files under `.fleet/<agent>/` and parses `- [ ]` items.
 
-**Messages.** All agent-to-agent traffic goes through `send_message`, never Claude Code's built-in cross-session messaging, so the daemon sees and logs every message. Bodies are multi-line Markdown.
+**Messages.** All agent-to-agent traffic goes through `send_message`, never Claude Code's built-in cross-session messaging, so the daemon sees and logs every message. Bodies are multi-line Markdown. A director's message to a worker or a guest that holds no task goes through only when it names a task, as a question about it: new work goes on the board with `spawn_task`, so it never runs out of my sight. Investigators take a director's questions either way.
 
 **Walkthroughs.** `report_result` includes a walkthrough written with the AI instructions from the ReviewDiff README, with permalinks pinned to change ids. Hunks the walkthrough doesn't cover are flagged in review.
 
