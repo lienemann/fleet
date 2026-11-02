@@ -302,7 +302,7 @@ function PastConversations({ task }: { task: TaskView }) {
           {!last
             ? "No agent has worked on this task."
             : steppedAside(task)
-              ? `${last} stepped aside for a queued task; Request changes queues the revision.`
+              ? `${last} stepped aside for ${task.aside ? `${task.aside.queued} (${task.aside.reason})` : "a queued task"}; Request changes queues the revision.`
               : `${last} worked on this task last.`}
         </p>
       )}

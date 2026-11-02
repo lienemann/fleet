@@ -392,9 +392,9 @@ function Card({
         {aside && (
           <span
             className="aside"
-            title={`${named ?? "Its worker"} moved on to a queued task; Request changes queues the revision`}
+            title={`${named ?? "Its worker"} moved on to ${task.aside?.queued ?? "a queued task"}; Request changes queues the revision`}
           >
-            stepped aside
+            stepped aside{task.aside && ` for ${task.aside.queued} · ${task.aside.reason}`}
           </span>
         )}
         {task.changesRequested && <ChangesMark changes={task.changesRequested} />}

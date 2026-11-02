@@ -149,19 +149,26 @@ describe("Board", () => {
     expect(html.match(/WIP \d+\/\d+/g)).toEqual(["WIP 1/1"]);
   });
 
-  it("says that the worker of a task in review stepped aside, and offers Same worker for its revision", () => {
+  it("says that the worker of a task in review stepped aside and why, and offers Same worker for its revision", () => {
     const aside = reduceAll(
       stamped(
         [
           { kind: "conversation_started", agent: "bravo", task: "t3" },
-          { kind: "stepped_aside", agent: "daemon", task: "t3", change: "kxqv" },
+          {
+            kind: "stepped_aside",
+            agent: "daemon",
+            task: "t3",
+            queued: "t9",
+            reason: "no workspace: 8 of 8 workspaces",
+            change: "kxqv",
+          },
         ],
         state.lastSeq + 1,
       ),
       state,
     );
     const card = cardOf("Reviewed one", render(aside));
-    expect(card).toContain(">stepped aside</span>");
+    expect(card).toContain(">stepped aside for t9 · no workspace: 8 of 8 workspaces</span>");
     expect(card).toContain("Same worker");
     expect(card).toContain("Wait for bravo");
     expect(card).toContain("Request changes");

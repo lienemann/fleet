@@ -138,11 +138,18 @@ interface TestProject {
   director?: string;
   running?: number;
   readOnly?: string[];
+  openWorkspaces?: Project["openWorkspaces"];
 }
 
 export const testProject = (
   name: string,
-  { workspaces = [], director, running = 4, readOnly = [] }: TestProject = {},
+  {
+    workspaces = [],
+    director,
+    running = 4,
+    readOnly = [],
+    openWorkspaces = { mode: "ask", max: 8 },
+  }: TestProject = {},
 ): Project => ({
   name,
   path: director ?? `/work/${name}`,
@@ -152,7 +159,7 @@ export const testProject = (
   wip: { running },
   allowedTools: [],
   workspaces: workspaces.map((ws) => ({ ...ws, project: name })),
-  openWorkspaces: { mode: "ask", max: 8 },
+  openWorkspaces,
 });
 
 /** The director of the project "test" that `testConfig` starts with. */

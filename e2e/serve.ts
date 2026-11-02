@@ -1,6 +1,7 @@
 // Starts the daemon in demo mode on a fresh home with two projects: "daemon" with the workspaces ws1
 // and ws2, each a jj repo whose trunk has one file the demo agents change (ws1 has a commit of
-// its own on top), and "site", a repo with the one workspace "pages". Unless it is the pod
+// its own on top), and "site", a repo with the one workspace "pages" that opens a second one
+// without asking (open_workspaces = "auto"). Unless it is the pod
 // itself, it also starts a second daemon, "pod", and relays it as a remote, as a Coder pod would be.
 // With FLEET_E2E_EMPTY=1 it starts on a home without any project and without a pod instead, as
 // fleet does on its first start.
@@ -77,7 +78,8 @@ if (isEmpty) {
   config =
     `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}[wip]\nrunning = 6\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n` +
-    `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(root, "pages"))}` +
+    `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n` +
+    `open_workspaces = "auto"\nmax_workspaces = 2\n${workspace("pages", join(root, "pages"))}` +
     // The screenshots show the history of a repository with more in it than the demo's.
     (process.env.HISTORY_REPO
       ? `\n[[projects]]\nname = "web"\npath = "${process.env.HISTORY_REPO}"\ndirector = false\n`

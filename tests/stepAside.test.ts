@@ -107,7 +107,7 @@ describe("a worker with a task in Review", () => {
     expect(stepsAside()).toEqual([]);
   });
 
-  it("steps aside when a queued task needs it: the change stays, the workspace starts from trunk", async () => {
+  it("steps aside when a queued task needs it and no workspace opens: the change stays, the workspace starts from trunk", async () => {
     const { supervisor, changes, task, agent, reports, stepsAside, prompts } = setup();
     supervisor.createTask("one", "first brief", undefined);
     await reports("alpha");
@@ -120,7 +120,15 @@ describe("a worker with a task in Review", () => {
     expect(task("t1")).toMatchObject({ state: "review", change: "change-ws1" });
     expect(task("t1")?.agent).toBeUndefined();
     expect(task("t1")?.report?.summary).toBe("Done.");
-    expect(stepsAside()).toMatchObject([{ task: "t1", change: "change-ws1" }]);
+    // With nobody to ask, no workspace opens for t2.
+    expect(stepsAside()).toMatchObject([
+      {
+        task: "t1",
+        change: "change-ws1",
+        queued: "t2",
+        reason: "no workspace: no director to ask",
+      },
+    ]);
     expect(changes.startChange).toHaveBeenCalledWith("/work/ws1", "trunk");
     // t1's conversation went into its archive; t2 started fresh with its brief.
     expect(task("t1")?.conversations.map((c) => c.agent)).toEqual(["alpha"]);
@@ -134,7 +142,12 @@ describe("a worker with a task in Review", () => {
     supervisor.createTask("two", "second brief", "ws1");
     await until(() => task("t2")?.state === "in_progress");
     expect(task("t2")?.agent).toBe("alpha");
-    expect(task("t1")).toMatchObject({ state: "review", agent: undefined });
+    // A new workspace would not help a task only alpha may take.
+    expect(task("t1")).toMatchObject({
+      state: "review",
+      agent: undefined,
+      aside: { queued: "t2", reason: "t2 is for ws1" },
+    });
   });
 
   it("never steps aside while it works, only once its turn is over", async () => {

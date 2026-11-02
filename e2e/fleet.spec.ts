@@ -1687,7 +1687,7 @@ test("a task unparked for the same worker waits on it until Unpin, and dropped t
   await expect(done.locator(".dropped")).toContainText(busyTitle);
 });
 
-test("a task queued while the only worker's task waits in Review starts on that worker, which steps aside", async ({
+test("a task for the only worker, queued while its task waits in Review, starts on it, which steps aside and says why", async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -1710,7 +1710,8 @@ test("a task queued while the only worker's task waits in Review starts on that 
   const started = card(page, "In progress", next);
   await expect(started).toBeVisible({ timeout: 15_000 });
   await expect(started.locator(".agent-label .name")).toHaveText(worker);
-  await expect(inReview).toContainText("stepped aside");
+  // A new workspace would not help a task for that one worker.
+  await expect(inReview).toContainText(/stepped aside for t\d+ · t\d+ (waits on|is for) \S+/);
   await inReview.locator(".card-main").click();
   await expect(page.locator(".drawer")).toContainText(`${worker} stepped aside`);
 
@@ -1722,6 +1723,58 @@ test("a task queued while the only worker's task waits in Review starts on that 
   await answerDrop(page, next, "Drop");
   await page.keyboard.press("Alt+1");
   await expect(page.locator(".card", { hasText: next })).toBeHidden();
+});
+
+test("a task for any worker, queued while the only worker's task waits in Review, gets a new workspace, and the worker keeps its task", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const rail = page.getByRole("complementary", { name: "Agents" });
+  const site = rail.locator(".rail-project", {
+    has: page.getByRole("button", { name: "site", exact: true }),
+  });
+  const reviewed = "Let the kept site worker crash mid-turn";
+  await newTask(page, reviewed, "pages", "site");
+  await page.keyboard.press("Alt+2");
+  await expect(page.locator(".finished", { hasText: reviewed })).toContainText("Stopped", {
+    timeout: 15_000,
+  });
+  await page.keyboard.press("Alt+1");
+  const running = card(page, "In progress", reviewed);
+  const worker = (await running.locator(".agent-label .name").textContent()) ?? "";
+  await running.getByRole("button", { name: "To review" }).click();
+  const inReview = card(page, "Review", reviewed);
+  await expect(inReview).toBeVisible();
+
+  // site opens workspaces on its own ("auto"), so the next task for any worker gets one.
+  const next = "Draft the site's workspace page";
+  await page.keyboard.press("Alt+n");
+  const dialog = page.getByRole("dialog", { name: "New task" });
+  await dialog.getByLabel("Title").fill(next);
+  await dialog.getByLabel("Project").selectOption("site");
+  await expect(dialog.getByLabel(/^Worker/)).toHaveValue("");
+  await dialog.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(site.locator(".workspaces")).toContainText("site-ws1", { timeout: 15_000 });
+  const started = card(page, "In progress", next);
+  await expect(started).toBeVisible({ timeout: 15_000 });
+  await expect(started.locator(".agent-label .name")).not.toHaveText(worker);
+  await expect(inReview.locator(".agent-label .name")).toHaveText(worker);
+  await expect(inReview).not.toContainText("stepped aside");
+
+  // Leave site with its one workspace for the tests after this one.
+  await started.getByRole("button", { name: "Drop" }).click();
+  await answerDrop(page, next, "Drop");
+  await page.keyboard.press("Alt+1");
+  await expect(page.locator(".card", { hasText: next })).toBeHidden();
+  await acceptOnceIdle(inReview);
+  await expect(card(page, "Done", reviewed)).toBeVisible();
+  await site.getByRole("button", { name: "Remove site-ws1" }).click();
+  const removal = page.getByRole("dialog", { name: "Remove site-ws1" });
+  await removal.getByLabel("Delete the directory as well").check();
+  await removal.getByRole("button", { name: "Remove and delete" }).click();
+  await expect(removal).toBeHidden();
+  await expect(site.locator(".workspaces")).not.toContainText("site-ws1");
 });
 
 test("a question to the director goes to an investigator, which reports and goes free on Accept", async ({

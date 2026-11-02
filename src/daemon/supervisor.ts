@@ -161,11 +161,11 @@ import {
   type ToolHost,
 } from "./tools.ts";
 import {
-  autoRefusal,
   jjWorkspaces,
   measureRoom,
   type NewWorkspace,
   nextWorkspace,
+  openRefusal,
   roomLines,
   type Workload,
   type WorkspaceHost,
@@ -387,9 +387,10 @@ export class Supervisor implements ToolHost {
   private readonly asking = new Set<string>();
   /**
    * Queued tasks fleet opens a workspace for or asks about, by task: what calls the question
-   * off once the task starts or leaves the queue.
+   * off once the task starts or leaves the queue, and, once known, why no workspace opens for
+   * it, so that a worker may step aside for it instead.
    */
-  private readonly opening = new Map<string, AbortController>();
+  private readonly opening = new Map<string, { call: AbortController; refused?: string }>();
   /** Workspaces open one after another, so that two never pick the same name. */
   private workspaceOps: Promise<unknown> = Promise.resolve();
   private readonly workspaceHost: WorkspaceHost;
@@ -1275,35 +1276,68 @@ export class Supervisor implements ToolHost {
   }
 
   /**
+   * Why no workspace opens for a queued worker task that no free worker takes, so that a worker
+   * may step aside for it: only one worker may take it, the user chose Wait, nobody can ask, the
+   * limits stop it or opening one failed. Undefined while fleet may still open one, also while
+   * it measures or asks.
+   */
+  private noWorkspace(task: TaskView): string | undefined {
+    if (task.pin !== undefined) return `${task.id} waits on ${task.pin}`;
+    if (task.workspace !== undefined) return `${task.id} is for ${task.workspace}`;
+    if (task.workspaceDeclined) return "no workspace: you chose Wait";
+    const opening = this.opening.get(task.id);
+    if (opening) return opening.refused && `no workspace: ${opening.refused}`;
+    const project = this.config.projects.find((p) => p.name === task.project);
+    if (
+      project?.openWorkspaces.mode === "ask" &&
+      this.directorOfProject(task.project) === undefined
+    ) {
+      return "no workspace: no director to ask";
+    }
+    return undefined;
+  }
+
+  /**
    * A queued task for any worker of its project that only lacks a free one gets a workspace:
    * fleet asks in the inbox first, unless the project says "auto" and its disk and
-   * `max_workspaces` allow it. A task the user lets wait is not asked about again.
+   * `max_workspaces` allow it.
    */
   private offerWorkspace(task: TaskView): void {
-    if (task.role !== "worker" || task.pin !== undefined || task.workspace !== undefined) return;
-    if (task.workspaceDeclined || this.opening.has(task.id)) return;
     const project = this.config.projects.find((p) => p.name === task.project);
     if (!project) return;
-    const asker = this.directorOfProject(project.name);
-    if (project.openWorkspaces.mode === "ask" && asker === undefined) return;
     const call = new AbortController();
-    this.opening.set(task.id, call);
+    this.opening.set(task.id, { call });
     this.background(
-      this.openFor(task.id, project, asker, call.signal).then((retry) => {
-        if (retry && this.opening.get(task.id) === call) this.opening.delete(task.id);
-      }),
+      this.openFor(task.id, project, this.directorOfProject(project.name), call.signal).then(
+        (retry) => {
+          if (retry && this.opening.get(task.id)?.call === call) this.opening.delete(task.id);
+        },
+      ),
     );
   }
 
   /** A task that starts or leaves the queue needs no workspace opened; its question goes. */
   private callOffOpening(id: string): void {
-    this.opening.get(id)?.abort();
+    this.opening.get(id)?.call.abort();
     this.opening.delete(id);
   }
 
   /**
-   * Opens a workspace for a queued task, or asks first, and starts the task there. True when
-   * the question went stale before the user answered, so that it may come again.
+   * Notes why no workspace opens for a queued task, and lets a worker step aside for it, if one
+   * can. Whether one does.
+   */
+  private refuseOpening(id: string, refused: string): boolean {
+    const opening = this.opening.get(id);
+    if (opening) opening.refused = refused;
+    const task = this.task(id);
+    return task?.state === "queued" && this.stepAsideFor(task, `no workspace: ${refused}`);
+  }
+
+  /**
+   * Opens a workspace for a queued task, or asks first, and starts the task there. When the
+   * limits stop it, a worker steps aside from its task in Review instead, if one can; only
+   * otherwise fleet asks, with the reason. True when the question went stale before the user
+   * answered, so that it may come again.
    */
   private async openFor(
     id: string,
@@ -1314,16 +1348,20 @@ export class Supervisor implements ToolHost {
     const room = await measureRoom(this.workspaceHost, project.path, this.workerSpaces(project));
     const load = this.workload(project);
     const settings = project.openWorkspaces;
-    const refusal =
-      settings.mode === "auto"
-        ? autoRefusal(room, load, settings, this.config.diskMinFree)
-        : undefined;
+    const refusal = openRefusal(room, load, settings, this.config.diskMinFree);
     const task = this.task(id);
     if (signal.aborted || !task) return false;
+    if (refusal !== undefined && this.refuseOpening(id, refusal)) return false;
     if (settings.mode === "ask" || refusal !== undefined) {
       if (asker === undefined) return false;
       const question = `Open a workspace for ${id} "${task.title}"?`;
-      const why = `No worker of ${project.name} is free for it${refusal ? `, and fleet opens none on its own: ${refusal}` : ""}.`;
+      const limits =
+        refusal === undefined
+          ? ""
+          : settings.mode === "auto"
+            ? `, and fleet opens none on its own: ${refusal}`
+            : `, and a new one goes past the limits: ${refusal}`;
+      const why = `No worker of ${project.name} is free for it${limits}.`;
       this.session(asker);
       const answer = await this.ask(
         asker,
@@ -1343,7 +1381,10 @@ export class Supervisor implements ToolHost {
                   label: "Open",
                   description: `Opens ${this.nextWorkspace(project).name} next to the repo, with a worker, and starts ${id} there`,
                 },
-                { label: "Wait", description: `${id} waits until a worker is free` },
+                {
+                  label: "Wait",
+                  description: `${id} waits until a worker is free or steps aside from a task in Review`,
+                },
               ],
             },
           ],
@@ -1358,6 +1399,8 @@ export class Supervisor implements ToolHost {
           state: "queued",
           workspaceDeclined: true,
         });
+        // A worker may step aside for it now.
+        this.schedule();
         return false;
       }
     }
@@ -1368,7 +1411,8 @@ export class Supervisor implements ToolHost {
     } catch (error) {
       // The user has to step in, so it goes to the inbox; asking again would fail the same way.
       const why = error instanceof Error ? error.message.trim() : String(error);
-      const body = `Opening a workspace for ${id} "${task.title}" failed, so it stays queued; New workspace under the project's workspaces tries again.\n\n${why}`;
+      const body = `Opening a workspace for ${id} "${task.title}" failed, so it waits for a worker that frees up or steps aside; New workspace under the project's workspaces tries again.\n\n${why}`;
+      this.refuseOpening(id, "opening one failed");
       if (asker === undefined) throw error;
       this.append(asker, { kind: "message", to: USER, body });
       return false;
@@ -3444,8 +3488,9 @@ export class Supervisor implements ToolHost {
   /**
    * The pool: hands queued tasks in creation order to free workers while the limits leave room.
    * A task whose project is full waits without holding up the other projects'. When no worker
-   * is free, one with a task in Review steps aside for it; only then may fleet open a workspace.
-   * A pinned task that its worker can never take gets a note saying why, and waits for Unpin.
+   * is free, fleet opens a workspace for it; only when none can open does a worker with a task
+   * in Review step aside for it. A pinned task that its worker can never take gets a note saying
+   * why, and waits for Unpin.
    */
   private schedule(): void {
     for (const id of this.opening.keys()) {
@@ -3464,18 +3509,27 @@ export class Supervisor implements ToolHost {
       if (task.role === "investigator") this.investigatorFor(task);
       const placement = this.placement(task);
       if (typeof placement === "object") this.begin(task, placement);
-      else if (!this.stepAsideFor(task)) this.offerWorkspace(task);
+      else if (task.role === "worker") this.makeRoom(task);
     }
     this.trimInvestigators();
   }
 
   /**
-   * Lets a worker step aside from its task in Review for a queued task that no free worker
-   * takes: of the workers that may take the task, the one likely to free up first, as New task's
-   * hint names it. Whether one does.
+   * Finds a worker for a queued task that no free worker takes: a new workspace while one may
+   * open, else a worker that steps aside from its task in Review.
    */
-  private stepAsideFor(task: TaskView): boolean {
-    if (task.role !== "worker") return false;
+  private makeRoom(task: TaskView): void {
+    const refused = this.noWorkspace(task);
+    if (refused !== undefined) this.stepAsideFor(task, refused);
+    else if (!this.opening.has(task.id)) this.offerWorkspace(task);
+  }
+
+  /**
+   * Lets a worker step aside from its task in Review for a queued task that no free worker
+   * takes and no new workspace gets, `reason` saying why not: of the workers that may take the
+   * task, the one likely to free up first, as New task's hint names it. Whether one does.
+   */
+  private stepAsideFor(task: TaskView, reason: string): boolean {
     const candidates = this.candidates(task);
     if (typeof candidates === "string") return false;
     const stepping = new Set(this.stepping.values());
@@ -3489,7 +3543,7 @@ export class Supervisor implements ToolHost {
     this.stepping.set(task.id, worker.name);
     this.callOffOpening(task.id);
     this.background(
-      this.stepAside(worker, task.id).finally(() => {
+      this.stepAside(worker, task.id, reason).finally(() => {
         this.stepping.delete(task.id);
         this.schedule();
       }),
@@ -3522,9 +3576,9 @@ export class Supervisor implements ToolHost {
   /**
    * Moves a worker on from its task in Review, as Park does without a note: the task stays in
    * Review with the change that keeps its work, and the workspace moves on to a new change from
-   * trunk. `forTask` is the queued task it makes room for.
+   * trunk. `queued` is the task it makes room for, and `reason` why no workspace opened for it.
    */
-  private async stepAside(worker: AgentView, forTask: string): Promise<void> {
+  private async stepAside(worker: AgentView, queued: string, reason: string): Promise<void> {
     const { name } = worker;
     const task = taskOf(this.state, worker);
     if (!task) return;
@@ -3537,9 +3591,11 @@ export class Supervisor implements ToolHost {
       this.append(DAEMON, {
         kind: "stepped_aside",
         task: task.id,
+        queued,
+        reason,
         ...(change !== undefined && { change }),
       });
-      this.tellMove(task.id, `stepped aside for ${forTask}`, "fleet", name);
+      this.tellMove(task.id, `stepped aside for ${queued} (${reason})`, "fleet", name);
       await this.changes.startChange(worker.cwd, "trunk");
     } catch (error) {
       console.error(`fleet: starting a change from trunk in ${worker.workspace} failed:`, error);

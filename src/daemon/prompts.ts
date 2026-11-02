@@ -82,7 +82,7 @@ export function directorSetup(project: Project, fleet: Limits): string {
   ].filter(Boolean);
   const counted = "Tasks of workers and investigators both count; parked tasks don't.";
   return [
-    `- Workspaces: ${workspaces.join(", ")}, one worker each. A task waits in the queue until an agent is free; a worker whose task waits in review steps aside for it, and the task stays in review.`,
+    `- Workspaces: ${workspaces.join(", ")}, one worker each. A task waits in the queue until an agent is free; fleet opens a new workspace for it, asking the user unless the project allows it; only when none can open does a worker whose task waits in review step aside for it, and the task stays in review.`,
     limits.length > 0 && `- ${limits.join(" ")} ${counted}`,
     project.readOnly.length > 0 &&
       `- You and the workers read ${project.readOnly.join(", ")} without asking, but do not change them.`,

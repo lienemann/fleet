@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,9 +15,9 @@ import { allWorkspaces, loadConfig } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import {
-  autoRefusal,
   jjWorkspaces,
   nextWorkspace,
+  openRefusal,
   type Room,
   roomLines,
   type Workload,
@@ -54,21 +55,31 @@ describe("naming", () => {
   });
 });
 
-describe("auto", () => {
+describe("the limits", () => {
   const auto = { mode: "auto", max: 2 } as const;
+  const ask = { mode: "ask", max: 2 } as const;
 
-  it("opens without asking while the project has room and the disk keeps its minimum", () => {
-    expect(autoRefusal(room, load, auto, 10 * GB)).toBeUndefined();
+  it("let a workspace open while the project has room and the disk keeps its minimum", () => {
+    expect(openRefusal(room, load, auto, 10 * GB)).toBeUndefined();
   });
 
-  it("asks once the project has max_workspaces, or the disk would drop below its minimum", () => {
-    expect(autoRefusal(room, { ...load, workspaces: 2 }, auto, 10 * GB)).toBe("2 of 2 workspaces");
-    expect(autoRefusal(room, load, auto, 99 * GB)).toBe(
-      "98 GB would stay free on the disk, less than the 99 GB it keeps",
-    );
-    expect(autoRefusal({ ...room, free: undefined }, load, auto, GB)).toBe(
+  it.each([auto, ask])(
+    "stop it once the project has max_workspaces, or the disk would drop below its minimum ($mode)",
+    (settings) => {
+      expect(openRefusal(room, { ...load, workspaces: 2 }, settings, 10 * GB)).toBe(
+        "2 of 2 workspaces",
+      );
+      expect(openRefusal(room, load, settings, 99 * GB)).toBe(
+        "98 GB would stay free on the disk, less than the 99 GB it keeps",
+      );
+    },
+  );
+
+  it('stop it on a disk fleet could not measure only under "auto"; the question shows it', () => {
+    expect(openRefusal({ ...room, free: undefined }, load, auto, GB)).toBe(
       "the free disk space is unknown",
     );
+    expect(openRefusal({ ...room, free: undefined }, load, ask, GB)).toBeUndefined();
   });
 });
 
@@ -237,6 +248,80 @@ describe("a task that only lacks a free worker", () => {
   });
 });
 
+describe("a task while the only worker's task waits in Review", () => {
+  /** t1 in Review with the worker of foo-ws1, then t2 for any worker; the worker's name. */
+  async function reviewThenQueue(log: EventLog, supervisor: Supervisor): Promise<string> {
+    supervisor.createTask("one", "x", undefined);
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    const worker = log.state.tasks.t1?.agent ?? "";
+    await until(() => log.state.agents[worker]?.activity === "idle");
+    supervisor.report(worker, { summary: "Done.", changes: [], openQuestions: [] });
+    supervisor.createTask("two", "y", undefined);
+    return worker;
+  }
+  const stepsAside = (log: EventLog) => log.since(0).filter((e) => e.kind === "stepped_aside");
+
+  it('gets a new workspace under "auto"; the worker keeps its task, and Request changes goes to it', async () => {
+    const { log, supervisor, configured } = setup('open_workspaces = "auto"\n');
+    const worker = await reviewThenQueue(log, supervisor);
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(configured()).toEqual(["foo-ws1", "foo-ws2"]);
+    expect(log.state.agents[log.state.tasks.t2?.agent ?? ""]?.workspace).toBe("foo-ws2");
+    expect(log.state.tasks.t1).toMatchObject({ state: "review", agent: worker });
+    expect(stepsAside(log)).toEqual([]);
+
+    supervisor.handle({ type: "request_changes", task: "t1", message: "Rename it" });
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    expect(log.state.tasks.t1?.agent).toBe(worker);
+  });
+
+  it("asks first, and the worker keeps its task while the question waits; on Wait it steps aside", async () => {
+    const { log, supervisor, answer } = setup();
+    const worker = await reviewThenQueue(log, supervisor);
+    await until(() => pendingDecisions(log.state).length > 0);
+    await settled();
+    expect(log.state.tasks.t1?.agent).toBe(worker);
+
+    await answer("Wait");
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(log.state.tasks.t2?.agent).toBe(worker);
+    expect(log.state.tasks.t1).toMatchObject({
+      state: "review",
+      agent: undefined,
+      aside: { queued: "t2", reason: "no workspace: you chose Wait" },
+    });
+  });
+
+  it.each([
+    ["max_workspaces is reached", "max_workspaces = 1\n", {}, "no workspace: 1 of 1 workspaces"],
+    [
+      "the disk would drop below its minimum",
+      "",
+      { free: async () => 11 * GB },
+      "no workspace: 9.0 GB would stay free on the disk, less than the 10 GB it keeps",
+    ],
+  ])("steps aside without asking when %s", async (_, extra, host, reason) => {
+    const { log, supervisor } = setup(`open_workspaces = "auto"\n${extra}`, undefined, host);
+    const worker = await reviewThenQueue(log, supervisor);
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(log.state.tasks.t2?.agent).toBe(worker);
+    expect(log.state.tasks.t1?.aside).toEqual({ queued: "t2", reason });
+    expect(pendingDecisions(log.state)).toEqual([]);
+  });
+
+  it("steps aside once opening the workspace failed", async () => {
+    const add = async () => {
+      throw new Error("jj: the disk is full");
+    };
+    const { log, supervisor, answer } = setup("", undefined, { add });
+    const worker = await reviewThenQueue(log, supervisor);
+    await answer("Open");
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(log.state.tasks.t2?.agent).toBe(worker);
+    expect(log.state.tasks.t1?.aside?.reason).toBe("no workspace: opening one failed");
+  });
+});
+
 describe("removing a workspace", () => {
   it("with its directory snapshots it, forgets it in jj and deletes it", async () => {
     const { root, repo, supervisor, configured } = setup(
@@ -263,6 +348,14 @@ describe("removing a workspace", () => {
     const last = { type: "remove_workspace", id: "2", workspace: "foo-ws2", delete: true } as const;
     await expect(supervisor.call(last)).rejects.toThrow("foo-ws2 stays: it is the only one.");
     expect(existsSync(join(root, "foo-ws2"))).toBe(true);
+  });
+
+  it("deletes a workspace that the config names through a symlink", async () => {
+    const { root } = setup();
+    const link = join(realpathSync(mkdtempSync(join(tmpdir(), "fleet-link-"))), "root");
+    symlinkSync(root, link);
+    await jjWorkspaces.remove(join(link, "foo"), join(link, "foo-ws1"));
+    expect(existsSync(join(root, "foo-ws1"))).toBe(false);
   });
 
   it("refuses to delete a directory that is not a jj workspace of the repo", async () => {

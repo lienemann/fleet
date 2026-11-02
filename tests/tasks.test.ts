@@ -255,13 +255,25 @@ describe("a worker that steps aside from its task in Review", () => {
   const aside: NewEvent[] = [
     ...workers,
     ...holding("t1", "alpha", "ws1", "review"),
-    { kind: "stepped_aside", agent: DAEMON, task: "t1", change: "kxqv" },
+    {
+      kind: "stepped_aside",
+      agent: DAEMON,
+      task: "t1",
+      queued: "t2",
+      reason: "no workspace: 2 of 2 workspaces",
+      change: "kxqv",
+    },
   ];
 
-  it("is free, and the task stays in Review with its change, held by nobody", () => {
+  it("is free, and the task stays in Review with its change and the reason, held by nobody", () => {
     const state = reduceAll(at(aside));
     expect(state.agents.alpha?.task).toBeUndefined();
-    expect(state.tasks.t1).toMatchObject({ state: "review", agent: undefined, change: "kxqv" });
+    expect(state.tasks.t1).toMatchObject({
+      state: "review",
+      agent: undefined,
+      change: "kxqv",
+      aside: { queued: "t2", reason: "no workspace: 2 of 2 workspaces" },
+    });
     expect(steppedAside(state.tasks.t1 as TaskView)).toBe(true);
     // The task was created for ws1, but its work is in its change now.
     expect(workspaceHolder(state, "ws1")).toBeUndefined();
@@ -281,5 +293,6 @@ describe("a worker that steps aside from its task in Review", () => {
       agent: "bravo",
       changesRequested: { note: "Rename it" },
     });
+    expect(state.tasks.t1?.aside).toBeUndefined();
   });
 });

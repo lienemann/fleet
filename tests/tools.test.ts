@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { loadConfig } from "../src/daemon/config.ts";
+import { loadConfig, type Project } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { parseOpenPoints, resolveInside } from "../src/daemon/files.ts";
 import {
@@ -40,7 +40,7 @@ import {
   worker,
 } from "./helpers.ts";
 
-function setup(changes = noChanges) {
+function setup(changes = noChanges, openWorkspaces?: Project["openWorkspaces"]) {
   const root = mkdtempSync(join(tmpdir(), "fleet-tools-"));
   const workspaces = ["ws1", "ws2"].map((name) => {
     const path = join(root, name);
@@ -55,7 +55,7 @@ function setup(changes = noChanges) {
     changes,
     log,
     queryFn,
-    config: testConfig({ workspaces, director }),
+    config: testConfig({ workspaces, director, openWorkspaces }),
     sessions: storedSessions(),
   });
   supervisor.init();
@@ -164,8 +164,8 @@ describe("director", () => {
     ).toContain("Do two.");
   });
 
-  it("spawns a task that a worker in review steps aside for, as Review has no limit", async () => {
-    const { log, supervisor } = setup();
+  it("spawns a task that a worker in review steps aside for once no workspace may open, as Review has no limit", async () => {
+    const { log, supervisor } = setup(noChanges, { mode: "ask", max: 2 });
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "x" });
     await settled();
@@ -173,11 +173,16 @@ describe("director", () => {
       await until(() => log.state.agents[name]?.activity === "idle");
       supervisor.report(name, { summary: "done", changes: [], openQuestions: [] });
     }
+    // Fleet checks the limits for a new workspace first, so alpha steps aside a moment later.
     expect(supervisor.spawn(DIRECTOR, { title: "Three", context: "y" })).toBe(
-      "Spawned t3; it starts on alpha in ws1.",
+      "Spawned t3; it is queued: all busy; alpha frees up first (in review).",
     );
     await until(() => log.state.tasks.t3?.state === "in_progress");
-    expect(log.state.tasks.t1).toMatchObject({ state: "review", agent: undefined });
+    expect(log.state.tasks.t1).toMatchObject({
+      state: "review",
+      agent: undefined,
+      aside: { queued: "t3", reason: "no workspace: 2 of 2 workspaces" },
+    });
   });
 
   it("reads the ledger and keeps notes on tasks", async () => {

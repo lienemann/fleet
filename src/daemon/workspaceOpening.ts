@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { availableParallelism, freemem, loadavg, totalmem } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -90,8 +90,10 @@ export const jjWorkspaces: WorkspaceHost = {
     await jj(["workspace", "add", "--name", name, path], repo);
   },
   async remove(repo, path) {
-    const workspace = listJjWorkspaces(repo).find((ws) => ws.path === path);
-    if (!workspace || path === repo) {
+    // jj names roots without symlinks (/private/var for /var on a Mac); the config may not.
+    const real = (dir: string) => (existsSync(dir) ? realpathSync(dir) : dir);
+    const workspace = listJjWorkspaces(repo).find((ws) => real(ws.path) === real(path));
+    if (!workspace || real(path) === real(repo)) {
       throw new Error(`${path} is no jj workspace of ${repo} besides its checkout.`);
     }
     // Any jj command snapshots the working copy; a stale one fails here and nothing is lost.
@@ -142,19 +144,23 @@ export interface Workload {
 }
 
 /**
- * Why fleet may not open a workspace without asking, though the project says "auto": it has
- * `max` workspaces, or the disk would keep less than `minFree` after the estimate. Undefined
- * while both allow it.
+ * Why no workspace should open for a project: it has `max` workspaces, or the disk would keep
+ * less than `minFree` after the estimate. Under "auto", a disk or a workspace fleet could not
+ * measure stops it too, since nobody looks at the numbers first. Undefined while all allow it.
  */
-export function autoRefusal(
+export function openRefusal(
   room: Room,
   load: Workload,
   settings: OpenWorkspaces,
   minFree: number,
 ): string | undefined {
   if (load.workspaces >= settings.max) return `${load.workspaces} of ${settings.max} workspaces`;
-  if (room.free === undefined) return "the free disk space is unknown";
-  if (room.estimate === undefined) return "the size of a workspace is unknown";
+  if (room.free === undefined || room.estimate === undefined) {
+    if (settings.mode === "ask") return undefined;
+    return room.free === undefined
+      ? "the free disk space is unknown"
+      : "the size of a workspace is unknown";
+  }
   const left = room.free - room.estimate;
   if (left < minFree) {
     return `${sizeText(Math.max(0, left))} would stay free on the disk, less than the ${sizeText(minFree)} it keeps`;

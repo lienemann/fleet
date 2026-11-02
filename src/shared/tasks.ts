@@ -57,6 +57,11 @@ export interface TaskView {
   note?: string;
   /** Set while the task is back in progress because the user wants changes after a review. */
   changesRequested?: ChangeRequest;
+  /**
+   * Set while it waits in Review after its worker stepped aside: the queued task the worker went
+   * to, and why no workspace opened for that one instead.
+   */
+  aside?: { queued: string; reason: string };
   report?: Report;
   /** Files the agent attached for the user, newest first. */
   attached: AttachedEntry[];
@@ -538,6 +543,7 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
     state: event.state,
     agent: holder,
     changesRequested,
+    aside: undefined,
     closedAt: closed ? event.ts : undefined,
     ...(note !== undefined && { note }),
     ...(change !== undefined && { change }),
@@ -561,8 +567,13 @@ function stepAside(state: FleetState, event: FleetEvent & { kind: "stepped_aside
     worker?.task === task.id
       ? { ...state.agents, [worker.name]: { ...worker, task: undefined, allowedEdits: [] } }
       : state.agents;
-  const { change } = event;
-  const aside: TaskView = { ...task, agent: undefined, ...(change !== undefined && { change }) };
+  const { change, queued, reason } = event;
+  const aside: TaskView = {
+    ...task,
+    agent: undefined,
+    aside: { queued, reason },
+    ...(change !== undefined && { change }),
+  };
   return { ...state, agents, tasks: { ...state.tasks, [task.id]: aside } };
 }
 
