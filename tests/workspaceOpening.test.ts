@@ -10,7 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Changes } from "../src/daemon/changes.ts";
 import { allWorkspaces, loadConfig } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
@@ -101,6 +102,7 @@ function setup(
   extra = "",
   workspaces = '[[projects.workspaces]]\nname = "foo-ws1"\n',
   host: Partial<WorkspaceHost> = {},
+  changes: Changes = noChanges,
 ) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-open-")));
   const repo = join(root, "foo");
@@ -116,7 +118,7 @@ function setup(
   );
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
-    changes: noChanges,
+    changes,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: loadConfig(home),
@@ -362,5 +364,106 @@ describe("removing a workspace", () => {
     await expect(jjWorkspaces.remove("/nowhere/foo", "/nowhere/foo")).rejects.toThrow();
     const { repo } = setup();
     await expect(jjWorkspaces.remove(repo, repo)).rejects.toThrow(/besides its checkout/);
+  });
+});
+
+describe("a workspace whose worker stays free", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const two =
+    '[[projects.workspaces]]\nname = "foo-ws1"\n[[projects.workspaces]]\nname = "foo-ws2"\n';
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** foo with the workspaces foo-ws1 and foo-ws2, both with free workers, on a clock of its own. */
+  function idle(changes: Changes = noChanges) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const started = Date.now();
+    const env = setup("", two, {}, changes);
+    jj(["workspace", "add", "--name", "foo-ws2", join(env.root, "foo-ws2")], env.repo);
+    const later = async (days: number) => {
+      vi.setSystemTime(started + days * DAY);
+      env.supervisor.offerIdleWorkspaces();
+      await settled();
+    };
+    const offers = () =>
+      pendingDecisions(env.log.state).filter((d) => d.toolName === "idle_workspace");
+    /** Answers the offer for `workspace` with `choice`. */
+    const answer = (workspace: string, choice: string) => {
+      const decision = offers().find((d) => d.questions?.[0]?.question === `Remove ${workspace}?`);
+      env.supervisor.handle({
+        type: "answer",
+        requestId: decision?.requestId ?? "",
+        answer: { behavior: "answers", answers: { [`Remove ${workspace}?`]: choice } },
+      });
+    };
+    return { ...env, later, offers, answer };
+  }
+
+  it("is offered for removal after idle_days, never the project's last one, and goes with its directory", async () => {
+    const { root, log, later, offers, answer, configured } = idle();
+    await later(6.9);
+    expect(offers()).toEqual([]);
+
+    await later(7.1);
+    expect(offers()).toHaveLength(1);
+    const [offer] = offers();
+    expect(offer).toMatchObject({ agent: "director-foo" });
+    expect(offer?.questions?.[0]?.question).toBe("Remove foo-ws1?");
+    expect(offer?.explanation).toMatch(/^\S+ has been free in foo-ws1 for 7 days/);
+    expect(offer?.explanation).toContain("It takes 2.0 GB on the disk.");
+    expect(offer?.questions?.[0]?.options.map((o) => o.label)).toEqual([
+      "Remove",
+      "Remove and delete",
+      "Keep",
+    ]);
+
+    answer("foo-ws1", "Remove and delete");
+    await until(() => configured().join() === "foo-ws2");
+    await until(() => !existsSync(join(root, "foo-ws1")));
+    // foo-ws2 is the last one now, so it stays without a question.
+    await later(30);
+    expect(offers()).toEqual([]);
+    expect(Object.values(log.state.agents).filter((a) => a.role === "worker")).toHaveLength(1);
+  });
+
+  it("asks no more for another period after Keep", async () => {
+    const { log, later, offers, answer, configured } = idle();
+    await later(8);
+    const kept = () => log.since(0).filter((e) => e.kind === "workspace_kept").length;
+    answer("foo-ws1", "Keep");
+    await until(() => kept() === 1);
+    // foo-ws2 may be asked about now, since foo-ws1 stays.
+    await later(8.1);
+    expect(offers().map((d) => d.questions?.[0]?.question)).toEqual(["Remove foo-ws2?"]);
+    answer("foo-ws2", "Keep");
+    await until(() => kept() === 2);
+    await later(14.9);
+    expect(offers()).toEqual([]);
+    await later(15.1);
+    expect(offers().map((d) => d.questions?.[0]?.question)).toEqual(["Remove foo-ws1?"]);
+    expect(configured()).toEqual(["foo-ws1", "foo-ws2"]);
+  });
+
+  it("is not offered with loose work in it, nor while its worker holds a task", async () => {
+    const work = { change: "kxqv", stat: "lib.py | 2 +-" };
+    const loose: Changes = {
+      ...noChanges,
+      describeWork: async (dir) => (dir.endsWith("foo-ws1") ? work : undefined),
+    };
+    const { log, supervisor, later, offers } = idle(loose);
+    supervisor.createTask("one", "x", "foo-ws2");
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    await later(8);
+    expect(offers()).toEqual([]);
+  });
+
+  it("withdraws the offer once the worker takes a task", async () => {
+    const { log, supervisor, later, offers } = idle();
+    await later(8);
+    expect(offers()).toHaveLength(1);
+    supervisor.createTask("one", "x", "foo-ws1");
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    await until(() => offers().length === 0);
   });
 });

@@ -179,6 +179,7 @@ export const testConfig = (
   readWhileWatching: false,
   diskMinFree: 10 * 1024 ** 3,
   openWorkspaces: { mode: "ask", max: 8 },
+  idleWorkspaceMs: 7 * 24 * 60 * 60 * 1000,
   projects: [testProject("test", first), ...others],
 });
 

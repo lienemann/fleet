@@ -21,6 +21,8 @@ const LimitsConfig = z.object({
 /** Whether fleet asks before it opens a workspace for a task that only lacks a free worker. */
 const OPEN_WORKSPACES = ["ask", "auto"] as const;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const WorkspaceConfig = z.object({
   name: z.string().regex(NAME),
   path: z.string().min(1),
@@ -95,6 +97,12 @@ const ConfigFile = z.object({
     .optional(),
   /** Below this much free space on a volume with a workspace or the event log, fleet warns. */
   disk: z.object({ min_free_gb: z.number().positive().default(10) }).default({ min_free_gb: 10 }),
+  workspaces: z
+    .object({
+      /** Days a workspace stays free before fleet offers to remove it. */
+      idle_days: z.number().positive().default(7),
+    })
+    .default({ idle_days: 7 }),
   inbox: z
     .object({
       /** How long an agent works on what the user started before its end becomes a Finished item. */
@@ -167,6 +175,8 @@ export interface Config {
   diskMinFree: number;
   /** What projects use unless they set their own. */
   openWorkspaces: OpenWorkspaces;
+  /** How long a workspace stays free before fleet offers to remove it. */
+  idleWorkspaceMs: number;
   /** Working time after which a run the user started ends up in the inbox. */
   finishedAfterMs: number;
   /** Whether a Finished item for an agent the user has open counts as read at once. */
@@ -295,6 +305,7 @@ export function loadConfig(home = fleetHome()): Config {
     terminal: parsed.terminal,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
     openWorkspaces,
+    idleWorkspaceMs: parsed.workspaces.idle_days * DAY_MS,
     finishedAfterMs: parsed.inbox.finished_after_seconds * 1000,
     readWhileWatching: parsed.inbox.read_while_watching,
     auth: parsed.auth,

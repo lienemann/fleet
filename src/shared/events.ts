@@ -317,6 +317,11 @@ export type EventBody =
    * `change`, nothing is kept any more.
    */
   | { kind: "work_kept"; change?: string }
+  /**
+   * The user keeps the worker's workspace, which fleet offered to remove since the worker stayed
+   * free so long; the offer comes again only after as long once more.
+   */
+  | { kind: "workspace_kept" }
   /** Prompts waiting until fleet runs the detached session again; replaces the earlier list. */
   | { kind: "held"; texts: HeldText[] }
   /**

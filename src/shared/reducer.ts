@@ -258,6 +258,8 @@ export interface AgentView {
   transcriptMark?: string;
   /** Loose work the user kept: the change the worker's next task starts on top of. */
   keptWork?: string;
+  /** When the user last kept its workspace, which fleet offered to remove for staying free. */
+  workspaceKeptAt?: number;
   /** Prompts waiting until fleet runs the detached session again. */
   held?: HeldText[];
 }
@@ -627,6 +629,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ transcriptMark: event.uuid });
     case "work_kept":
       return patch({ keptWork: event.change });
+    case "workspace_kept":
+      return patch({ workspaceKeptAt: event.ts });
     case "held":
       return patch({ held: event.texts.slice(-HELD_LIMIT) });
     case "session_started":

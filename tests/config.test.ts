@@ -51,6 +51,7 @@ fleet_director = false
 allowed_tools = ["Read"]
 wip = { running = 3 }
 disk = { min_free_gb = 2.5 }
+workspaces = { idle_days = 3 }
 
 [[projects]]
 name = "fleet"
@@ -72,6 +73,7 @@ allowed_tools = ["Read", "Bash(uv run pytest:*)"]
     host: "mac",
     fleetDirector: false,
     diskMinFree: 2.5 * 1024 ** 3,
+    idleWorkspaceMs: 3 * 24 * 60 * 60 * 1000,
     wip: { running: 3 },
   });
   expect(allWorkspaces(config).map((ws) => [ws.name, ws.allowedTools.length])).toEqual([

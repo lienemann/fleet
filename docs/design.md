@@ -285,6 +285,8 @@ A task that names none goes to any free worker of its project when it first star
 
 **Removing a workspace** asks whether to delete its directory as well. Yes snapshots it, so its last edits stay in the repo, runs `jj workspace forget` and deletes the directory; no only takes it out of `config.toml`. A workspace in use and a project's last workspace stay, as before.
 
+**Workspaces nobody uses.** Since fleet opens workspaces rather than move workers off their reviews, the disk would only fill up. So a workspace whose worker stayed free for `[workspaces] idle_days` (default 7, provisional), with no loose work in it, no guest in its directory and no task that waits for its worker, comes to the inbox in its director's name: Remove, Remove and delete (the directory goes too, as above), or Keep, after which fleet asks about it again only once it stayed free that long once more. Fleet looks once an hour. It never offers a project's last workspace, nor my checkout, and when a free worker gets a task while the question waits, the question goes.
+
 **History view.** Embeds jj orbit, served by the daemon. Its flat layout is the classic graph; lanes and spiral are the 3D modes. Orbit colors the commits by workspace itself; the project picker above it wears the project's color. Orbit follows a `data-theme` on its root, which fleet sets from its own theme, so the vendored copy stays as it is.
 
 **Op log as checkpoints.** Every jj operation is attributed to an agent (by workspace) or to me. The op slider scrubs through them; picking an older op fades later commits and offers `jj op restore` with a preview first. This replaces per-session checkpoints: rewinding an agent is restoring the op before its last turn.

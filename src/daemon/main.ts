@@ -14,7 +14,7 @@ import { Orbits } from "./orbit.ts";
 import { dryHost, Power } from "./power.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { createFleetServer } from "./server.ts";
-import { CONNECTION_POLL_MS, HOLDER_POLL_MS, Supervisor } from "./supervisor.ts";
+import { CONNECTION_POLL_MS, HOLDER_POLL_MS, IDLE_CHECK_MS, Supervisor } from "./supervisor.ts";
 import { Terminal } from "./terminal.ts";
 
 // A stray rejection must not end every agent's session with the process.
@@ -73,6 +73,8 @@ setInterval(() => void account.refresh(), ACCOUNT_POLL_MS).unref();
 // Sessions held by a terminal, VS Code or the Desktop app are taken back once those let go.
 setInterval(() => void supervisor.watchHolders(), HOLDER_POLL_MS).unref();
 setInterval(() => supervisor.watchConnection(), CONNECTION_POLL_MS).unref();
+// Workspaces whose workers stayed free for `[workspaces] idle_days` are offered for removal.
+setInterval(() => supervisor.offerIdleWorkspaces(), IDLE_CHECK_MS).unref();
 
 const disk = new DiskWatch(
   (event) => log.append({ ...event, agent: DAEMON }),

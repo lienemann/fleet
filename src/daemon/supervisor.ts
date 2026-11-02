@@ -55,6 +55,7 @@ import {
 } from "../shared/reducer.ts";
 import { decisionReference, withReference } from "../shared/replies.ts";
 import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
+import { sizeText } from "../shared/size.ts";
 import {
   agentState,
   byFreeingUp,
@@ -296,6 +297,11 @@ export const HOLDER_POLL_MS = 3000;
 
 /** How often the daemon looks after agents that lost the connection to Claude. */
 export const CONNECTION_POLL_MS = 15_000;
+
+/** How often the daemon looks for workspaces whose workers stayed free long enough to offer their removal. */
+export const IDLE_CHECK_MS = 60 * 60_000;
+
+const DAY_MS = 24 * 60 * 60_000;
 /** The wait before trying an offline agent again; it doubles up to the maximum. */
 const RETRY_FIRST_MS = 30_000;
 const RETRY_MAX_MS = 5 * 60_000;
@@ -334,6 +340,7 @@ export interface SupervisorOptions {
     | "readWhileWatching"
     | "openWorkspaces"
     | "diskMinFree"
+    | "idleWorkspaceMs"
   >;
   power?: Pick<Power, "setLidMode">;
   /** Opens terminals for the user; without it, the daemon opens none. */
@@ -391,6 +398,11 @@ export class Supervisor implements ToolHost {
    * it, so that a worker may step aside for it instead.
    */
   private readonly opening = new Map<string, { call: AbortController; refused?: string }>();
+  /**
+   * Workspaces fleet offers to remove since their workers stayed free so long, by name: what
+   * withdraws the question once the worker gets work.
+   */
+  private readonly idleOffers = new Map<string, AbortController>();
   /** Workspaces open one after another, so that two never pick the same name. */
   private workspaceOps: Promise<unknown> = Promise.resolve();
   private readonly workspaceHost: WorkspaceHost;
@@ -1225,6 +1237,132 @@ export class Supervisor implements ToolHost {
       const why = error instanceof Error ? error.message : String(error);
       throw new Error(`${name} left fleet, but its directory stays: ${why}`);
     });
+  }
+
+  /**
+   * Offers in the inbox to remove each workspace whose worker stayed free for `[workspaces]
+   * idle_days`, so that the disk does not fill up with workspaces nobody uses: Remove, with or
+   * without the directory, or Keep, which holds the offer off for as long again. Never a
+   * project's last workspace, the user's checkout, or one with loose work, a guest or a task
+   * that waits for it.
+   */
+  offerIdleWorkspaces(): void {
+    const now = Date.now();
+    for (const project of this.config.projects) {
+      const asker = this.directorOfProject(project.name);
+      if (asker === undefined) continue;
+      const spaces = project.workspaces.filter((ws) => !ws.fallback);
+      // Every offer may end in a removal, and one workspace stays whatever the answers.
+      let left = spaces.filter((ws) => !this.idleOffers.has(ws.name)).length;
+      for (const ws of spaces) {
+        if (left <= 1) break;
+        const worker = this.unusedWorker(ws);
+        if (
+          !worker ||
+          this.idleOffers.has(ws.name) ||
+          now - this.idleSince(worker) < this.config.idleWorkspaceMs
+        ) {
+          continue;
+        }
+        left -= 1;
+        const call = new AbortController();
+        this.idleOffers.set(ws.name, call);
+        this.background(
+          this.offerRemoval(ws, worker, asker, call.signal).finally(() => {
+            if (this.idleOffers.get(ws.name) === call) this.idleOffers.delete(ws.name);
+          }),
+        );
+      }
+    }
+  }
+
+  /** Since when a free worker has been free, or since the user last kept its workspace. */
+  private idleSince(worker: AgentView): number {
+    const lane = worker.history.at(-1);
+    return Math.max(lane?.from ?? Date.now(), worker.workspaceKeptAt ?? 0);
+  }
+
+  /**
+   * The worker of a workspace that nothing uses: the worker is free, with nothing for the user,
+   * no kept loose work and no task that waits for it or its review; no guest shares the
+   * directory, and the workspace is not the user's checkout.
+   */
+  private unusedWorker(ws: Workspace): AgentView | undefined {
+    const worker = this.workerOf(ws.name);
+    if (!worker || ws.explicit || worker.history.at(-1)?.lane !== "free") return undefined;
+    const waiting = taskList(this.state).some(
+      (t) =>
+        !CLOSED.has(t.state) &&
+        (t.pin === worker.name ||
+          workspaceOf(this.state, t) === ws.name ||
+          (steppedAside(t) && lastAgentOf(this.state, t) === worker.name)),
+    );
+    const unused =
+      worker.task === undefined &&
+      worker.activity !== "detached" &&
+      worker.keptWork === undefined &&
+      !this.reserved.has(worker.name) &&
+      this.state.claims[ws.name] === undefined &&
+      !waiting &&
+      !this.agents.some((a) => a.guest && a.cwd === ws.path);
+    return unused ? worker : undefined;
+  }
+
+  /** Asks whether a workspace that stayed unused goes, in the name of its project's director. */
+  private async offerRemoval(
+    ws: Workspace,
+    worker: AgentView,
+    asker: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const loose = await this.changes.describeWork(ws.path).catch(() => "unknown");
+    if (loose !== undefined || signal.aborted) return;
+    const size = await this.workspaceHost.size(ws.path).catch(() => undefined);
+    const days = Math.floor((Date.now() - this.idleSince(worker)) / DAY_MS);
+    const period = Math.round(this.config.idleWorkspaceMs / DAY_MS);
+    const question = `Remove ${ws.name}?`;
+    const takes = size === undefined ? "" : ` It takes ${sizeText(size)} on the disk.`;
+    this.session(asker);
+    const answer = await this.ask(
+      asker,
+      {
+        decision: "question",
+        toolName: "idle_workspace",
+        input: { workspace: ws.name },
+        explanation: `${worker.name} has been free in ${ws.name} for ${days} days, with no loose work and no task waiting for it.${takes}`,
+        risk: [],
+        questions: [
+          {
+            question,
+            options: [
+              {
+                label: "Remove",
+                description: `${ws.name} and ${worker.name} leave fleet and config.toml; the directory and the jj workspace stay`,
+              },
+              {
+                label: "Remove and delete",
+                description: `Also snapshots ${ws.name}, forgets it in jj and deletes ${ws.path}`,
+              },
+              { label: "Keep", description: `Asks again after ${period} more days without use` },
+            ],
+          },
+        ],
+      },
+      signal,
+    ).catch(() => undefined);
+    // A question that went stale or was withdrawn comes again at a later check.
+    if (!answer) return;
+    const choice = answer.behavior === "answers" ? answer.answers[question] : undefined;
+    if (choice !== "Remove" && choice !== "Remove and delete") {
+      if (this.agent(worker.name)) this.append(worker.name, { kind: "workspace_kept" });
+      return;
+    }
+    const failed = (body: string) => this.append(asker, { kind: "message", to: USER, body });
+    if (!this.unusedWorker(ws))
+      return failed(`${ws.name} stays: ${worker.name} got work meanwhile.`);
+    await this.removeWorkspace(ws.name, choice === "Remove and delete").catch((error: unknown) =>
+      failed(error instanceof Error ? error.message : String(error)),
+    );
   }
 
   /** The workspace New workspace would open for a project, with the disk it has and needs. */
@@ -3761,6 +3899,7 @@ export class Supervisor implements ToolHost {
   private begin(task: TaskView, { worker, opening }: Placement): void {
     this.starting.set(task.id, worker.name);
     this.callOffOpening(task.id);
+    this.idleOffers.get(worker.workspace)?.abort();
     this.background(this.ready(task, worker, opening));
   }
 
