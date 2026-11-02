@@ -98,7 +98,7 @@ it("reads [[projects]] with their workspaces, read_only and limits", () => {
 name = "site"
 path = "/r/site"
 read_only = ["~/orbit"]
-wip = { running = 3, review = 1 }
+wip = { running = 3 }
 
 [[projects.workspaces]]
 name = "ws1"
@@ -117,7 +117,7 @@ path = "/r/fleet-f1"
   const config = loadConfig(dir);
   expect(config.wip).toEqual({});
   expect(config.projects.map((p) => [p.name, p.director, p.wip])).toEqual([
-    ["site", true, { running: 3, review: 1 }],
+    ["site", true, { running: 3 }],
     ["fleet", false, {}],
   ]);
   expect(config.projects[0]?.readOnly).toEqual([join(homedir(), "orbit")]);
@@ -197,7 +197,7 @@ allowed_tools = ["Read"]
     allowedTools: project.allowedTools,
     explicit: false,
   });
-  config.wip = { running: 3, review: 1 };
+  config.wip = { running: 3 };
   writeConfig(file, config);
 
   const written = readFileSync(file, "utf8");
@@ -216,7 +216,7 @@ allowed_tools = ["Read"]
   expect(written.indexOf("port")).toBeLessThan(written.indexOf("[wip]"));
   expect(written.indexOf("[wip]")).toBeLessThan(written.indexOf("[[projects]]"));
   const after = loadConfig(dir);
-  expect(after.wip).toEqual({ running: 3, review: 1 });
+  expect(after.wip).toEqual({ running: 3 });
   expect(after.projects[0]?.allowedTools).toEqual(["Read"]);
   expect(after.projects[0]?.workspaces.map((ws) => ws.name)).toEqual(["ws1", "ws3"]);
 });

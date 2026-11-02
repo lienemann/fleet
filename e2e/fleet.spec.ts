@@ -1618,6 +1618,43 @@ test("a task unparked for the same worker waits on it until Unpin, and dropped t
   await expect(done.locator(".dropped")).toContainText(busyTitle);
 });
 
+test("a task queued while the only worker's task waits in Review starts on that worker, which steps aside", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const reviewed = "Let the stepped-aside site worker crash mid-turn";
+  await newTask(page, reviewed, "pages", "site");
+  await page.keyboard.press("Alt+2");
+  await expect(page.locator(".finished", { hasText: reviewed })).toContainText("Stopped", {
+    timeout: 15_000,
+  });
+  await page.keyboard.press("Alt+1");
+  const running = card(page, "In progress", reviewed);
+  const worker = (await running.locator(".agent-label .name").textContent()) ?? "";
+  await running.getByRole("button", { name: "To review" }).click();
+  const inReview = card(page, "Review", reviewed);
+  await expect(inReview).toBeVisible();
+
+  const next = "Draft the site's step-aside page";
+  await newTask(page, next, "pages", "site");
+  const started = card(page, "In progress", next);
+  await expect(started).toBeVisible({ timeout: 15_000 });
+  await expect(started.locator(".agent-label .name")).toHaveText(worker);
+  await expect(inReview).toContainText("stepped aside");
+  await inReview.locator(".card-main").click();
+  await expect(page.locator(".drawer")).toContainText(`${worker} stepped aside`);
+
+  // Accept works as usual, and the worker stays with its new task.
+  await inReview.getByRole("button", { name: "Accept" }).click();
+  await expect(card(page, "Done", reviewed)).toBeVisible();
+  await expect(started.locator(".agent-label .name")).toHaveText(worker);
+  await started.getByRole("button", { name: "Drop" }).click();
+  await answerDrop(page, next, "Drop");
+  await page.keyboard.press("Alt+1");
+  await expect(page.locator(".card", { hasText: next })).toBeHidden();
+});
+
 test("a question to the director goes to an investigator, which reports and goes free on Accept", async ({
   page,
 }) => {

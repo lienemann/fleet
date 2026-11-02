@@ -910,8 +910,9 @@ button.link.accent {
   display: none;
 }
 
-/* Board: what waits, Unpark's choice of worker, and the closed tasks under Done */
-.card-meta .waits-on {
+/* Board: what waits, who moved on, the choice of worker, and the closed tasks under Done */
+.card-meta .waits-on,
+.card-meta .aside {
   color: var(--fg3);
 }
 .card .same-worker {

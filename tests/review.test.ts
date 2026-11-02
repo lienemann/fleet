@@ -59,6 +59,24 @@ describe("ReviewService", () => {
     expect(model.progress).toEqual({ approved: 0, total: 2 });
   });
 
+  it("shows a change the workspace moved away from, as after its worker stepped aside", async () => {
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 1", "return 10")),
+    );
+    jj("describe", "-m", "change a");
+    const change = jj("log", "--no-graph", "-r", "@", "-T", "change_id").trim();
+    jj("new", "main");
+    write(
+      "lib.py",
+      BASE.map((l) => l.replace("return 3", "return 30")),
+    );
+
+    const model = await service().load("alpha", repo, undefined, undefined, [], change);
+    expect(model.files[0]?.hunks.map((h) => h.added)).toEqual([["    return 10"]]);
+    expect(model.commits.map((c) => [c.summary, c.workingCopy])).toEqual([["change a", false]]);
+  });
+
   it("keeps approvals across reloads, so a revision reopens only the hunks it touched", async () => {
     write(
       "lib.py",

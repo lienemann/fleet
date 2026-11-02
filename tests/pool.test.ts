@@ -365,7 +365,6 @@ describe("a task pinned to its worker", () => {
         taskCreated("t1", { workspace: "ws1" }),
         { kind: "conversation_started", agent: "alpha", task: "t1" },
         taskState("t1", "in_progress", { holder: "alpha" }),
-        taskState("t1", "review"),
         taskCreated("t2", { workspace: "ws1" }),
       ],
     });

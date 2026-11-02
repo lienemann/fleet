@@ -80,7 +80,7 @@ describe("the inbox", () => {
     color: "#4fd1c5",
     path: "/test",
     defaultWorkspace: "ws1",
-    wip: { running: 1, review: 2 },
+    wip: { running: 1 },
   };
   const render = (sent: Command[] = [], shown: FleetState = state): string => {
     const info = { projects: [project], wip: {}, remotes: [] } as unknown as DaemonInfo;

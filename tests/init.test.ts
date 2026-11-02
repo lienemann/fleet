@@ -30,7 +30,7 @@ it("creates a workspace per worker next to the repo and writes a config fleet ca
   expect(jj(["workspace", "list"], path)).toContain("foo-ws2");
   const config = loadConfig(home);
   expect(config.projects).toMatchObject([
-    { name: "foo", path, director: true, wip: { running: 2, review: 2 } },
+    { name: "foo", path, director: true, wip: { running: 2 } },
   ]);
   expect(allWorkspaces(config).map((w) => w.name)).toEqual(["foo-ws1", "foo-ws2"]);
 });

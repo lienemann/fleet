@@ -62,7 +62,7 @@ export function init({ cwd, home, workspaces, into, jj = runJj }: InitOptions): 
   const project = {
     name: projectName(repo),
     path: repo,
-    wip: { running: Math.min(4, workspaces), review: 2 },
+    wip: { running: Math.min(4, workspaces) },
     workspaces: list,
   };
   writeFileSync(

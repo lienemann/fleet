@@ -137,20 +137,19 @@ interface TestProject {
   /** The project's repo; without it, the project has no director. */
   director?: string;
   running?: number;
-  review?: number;
   readOnly?: string[];
 }
 
 export const testProject = (
   name: string,
-  { workspaces = [], director, running = 4, review = 2, readOnly = [] }: TestProject = {},
+  { workspaces = [], director, running = 4, readOnly = [] }: TestProject = {},
 ): Project => ({
   name,
   path: director ?? `/work/${name}`,
   color: "#4fd1c5",
   director: director !== undefined,
   readOnly,
-  wip: { running, review },
+  wip: { running },
   allowedTools: [],
   workspaces: workspaces.map((ws) => ({ ...ws, project: name })),
   openWorkspaces: { mode: "ask", max: 8 },

@@ -207,7 +207,7 @@ describe("mergeInfo", () => {
       project: name.startsWith("s") ? "site" : "app",
     })),
     projects,
-    wip: { running: 4, review: 2 },
+    wip: { running: 4 },
     readWhileWatching: false,
     remotes,
   });

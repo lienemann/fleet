@@ -12,6 +12,10 @@ export async function forkConversation(sessionId: string, dir: string): Promise<
 export const continueTask = (task: string): string =>
   `You take task ${task} up again. Carry on where you left off.`;
 
+/** The first prompt of a task's conversation that goes on with the changes the user asked for. */
+export const reviseTask = (task: string, request: string): string =>
+  `You take task ${task} up again. The user reviewed it and asks for changes:\n\n${request}`;
+
 /** Goes in front of the first prompt of a conversation that moved to another worker. */
 export const movedBriefing = (move: {
   task: string;

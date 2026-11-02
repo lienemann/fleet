@@ -21,7 +21,7 @@ const project: ProjectInfo = {
   color: "#4fd1c5",
   path: "/test",
   defaultWorkspace: "ws1",
-  wip: { running: 1, review: 2 },
+  wip: { running: 1 },
 };
 
 /** The board as the page renders it for `state`, with t2 selected. */
@@ -143,6 +143,29 @@ describe("Board", () => {
       '<span class="chg" title="Rename it\n\nwith 2 threads">changes requested · 2 threads</span>',
     );
     expect(html).toContain("WIP 1/1");
+  });
+
+  it("counts Review against no limit", () => {
+    expect(html.match(/WIP \d+\/\d+/g)).toEqual(["WIP 1/1"]);
+  });
+
+  it("says that the worker of a task in review stepped aside, and offers Same worker for its revision", () => {
+    const aside = reduceAll(
+      stamped(
+        [
+          { kind: "conversation_started", agent: "bravo", task: "t3" },
+          { kind: "stepped_aside", agent: "daemon", task: "t3", change: "kxqv" },
+        ],
+        state.lastSeq + 1,
+      ),
+      state,
+    );
+    const card = cardOf("Reviewed one", render(aside));
+    expect(card).toContain(">stepped aside</span>");
+    expect(card).toContain("Same worker");
+    expect(card).toContain("Wait for bravo");
+    expect(card).toContain("Request changes");
+    expect(cardOf("Reviewed one")).not.toContain("stepped aside");
   });
 
   it("says working next to the verdict while the agent of a task in review works", () => {

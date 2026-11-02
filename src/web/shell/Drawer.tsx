@@ -3,6 +3,7 @@ import {
   type Conversation,
   conversationsOf,
   lastAgentOf,
+  steppedAside,
   type TaskView,
   workspaceHolder,
   workspaceOf,
@@ -108,7 +109,7 @@ export function Drawer({
   const pill = agent?.reconnecting
     ? "reconnecting"
     : task
-      ? columnLabel(task.state)
+      ? `${columnLabel(task.state)}${steppedAside(task) ? " · stepped aside" : ""}`
       : (status?.label ?? "");
   const context = agent && contextPercent(agent);
   const work = agent && currentWork(state, agent);
@@ -298,7 +299,11 @@ function PastConversations({ task }: { task: TaskView }) {
         </div>
       ) : (
         <p className="dim">
-          {last ? `${last} worked on this task last.` : "No agent has worked on this task."}
+          {!last
+            ? "No agent has worked on this task."
+            : steppedAside(task)
+              ? `${last} stepped aside for a queued task; Request changes queues the revision.`
+              : `${last} worked on this task last.`}
         </p>
       )}
       {task.note !== undefined && (

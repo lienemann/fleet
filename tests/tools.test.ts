@@ -40,7 +40,7 @@ import {
   worker,
 } from "./helpers.ts";
 
-function setup(review = 2, changes = noChanges) {
+function setup(changes = noChanges) {
   const root = mkdtempSync(join(tmpdir(), "fleet-tools-"));
   const workspaces = ["ws1", "ws2"].map((name) => {
     const path = join(root, name);
@@ -55,7 +55,7 @@ function setup(review = 2, changes = noChanges) {
     changes,
     log,
     queryFn,
-    config: testConfig({ workspaces, review, director }),
+    config: testConfig({ workspaces, director }),
     sessions: storedSessions(),
   });
   supervisor.init();
@@ -164,18 +164,20 @@ describe("director", () => {
     ).toContain("Do two.");
   });
 
-  it("still spawns while review is full, and the task waits until the user has reviewed", async () => {
-    const { log, supervisor } = setup(1);
+  it("spawns a task that a worker in review steps aside for, as Review has no limit", async () => {
+    const { log, supervisor } = setup();
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
+    supervisor.spawn(DIRECTOR, { title: "Two", context: "x" });
     await settled();
-    supervisor.report("alpha", { summary: "done", changes: [], openQuestions: [] });
-    expect(supervisor.spawn(DIRECTOR, { title: "Two", context: "y" })).toBe(
-      "Spawned t2; it is queued until there is room (1/1 in test in review).",
+    for (const name of ["alpha", "bravo"]) {
+      await until(() => log.state.agents[name]?.activity === "idle");
+      supervisor.report(name, { summary: "done", changes: [], openQuestions: [] });
+    }
+    expect(supervisor.spawn(DIRECTOR, { title: "Three", context: "y" })).toBe(
+      "Spawned t3; it starts on alpha in ws1.",
     );
-    await settled();
-    expect(log.state.tasks.t2?.state).toBe("queued");
-    supervisor.handle({ type: "move", task: "t1", to: "done" });
-    await until(() => log.state.tasks.t2?.state === "in_progress");
+    await until(() => log.state.tasks.t3?.state === "in_progress");
+    expect(log.state.tasks.t1).toMatchObject({ state: "review", agent: undefined });
   });
 
   it("reads the ledger and keeps notes on tasks", async () => {
@@ -220,7 +222,7 @@ describe("director", () => {
   });
 
   it("removes a queued task at once, and work only once the user agrees", async () => {
-    const { log, supervisor } = setup(2, withWork);
+    const { log, supervisor } = setup(withWork);
     supervisor.spawn(DIRECTOR, { title: "One", context: "x", worker: "alpha" });
     supervisor.spawn(DIRECTOR, { title: "Two", context: "y", worker: "alpha" });
     await settled();
@@ -415,7 +417,7 @@ describe("director tools", () => {
 
   it("park a task with its note and change, and unpark it for the same worker", async () => {
     const changes = { ...noChanges, currentChange: async () => "kxqv" };
-    const { log, supervisor } = setup(2, changes);
+    const { log, supervisor } = setup(changes);
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
     expect(() => supervisor.unparkTask("t1", false, DIRECTOR)).toThrow("t1 is queued, not parked.");
     await until(() => log.state.agents.alpha?.activity === "idle");
@@ -458,7 +460,7 @@ describe("director tools", () => {
   });
 
   it("drop_task asks the user in the inbox when the change holds work", async () => {
-    const { log, supervisor } = setup(2, withWork);
+    const { log, supervisor } = setup(withWork);
     supervisor.spawn(DIRECTOR, { title: "One", context: "x" });
     await until(() => log.state.agents.alpha?.activity === "idle");
     const dropping = callTool(supervisor, DIRECTOR, "director", "drop_task", { task: "t1" });
@@ -1277,14 +1279,12 @@ describe("fleet director", () => {
 
   it("changes the limits and writes them to the config", () => {
     const { home, supervisor } = fleet();
-    expect(supervisor.setLimits({ project: "site", running: 1 })).toBe(
-      "site: at most 1 running, at most 2 in review.",
-    );
-    supervisor.setLimits({ review: 3 });
-    expect(loadConfig(home).projects[1]?.wip).toEqual({ running: 1, review: 2 });
-    expect(loadConfig(home).wip).toEqual({ review: 3 });
+    expect(supervisor.setLimits({ project: "site", running: 1 })).toBe("site: at most 1 running.");
+    supervisor.setLimits({ running: 3 });
+    expect(loadConfig(home).projects[1]?.wip).toEqual({ running: 1 });
+    expect(loadConfig(home).wip).toEqual({ running: 3 });
     supervisor.setLimits({ project: "site", running: null });
-    expect(loadConfig(home).projects[1]?.wip).toEqual({ review: 2 });
+    expect(loadConfig(home).projects[1]?.wip).toEqual({});
   });
 
   it("adds a project from its directory and starts its director", () => {
@@ -1371,7 +1371,7 @@ describe("fleet director", () => {
         path: join(root, "repo"),
         director: "director-test",
         defaultWorkspace: "test",
-        wip: { running: 4, review: 2 },
+        wip: { running: 4 },
       },
       {
         name: "site",
@@ -1379,7 +1379,7 @@ describe("fleet director", () => {
         path: join(root, "site"),
         director: "director-site",
         defaultWorkspace: "site",
-        wip: { running: 4, review: 2 },
+        wip: { running: 4 },
       },
     ]);
     expect(info.workspaces.map((ws) => [ws.name, ws.project])).toEqual([

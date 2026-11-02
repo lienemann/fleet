@@ -57,9 +57,11 @@ import { decisionReference, withReference } from "../shared/replies.ts";
 import type { ReviewModel, ThreadMessage } from "../shared/review.ts";
 import {
   agentState,
+  byFreeingUp,
   CLOSED,
   conversationsOf,
   HOLDS_WORKSPACE,
+  heldMessages,
   holderOf,
   holdsWorkspace,
   lastAgentOf,
@@ -68,6 +70,7 @@ import {
   needsYou,
   pickWorker,
   removable,
+  steppedAside,
   type TaskView,
   taskList,
   taskOf,
@@ -90,7 +93,6 @@ import {
   fleetHomeMessage,
   isFleetHome,
   isWithin,
-  type Limits,
   NAME,
   type Project,
   projectAt,
@@ -105,6 +107,7 @@ import {
   forkedImportNote,
   madeWorkerBriefing,
   movedBriefing,
+  reviseTask,
   withNote,
 } from "./conversations.ts";
 import type { EventLog } from "./eventLog.ts";
@@ -372,6 +375,11 @@ export class Supervisor implements ToolHost {
    * the task starts.
    */
   private readonly starting = new Map<string, string>();
+  /**
+   * Queued tasks a worker steps aside for, by task: the worker. The task counts as starting, and
+   * no other worker steps aside for it meanwhile.
+   */
+  private readonly stepping = new Map<string, string>();
   private readonly importing = new Set<string>();
   /** Tasks being parked; a second Park waits for nothing. */
   private readonly parking = new Set<string>();
@@ -612,29 +620,21 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Why no queued task of `project` may start now: the tasks in progress, or those waiting in
-   * review, fill its project's limit or the fleet's. Undefined while there is room.
+   * Why no queued task of `project` may start now: the tasks in progress fill its project's
+   * limit or the fleet's, as "count/limit" and where it applies. Undefined while there is room.
    */
   private noRoom(project: string | undefined): string | undefined {
-    const running = this.fullLimit(project, "running");
-    if (running !== undefined) return `${running} in progress`;
-    const review = this.fullLimit(project, "review");
-    return review === undefined ? undefined : `${review} in review`;
-  }
-
-  /** The limit that leaves no room, as "count/limit" and where it applies. */
-  private fullLimit(project: string | undefined, kind: keyof Limits): string | undefined {
-    const counted = taskList(this.state).filter((t) =>
-      kind === "running"
-        ? t.state === "in_progress" || this.starting.has(t.id)
-        : t.state === "review",
+    const counted = taskList(this.state).filter(
+      (t) => t.state === "in_progress" || this.starting.has(t.id) || this.stepping.has(t.id),
     );
-    const own = counted.filter((a) => a.project === project).length;
-    const ownLimit = this.config.projects.find((p) => p.name === project)?.wip[kind];
-    const fleetLimit = this.config.wip[kind];
-    if (ownLimit !== undefined && own >= ownLimit) return `${own}/${ownLimit} in ${project}`;
+    const own = counted.filter((t) => t.project === project).length;
+    const ownLimit = this.config.projects.find((p) => p.name === project)?.wip.running;
+    const fleetLimit = this.config.wip.running;
+    if (ownLimit !== undefined && own >= ownLimit) {
+      return `${own}/${ownLimit} in ${project} in progress`;
+    }
     if (fleetLimit !== undefined && counted.length >= fleetLimit) {
-      return `${counted.length}/${fleetLimit} across all projects`;
+      return `${counted.length}/${fleetLimit} across all projects in progress`;
     }
     return undefined;
   }
@@ -880,7 +880,9 @@ export class Supervisor implements ToolHost {
         return;
       }
       case "request_changes":
-        this.background(this.requestChanges(message.task, message.message));
+        this.background(
+          this.requestChanges(message.task, message.message, message.sameWorker ?? false),
+        );
         return;
       case "import_session":
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
@@ -982,10 +984,19 @@ export class Supervisor implements ToolHost {
     const task = this.task(call.task);
     const cwd = task && this.taskCwd(task);
     if (!task || !cwd) throw new Error(`No task "${call.task}".`);
+    // A worker that stepped aside works on something else; the task's change keeps its work.
+    const aside = steppedAside(task);
     switch (call.type) {
       case "review_load":
         return this.trackProgress(
-          await this.reviews.load(task.id, cwd, task.report?.walkthrough, call.scope, task.threads),
+          await this.reviews.load(
+            task.id,
+            cwd,
+            task.report?.walkthrough,
+            call.scope,
+            task.threads,
+            aside ? (task.change ?? "trunk()") : undefined,
+          ),
         );
       case "review_approve":
         return this.trackProgress(
@@ -996,6 +1007,12 @@ export class Supervisor implements ToolHost {
         const holder = holderOf(this.state, task);
         if (holder && (holder.activity === "working" || holder.pending > 0)) {
           throw new Error(`${holder.name} is working; interrupt it or wait before editing.`);
+        }
+        // An edit happens in the workspace of the change, which went on to other work.
+        if (aside) {
+          throw new Error(
+            `${lastAgentOf(this.state, task) ?? "Its worker"} stepped aside from ${task.id}; ask for the edit with Request changes.`,
+          );
         }
         const { model, edit } = await this.reviews.edit(
           task.id,
@@ -1014,12 +1031,17 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  /** Where a task's work lives: its holder's directory, else its workspace's. */
+  /**
+   * Where a task's work lives: its holder's directory, else its workspace's, else, after its
+   * worker stepped aside, the repo of that worker's workspace.
+   */
   private taskCwd(task: TaskView): string | undefined {
     const holder = holderOf(this.state, task);
     if (holder) return holder.cwd;
     const workspace = workspaceOf(this.state, task);
-    return workspace === undefined ? undefined : this.workspaceDir(workspace);
+    if (workspace !== undefined) return this.workspaceDir(workspace);
+    const last = lastAgentOf(this.state, task);
+    return steppedAside(task) && last !== undefined ? this.agent(last)?.cwd : undefined;
   }
 
   /** A running task's output comes from its session, a finished one's from its file. */
@@ -2458,7 +2480,7 @@ export class Supervisor implements ToolHost {
    * New task dialog gives as its hint, or what else keeps it waiting.
    */
   private standing(id: string): string {
-    const worker = this.starting.get(id);
+    const worker = this.starting.get(id) ?? this.stepping.get(id);
     if (worker !== undefined) return `it starts on ${worker} in ${this.agent(worker)?.workspace}`;
     const task = this.task(id);
     if (!task) return "it is gone";
@@ -2761,24 +2783,21 @@ export class Supervisor implements ToolHost {
    * Changes a project's limits, or the fleet's without a project, and writes them to the
    * config. A null limit is no limit; a limit left out stays as it is.
    */
-  setLimits({ project: named, ...changes }: LimitChanges): string {
+  setLimits({ project: named, running }: LimitChanges): string {
     const project =
       named === undefined ? undefined : this.config.projects.find((p) => p.name === named);
     if (named !== undefined && !project) {
       throw new ToolError(`No project "${named}". Projects: ${this.projectNames()}.`);
     }
     const limits = { ...(project?.wip ?? this.config.wip) };
-    for (const kind of ["running", "review"] as const) {
-      const value = changes[kind];
-      if (value === null) delete limits[kind];
-      else if (value !== undefined) limits[kind] = value;
-    }
+    if (running === null) delete limits.running;
+    else if (running !== undefined) limits.running = running;
     if (project) project.wip = limits;
     else this.config.wip = limits;
     this.configChanged(project ? [project] : this.config.projects);
     this.schedule();
     const say = (n: number | undefined) => (n === undefined ? "any number" : `at most ${n}`);
-    return `${named ?? "The fleet"}: ${say(limits.running)} running, ${say(limits.review)} in review.`;
+    return `${named ?? "The fleet"}: ${say(limits.running)} running.`;
   }
 
   // --- Workspaces for sessions outside fleet ----------------------------------------
@@ -3123,10 +3142,17 @@ export class Supervisor implements ToolHost {
 
   /**
    * Sends the held thread messages and edits as one message, and the task goes back to work. An
-   * agent at work is interrupted first, so the request starts a turn of its own.
+   * agent at work is interrupted first, so the request starts a turn of its own. A task whose
+   * worker stepped aside queues its revision instead.
    */
-  private async requestChanges(id: string, note: string | undefined): Promise<void> {
-    const holder = this.task(id)?.agent;
+  private async requestChanges(
+    id: string,
+    note: string | undefined,
+    sameWorker = false,
+  ): Promise<void> {
+    const asked = this.task(id);
+    if (asked && steppedAside(asked)) return this.queueRevision(asked, note, sameWorker);
+    const holder = asked?.agent;
     if (holder === undefined) return;
     if (this.agent(holder)?.activity === "working") await this.interrupt(holder);
     const task = this.task(id);
@@ -3139,6 +3165,31 @@ export class Supervisor implements ToolHost {
       ...(threads.length > 0 && { threads }),
     });
     this.tell(holder, body);
+  }
+
+  /**
+   * Queues the revision of a task whose worker stepped aside, as Unpark does: a free worker goes
+   * on with the task's conversation on top of its change; with `sameWorker`, only the worker that
+   * held it. The held thread messages and edits wait until a worker takes the task, and go with
+   * its first prompt.
+   */
+  private queueRevision(task: TaskView, note: string | undefined, sameWorker: boolean): void {
+    const last = lastAgentOf(this.state, task);
+    const pin = sameWorker ? last : undefined;
+    if (pin !== undefined) this.append(DAEMON, { kind: "task_updated", task: task.id, pin });
+    const threads = task.threads.filter((t) => t.messages.some((m) => m.held)).map((t) => t.id);
+    this.append(DAEMON, {
+      kind: "task_state",
+      task: task.id,
+      state: "queued",
+      changes: {
+        ...(note?.trim() && { note: note.trim() }),
+        ...(threads.length > 0 && { threads }),
+      },
+    });
+    const move = "queued with changes requested";
+    this.tellMove(task.id, pin === undefined ? move : `${move}, for ${pin} only`, USER, last);
+    this.schedule();
   }
 
   /**
@@ -3394,15 +3445,18 @@ export class Supervisor implements ToolHost {
 
   /**
    * The pool: hands queued tasks in creation order to free workers while the limits leave room.
-   * A task whose project is full waits without holding up the other projects'. A pinned task
-   * that its worker can never take gets a note saying why, and waits for Unpin.
+   * A task whose project is full waits without holding up the other projects'. When no worker
+   * is free, one with a task in Review steps aside for it; only then may fleet open a workspace.
+   * A pinned task that its worker can never take gets a note saying why, and waits for Unpin.
    */
   private schedule(): void {
     for (const id of this.opening.keys()) {
       if (this.task(id)?.state !== "queued") this.callOffOpening(id);
     }
     for (const task of taskList(this.state)) {
-      if (task.state !== "queued" || this.starting.has(task.id)) continue;
+      if (task.state !== "queued" || this.starting.has(task.id) || this.stepping.has(task.id)) {
+        continue;
+      }
       const refusal = this.pinRefusal(task);
       if (refusal !== undefined) {
         this.refusePin(task, refusal);
@@ -3412,9 +3466,88 @@ export class Supervisor implements ToolHost {
       if (task.role === "investigator") this.investigatorFor(task);
       const placement = this.placement(task);
       if (typeof placement === "object") this.begin(task, placement);
-      else this.offerWorkspace(task);
+      else if (!this.stepAsideFor(task)) this.offerWorkspace(task);
     }
     this.trimInvestigators();
+  }
+
+  /**
+   * Lets a worker step aside from its task in Review for a queued task that no free worker
+   * takes: of the workers that may take the task, the one likely to free up first, as New task's
+   * hint names it. Whether one does.
+   */
+  private stepAsideFor(task: TaskView): boolean {
+    if (task.role !== "worker") return false;
+    const candidates = this.candidates(task);
+    if (typeof candidates === "string") return false;
+    const stepping = new Set(this.stepping.values());
+    const [worker] = byFreeingUp(
+      this.state,
+      candidates.filter(
+        (w) => this.restsInReview(w) && !this.reserved.has(w.name) && !stepping.has(w.name),
+      ),
+    );
+    if (!worker) return false;
+    this.stepping.set(task.id, worker.name);
+    this.callOffOpening(task.id);
+    this.background(
+      this.stepAside(worker, task.id).finally(() => {
+        this.stepping.delete(task.id);
+        this.schedule();
+      }),
+    );
+    return true;
+  }
+
+  /**
+   * Whether a worker could leave its task in Review now: it rests, nothing of it waits on the
+   * user, no thread message of the user waits for Request changes, and its workspace is not the
+   * user's checkout.
+   */
+  private restsInReview(agent: AgentView): boolean {
+    const task = taskOf(this.state, agent);
+    return (
+      agent.role === "worker" &&
+      !agent.guest &&
+      task?.state === "review" &&
+      task.role === "worker" &&
+      agentState(agent) !== "working" &&
+      agent.activity !== "detached" &&
+      agent.pending === 0 &&
+      heldMessages(task) === 0 &&
+      !this.parking.has(task.id) &&
+      !this.asking.has(task.id) &&
+      !this.workspace(agent.workspace)?.explicit
+    );
+  }
+
+  /**
+   * Moves a worker on from its task in Review, as Park does without a note: the task stays in
+   * Review with the change that keeps its work, and the workspace moves on to a new change from
+   * trunk. `forTask` is the queued task it makes room for.
+   */
+  private async stepAside(worker: AgentView, forTask: string): Promise<void> {
+    const { name } = worker;
+    const task = taskOf(this.state, worker);
+    if (!task) return;
+    this.reserved.add(name);
+    try {
+      const change = await this.changeOf(worker);
+      // Meanwhile the worker may have woken up, or the user moved the task on.
+      const now = this.agent(name);
+      if (!now || now.task !== task.id || !this.restsInReview(now)) return;
+      this.append(DAEMON, {
+        kind: "stepped_aside",
+        task: task.id,
+        ...(change !== undefined && { change }),
+      });
+      this.tellMove(task.id, `stepped aside for ${forTask}`, "fleet", name);
+      await this.changes.startChange(worker.cwd, "trunk");
+    } catch (error) {
+      console.error(`fleet: starting a change from trunk in ${worker.workspace} failed:`, error);
+    } finally {
+      this.reserved.delete(name);
+    }
   }
 
   /**
@@ -3776,8 +3909,11 @@ export class Supervisor implements ToolHost {
     });
     if (task.by !== USER) this.writeContextPack(task, worker);
     const session = this.session(worker.name, resume);
+    // A revision the user asked for takes the held thread messages and edits along.
+    const request = task.changesRequested && changeRequest(task, task.changesRequested.note);
+    if (request !== undefined) this.append(worker.name, { kind: "review_sent", task: task.id });
     // The first prompt goes first, so the worker takes the task working, without a moment stopped.
-    session?.prompt(this.firstPrompt(task, worker, opening), [], { by: "user" });
+    session?.prompt(this.firstPrompt(task, worker, opening, request), [], { by: "user" });
     this.append(DAEMON, {
       kind: "task_state",
       task: task.id,
@@ -3789,13 +3925,22 @@ export class Supervisor implements ToolHost {
 
   /**
    * The brief for a task new to the conversation; a note to go on for one that continues, after
-   * a briefing when it moved; then the handover note.
+   * a briefing when it moved; then the handover note. For a revision, the user's `request`
+   * follows instead of the note, which the conversation has read already.
    */
-  private firstPrompt(task: TaskView, worker: AgentView, opening: Opening): string {
+  private firstPrompt(
+    task: TaskView,
+    worker: AgentView,
+    opening: Opening,
+    request?: string,
+  ): string {
+    const goOn = request === undefined ? continueTask(task.id) : reviseTask(task.id, request);
     if (opening.kind === "fresh" || opening.kind === "follow") {
-      return withNote(task.brief, task.note);
+      const brief = withNote(task.brief, task.note);
+      return request === undefined ? brief : `${brief}\n\n${goOn}`;
     }
-    if (opening.kind === "resume") return withNote(continueTask(task.id), task.note);
+    const note = request === undefined ? task.note : undefined;
+    if (opening.kind === "resume") return withNote(goOn, note);
     const briefing = movedBriefing({
       task: task.id,
       worker: worker.name,
@@ -3803,7 +3948,7 @@ export class Supervisor implements ToolHost {
       from: opening.from.workspace,
       cwd: worker.cwd,
     });
-    return withNote(`${briefing}\n\n${continueTask(task.id)}`, task.note);
+    return withNote(`${briefing}\n\n${goOn}`, note);
   }
 
   /** Ends the agent's session without a word; the next one starts afresh or resumes another. */
@@ -3963,12 +4108,15 @@ export class Supervisor implements ToolHost {
 
   private append(agent: string, event: AgentEvent): void {
     const before = this.log.state.agents[agent];
+    const rested = before !== undefined && this.restsInReview(before);
     this.log.append({ ...event, agent });
     const after = this.log.state.agents[agent];
     if (after && stretchEnded(before, after)) this.finishRun(after);
     else if (before && after) this.followHold(before, after, event);
-    // A worker that comes free takes the next task for its workspace, once this event is done.
-    if (before && after && isWorker(after) && !this.isFree(before) && this.isFree(after)) {
+    // A worker that comes free takes the next task for its workspace, and one that comes to rest
+    // in Review may step aside for it, once this event is done.
+    const freed = before && after && isWorker(after) && !this.isFree(before) && this.isFree(after);
+    if (freed || (!rested && after !== undefined && this.restsInReview(after))) {
       queueMicrotask(() => this.schedule());
     }
   }

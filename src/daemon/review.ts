@@ -99,7 +99,8 @@ export class ReviewService {
   /**
    * Loads (or reloads) the review of a task's workspace: by default its working copy against
    * trunk, or a single commit against its parent. A commit that left the stack (squashed or
-   * abandoned) falls back to the whole branch.
+   * abandoned) falls back to the whole branch. `head` reviews that change instead of the working
+   * copy, as for a task whose worker went on to other work.
    */
   async load(
     task: string,
@@ -107,15 +108,16 @@ export class ReviewService {
     walkthrough?: string,
     scope: ReviewScope = BRANCH,
     threads: LineThread[] = [],
+    head?: string,
   ): Promise<ReviewModel> {
     const repo = await openRepository(cwd, { prefer: "jj" });
     if (!repo) throw new ReviewError(`${cwd} is not in a jj or git repository.`);
     const store = await FileApprovalStore.open(join(await repo.stateDir(), "approvals.json"));
     const target = repo.kind === "jj" ? TRUNK : "main";
-    const commits = repo instanceof JjAdapter ? await stack(repo, target) : [];
+    const commits = repo instanceof JjAdapter ? await stack(repo, target, head) : [];
     const commit =
       scope.kind === "commit" ? commits.find((c) => c.change === scope.change) : undefined;
-    const branchSpec = { mode: "branch", target } as const;
+    const branchSpec = { mode: "branch", target, head } as const;
     // The threads are placed against the whole branch, so a commit's view loads it as well.
     const [review, branch] = await Promise.all([
       loadReview(
@@ -356,11 +358,11 @@ export class ReviewService {
   }
 }
 
-/** The commits between `target` and the working copy, newest first. */
-async function stack(repo: JjAdapter, target: string): Promise<ReviewCommit[]> {
+/** The commits between `target` and `head`, the working copy unless given, newest first. */
+async function stack(repo: JjAdapter, target: string, head = "@"): Promise<ReviewCommit[]> {
   // One snapshot, so that the working copy's "empty" is current; snapshots must not overlap.
   const [workingCopy] = await repo.commits("@", { snapshot: true });
-  const commits = await repo.commits(`${target}..@`);
+  const commits = await repo.commits(`${target}..(${head})`);
   return commits.map((c) => ({
     change: c.changeId,
     short: c.shortId,

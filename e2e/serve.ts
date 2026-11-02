@@ -52,7 +52,7 @@ const workspace = (name: string, path: string) =>
 const daemon = (director: boolean) =>
   `[[projects]]\nname = "daemon"\npath = "${join(root, "ws1")}"\n` +
   (director ? "" : "director = false\n") +
-  "wip = { running = 4, review = 2 }\n" +
+  "wip = { running = 4 }\n" +
   ["ws1", "ws2"].map((name) => workspace(name, repo(name))).join("");
 
 // Every run the user started ends in a Finished item, however short the demo agents' work, and
@@ -75,7 +75,7 @@ if (isEmpty) {
     stdio: "ignore",
   });
   config =
-    `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}[wip]\nrunning = 6\nreview = 3\n\n` +
+    `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}[wip]\nrunning = 6\n\n` +
     `[[remotes]]\nname = "pod"\nurl = "http://127.0.0.1:${podPort}"\n\n` +
     `${daemon(true)}\n[[projects]]\nname = "site"\npath = "${site}"\n${workspace("pages", join(root, "pages"))}` +
     // The screenshots show the history of a repository with more in it than the demo's.

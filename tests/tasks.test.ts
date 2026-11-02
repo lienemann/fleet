@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DAEMON, type FleetEvent, type NewEvent } from "../src/shared/events.ts";
 import { reduceAll } from "../src/shared/reducer.ts";
-import { NO_WORKSPACES, type PickRequest, pickWorker } from "../src/shared/tasks.ts";
+import {
+  NO_WORKSPACES,
+  type PickRequest,
+  pickWorker,
+  steppedAside,
+  type TaskView,
+  workspaceHolder,
+} from "../src/shared/tasks.ts";
 import { taskCreated, taskState, worker } from "./helpers.ts";
 
 const at = (bodies: NewEvent[]): FleetEvent[] =>
@@ -240,6 +247,39 @@ describe("pickWorker", () => {
       expect(pick(events, { kind: "investigator" })).toEqual({
         reason: "a new investigator starts",
       });
+    });
+  });
+});
+
+describe("a worker that steps aside from its task in Review", () => {
+  const aside: NewEvent[] = [
+    ...workers,
+    ...holding("t1", "alpha", "ws1", "review"),
+    { kind: "stepped_aside", agent: DAEMON, task: "t1", change: "kxqv" },
+  ];
+
+  it("is free, and the task stays in Review with its change, held by nobody", () => {
+    const state = reduceAll(at(aside));
+    expect(state.agents.alpha?.task).toBeUndefined();
+    expect(state.tasks.t1).toMatchObject({ state: "review", agent: undefined, change: "kxqv" });
+    expect(steppedAside(state.tasks.t1 as TaskView)).toBe(true);
+    // The task was created for ws1, but its work is in its change now.
+    expect(workspaceHolder(state, "ws1")).toBeUndefined();
+    expect(pick(aside, { worker: "alpha" })).toEqual({ agent: "alpha", reason: "alpha is free" });
+  });
+
+  it("leaves the change request on the revision while it waits and once it runs", () => {
+    const state = reduceAll(
+      at([
+        ...aside,
+        taskState("t1", "queued", { changes: { note: "Rename it" } }),
+        taskState("t1", "queued", { pinNote: "alpha was removed" }),
+        taskState("t1", "in_progress", { holder: "bravo" }),
+      ]),
+    );
+    expect(state.tasks.t1).toMatchObject({
+      agent: "bravo",
+      changesRequested: { note: "Rename it" },
     });
   });
 });

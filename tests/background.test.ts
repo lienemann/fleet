@@ -213,7 +213,7 @@ describe("Background tasks", () => {
       changes: noChanges,
       log,
       queryFn: fakeQuery(echoing(result())).queryFn,
-      config: testConfig({ running: 0, review: 1 }),
+      config: testConfig({ running: 0 }),
     });
     supervisor.init();
 

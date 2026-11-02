@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { changeRequest, threadMessage } from "../src/daemon/changeRequest.ts";
+import { type Changes, jjChanges } from "../src/daemon/changes.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { CallSchema, type Command, CommandSchema } from "../src/shared/protocol.ts";
 import { type AgentView, QUOTE_LIMIT } from "../src/shared/reducer.ts";
-import type { LineThread, ReviewEdit, ThreadMessage } from "../src/shared/review.ts";
+import type { LineThread, ReviewEdit, ReviewModel, ThreadMessage } from "../src/shared/review.ts";
 import { heldMessages, type TaskView } from "../src/shared/tasks.ts";
-import { echoing, fakeQuery, noChanges, result, settled, testConfig, until } from "./helpers.ts";
+import { echoing, fakeQuery, noChanges, result, testConfig, until } from "./helpers.ts";
 
 const thread: LineThread = {
   id: "1a2b3c4d",
@@ -134,7 +135,8 @@ describe("line ranges and quotes from the browser", () => {
   });
 });
 
-async function setup() {
+/** A task t1 for alpha in a jj repo whose workspace has an edit; with jj's own changes, after it starts. */
+async function setup(changes: Changes = noChanges) {
   const repo = mkdtempSync(join(tmpdir(), "fleet-flow-"));
   const env = { ...process.env, JJ_USER: "T", JJ_EMAIL: "t@example.com", JJ_CONFIG: "/dev/null" };
   const jj = (...args: string[]) => execFileSync("jj", args, { cwd: repo, env });
@@ -143,19 +145,19 @@ async function setup() {
   writeFileSync(join(repo, "lib.py"), "a = 1\n");
   jj("commit", "-m", "base");
   jj("bookmark", "create", "main", "-r", "@-");
-  writeFileSync(join(repo, "lib.py"), "a = 2\n");
+  if (changes === noChanges) writeFileSync(join(repo, "lib.py"), "a = 2\n");
 
   const log = new EventLog(":memory:");
   const supervisor = new Supervisor({
-    changes: noChanges,
+    changes,
     log,
     queryFn: fakeQuery(echoing(result())).queryFn,
     config: testConfig({ workspaces: [{ name: "ws1", path: repo, allowedTools: [] }] }),
   });
   supervisor.init();
   supervisor.createTask("Fix", "Fix it", "ws1");
-  await settled();
-  return { log, supervisor };
+  await until(() => log.state.tasks.t1?.state === "in_progress");
+  return { log, supervisor, repo };
 }
 
 async function review() {
@@ -402,5 +404,26 @@ describe("workspace files", () => {
     ).resolves.toContain("lib.py");
     const notes = await supervisor.call({ type: "notes", id: "2", agent: "alpha" });
     expect(notes.map((n) => n.path)).toEqual([".fleet/alpha/report.md"]);
+  });
+});
+
+describe("a task whose worker stepped aside", () => {
+  it("shows its own change in the diff view, and takes edits only through Request changes", async () => {
+    const { log, supervisor, repo } = await setup(jjChanges);
+    // The worker's turn leaves its work in the workspace, and the task goes to Review.
+    writeFileSync(join(repo, "lib.py"), "a = 3\n");
+    supervisor.handle({ type: "move", task: "t1", to: "review" });
+    supervisor.createTask("Next", "Then this", "ws1");
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    expect(t1(log)).toMatchObject({ state: "review", agent: undefined });
+    writeFileSync(join(repo, "lib.py"), "a = 4\n");
+
+    const model = await supervisor.call({ type: "review_load", id: "1", task: "t1" });
+    expect(model).toMatchObject({ files: [{ path: "lib.py" }] });
+    const [file] = (model as ReviewModel).files;
+    expect(file?.hunks.map((h) => h.added)).toEqual([["a = 3"]]);
+    await expect(
+      supervisor.call({ type: "review_edit", id: "2", task: "t1", hunkId: "x", lines: [] }),
+    ).rejects.toThrow("alpha stepped aside from t1; ask for the edit with Request changes.");
   });
 });

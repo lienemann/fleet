@@ -10,7 +10,6 @@ import { USER } from "../src/shared/events.ts";
 import { pendingDecisions } from "../src/shared/reducer.ts";
 import {
   assistantText,
-  DIRECTOR,
   echoing,
   fakeQuery,
   noChanges,
@@ -595,22 +594,6 @@ describe("limits", () => {
     for (const ws of ["n1", "n2", "n3", "n4", "n5"]) supervisor.createTask(ws, "x", ws);
     await settled();
     expect(tasks("in_progress")).toHaveLength(5);
-  });
-
-  it("holds a director's new task while its own project's review is full", async () => {
-    const { supervisor } = limited(
-      testConfig(
-        { workspaces: [workspace("r1"), workspace("r2")], director: root, review: 1 },
-        testProject("site", { workspaces: [workspace("t1")], director: join(root, "site") }),
-      ),
-    );
-    supervisor.createTask("done", "x", "r1");
-    await settled();
-    supervisor.report("alpha", { summary: "Done.", changes: [], openQuestions: [] });
-    expect(supervisor.spawn(DIRECTOR, { title: "more", context: "y" })).toBe(
-      "Spawned t2; it is queued until there is room (1/1 in test in review).",
-    );
-    expect(supervisor.spawn("director-site", { title: "site", context: "y" })).toContain("in t1");
   });
 });
 

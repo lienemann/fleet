@@ -169,9 +169,16 @@ export function laneOf(state: FleetState, agent: AgentView): Lane {
 export const workspaceOf = (state: FleetState, task: TaskView): string | undefined =>
   holderOf(state, task)?.workspace ?? task.workspace;
 
-/** Whether the task's work lives in a workspace: a worker's task that someone holds. */
+/**
+ * Whether the task's work lives in a workspace: a worker's task that someone holds. A task whose
+ * worker stepped aside keeps its work in a change of its own.
+ */
 export const holdsWorkspace = (task: TaskView): boolean =>
-  task.role === "worker" && HOLDS_WORKSPACE.has(task.state);
+  task.role === "worker" && HOLDS_WORKSPACE.has(task.state) && task.agent !== undefined;
+
+/** A task in Review whose worker moved on to other work; Request changes queues its revision. */
+export const steppedAside = (task: TaskView): boolean =>
+  task.state === "review" && task.agent === undefined;
 
 /**
  * Who keeps a task other than `except` from starting in a workspace: the agent whose task's
@@ -272,7 +279,19 @@ export function pickWorker(
   const free = candidates.find((a) => isFree(state, a));
   if (free) return { agent: free.name, reason: `${free.name} is free` };
   if (kind === "investigator") return { reason: "a new investigator starts" };
-  const ranked = candidates.map((agent) => {
+  const [first] = byFreeingUp(state, candidates);
+  if (!first) return { reason: `no worker of ${project} can take it` };
+  const stage = STAGES.find(([s]) => s === taskOf(state, first)?.state);
+  const how = stage ? ` (${stage[1]})` : "";
+  return { agent: first.name, reason: `all busy; ${first.name} frees up first${how}` };
+}
+
+/**
+ * Busy workers in the order they are likely to free up: the fewest tasks queued for it first,
+ * then the furthest along, then the longest in its column. A full tie keeps the given order.
+ */
+export function byFreeingUp(state: FleetState, workers: readonly AgentView[]): AgentView[] {
+  const ranked = workers.map((agent) => {
     const task = taskOf(state, agent);
     const stage = STAGES.findIndex(([s]) => s === task?.state);
     return {
@@ -282,13 +301,8 @@ export function pickWorker(
       since: task?.columnSince ?? 0,
     };
   });
-  // Stable, so a full tie keeps the pool's order.
   ranked.sort((a, b) => a.queued - b.queued || a.stage - b.stage || a.since - b.since);
-  const [first] = ranked;
-  if (!first) return { reason: `no worker of ${project} can take it` };
-  const stage = STAGES[first.stage];
-  const how = stage ? ` (${stage[1]})` : "";
-  return { agent: first.agent.name, reason: `all busy; ${first.agent.name} frees up first${how}` };
+  return ranked.map((r) => r.agent);
 }
 
 /** Queued tasks that wait for this worker: pinned to it, or for its workspace. */
@@ -391,6 +405,8 @@ export function applyTask(state: FleetState, event: FleetEvent): FleetState | un
     }
     case "task_state":
       return move(state, event);
+    case "stepped_aside":
+      return stepAside(state, event);
     case "task_updated": {
       const { title, brief, workspace, pin } = event;
       return patch(state, event.task, () => ({
@@ -487,10 +503,13 @@ export function applyTask(state: FleetState, event: FleetEvent): FleetState | un
   }
 }
 
+/** The states that keep a change request: a revision queued for a worker, and one at work. */
+const REVISING: ReadonlySet<TaskState> = new Set(["queued", "in_progress"]);
+
 /**
  * The task is in a new state; the agent that takes it holds it, the one that let go is free.
  * The edits the user allowed an agent for its task end when it lets go of the task. A change
- * request stays with the task while it stays in progress.
+ * request stays with the task while it waits for a worker and while it is in progress.
  */
 function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): FleetState {
   const task = state.tasks[event.task];
@@ -507,14 +526,13 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
   }
   const closed = CLOSED.has(event.state);
   const { note, change, pinNote, workspaceDeclined } = event;
-  const changesRequested =
-    event.state !== "in_progress"
-      ? undefined
-      : event.changes
-        ? capChanges(event.changes)
-        : task.state === "in_progress"
-          ? task.changesRequested
-          : undefined;
+  const changesRequested = !REVISING.has(event.state)
+    ? undefined
+    : event.changes
+      ? capChanges(event.changes)
+      : REVISING.has(task.state)
+        ? task.changesRequested
+        : undefined;
   const moved: TaskView = {
     ...task,
     state: event.state,
@@ -529,6 +547,23 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
   const next = { ...state, agents, tasks: { ...state.tasks, [task.id]: moved } };
   if (!closed) return next;
   return withoutOldest({ ...next, links: unlink(state.links, new Set([task.id])) });
+}
+
+/**
+ * The worker of a task in Review moved on: the task stays in Review without it, and keeps the
+ * change its work is in. The worker is free, without the edits the user allowed it for the task.
+ */
+function stepAside(state: FleetState, event: FleetEvent & { kind: "stepped_aside" }): FleetState {
+  const task = state.tasks[event.task];
+  if (task?.state !== "review" || task.agent === undefined) return state;
+  const worker = state.agents[task.agent];
+  const agents =
+    worker?.task === task.id
+      ? { ...state.agents, [worker.name]: { ...worker, task: undefined, allowedEdits: [] } }
+      : state.agents;
+  const { change } = event;
+  const aside: TaskView = { ...task, agent: undefined, ...(change !== undefined && { change }) };
+  return { ...state, agents, tasks: { ...state.tasks, [task.id]: aside } };
 }
 
 /** Keeps DONE_LIMIT closed tasks; the one closed longest ago leaves the state, with its links. */

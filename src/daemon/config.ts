@@ -16,7 +16,6 @@ export const NAME = /^[\w.-]+$/;
 
 const LimitsConfig = z.object({
   running: z.number().int().positive().optional(),
-  review: z.number().int().positive().optional(),
 });
 
 /** Whether fleet asks before it opens a workspace for a task that only lacks a free worker. */

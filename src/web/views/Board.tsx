@@ -7,6 +7,7 @@ import {
   lastAgentOf,
   linksOf,
   needsYouCount,
+  steppedAside,
   type TaskView,
   taskList,
   workspaceHolder,
@@ -78,9 +79,9 @@ export function Board({ onAddProject, ...props }: Props) {
 
 /**
  * One column per task state, Dropped folded under Done. Cards can be dragged between columns or
- * moved with their buttons; both make the same moves. In progress and Review count against the
- * fleet's limits, or the filtered project's. Done shows a week at first, and a week more with
- * each "More…".
+ * moved with their buttons; both make the same moves. In progress counts against the fleet's
+ * limit, or the filtered project's. Done shows a week at first, and a week more with each
+ * "More…".
  */
 function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">) {
   const { info, send } = useFleet();
@@ -102,10 +103,7 @@ function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">)
     projects.find((p) => p.name === project)?.wip ??
     // With one project and no fleet-wide limit, the project's own limits are the ones that apply.
     (projects.length === 1 && only ? { ...only.wip, ...info?.wip } : info?.wip);
-  const limits: Partial<Record<TaskState, number>> = {
-    in_progress: wip?.running,
-    review: wip?.review,
-  };
+  const limits: Partial<Record<TaskState, number>> = { in_progress: wip?.running };
 
   /** What dropping the dragged card into the column does, if the task can go there. */
   const dropAction = (column: TaskState): (() => void) | undefined => {
@@ -314,8 +312,14 @@ function Card({
   const subagents = agent?.subagents.filter((s) => !s.done).length ?? 0;
   const links = linksOf(state, task.id);
   const context = agent && contextPercent(agent);
+  // Unpark, and Request changes once the worker moved on, queue the task; Same worker pins it.
+  const aside = steppedAside(task);
   const run = (move: TaskMove) =>
-    move === "unpark" ? send({ type: "unpark", task: task.id, sameWorker }) : moves[move](task.id);
+    move === "unpark"
+      ? send({ type: "unpark", task: task.id, sameWorker })
+      : move === "changes" && aside
+        ? send({ type: "request_changes", task: task.id, sameWorker })
+        : moves[move](task.id);
 
   return (
     <article
@@ -385,6 +389,14 @@ function Card({
             {task.reviewProgress.approved}/{task.reviewProgress.total} hunks approved
           </span>
         )}
+        {aside && (
+          <span
+            className="aside"
+            title={`${named ?? "Its worker"} moved on to a queued task; Request changes queues the revision`}
+          >
+            stepped aside
+          </span>
+        )}
         {task.changesRequested && <ChangesMark changes={task.changesRequested} />}
         {points > 0 && <span className="warn">{points} open points</span>}
         {context !== undefined && <span>ctx {context}%</span>}
@@ -433,7 +445,7 @@ function Card({
             </button>
           );
         })}
-        {column === "parked" && named && (
+        {(column === "parked" || aside) && named && (
           <label className="same-worker" title={`Wait for ${named} and go on in its conversation`}>
             <input
               type="checkbox"

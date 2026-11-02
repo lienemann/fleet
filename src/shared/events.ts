@@ -276,6 +276,11 @@ export type EventBody =
       changes?: ChangeRequest;
     }
   /**
+   * The worker of a task in Review moved on to a queued task that needed it, logged by the
+   * daemon. The task stays in Review, held by nobody, and `change` keeps its work.
+   */
+  | { kind: "stepped_aside"; task: string; change?: string }
+  /**
    * The task was changed after it was created; `pin: null` and `workspace: null` release it to
    * any worker.
    */

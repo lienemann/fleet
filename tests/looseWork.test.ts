@@ -102,7 +102,7 @@ describe("work in a free worker's workspace that no task owns", () => {
     expect(env.log.state.agents.alpha?.task).toBeUndefined();
   });
 
-  it("becomes a task in Review that alpha holds, and the next task waits for a worker", async () => {
+  it("becomes a task in Review held by alpha, which steps aside from it for the next task", async () => {
     const env = setup();
     await env.looseWork();
     env.supervisor.createTask("Next", "x", undefined);
@@ -113,12 +113,20 @@ describe("work in a free worker's workspace that no task owns", () => {
     expect(env.task("t2")).toMatchObject({
       title: "Loose work of alpha in ws1",
       state: "review",
-      agent: "alpha",
       by: USER,
     });
     expect(env.task("t2")?.brief).toContain("lib.py | 2 +-");
-    expect(env.task("t1")?.state).toBe("queued");
-    expect(env.changes.startChange).not.toHaveBeenCalled();
+    const made = env.log.since(0).find((e) => e.kind === "task_state" && e.task === "t2");
+    expect(made).toMatchObject({ state: "review", holder: "alpha" });
+
+    // The queued task needs alpha, so the loose work's task keeps its change without it.
+    await until(() => env.task("t1")?.state === "in_progress");
+    expect(env.task("t1")?.agent).toBe("alpha");
+    expect(env.task("t2")).toMatchObject({ state: "review", agent: undefined, change: "kxqv" });
+    expect(env.changes.startChange.mock.calls).toEqual([
+      ["/work/ws1", "trunk"],
+      ["/work/ws1", "trunk"],
+    ]);
   });
 
   it("stays under the next task when the user keeps it", async () => {

@@ -151,7 +151,7 @@ it("adding a workspace keeps the file's header, its other settings and allowed_t
   const file = join(home, "config.toml");
   writeFileSync(
     file,
-    `# My fleet.\nport = 7000\nwip = { running = 3, review = 1 }\n\n[[projects]]\nname = "site"\npath = "/r/site"\n\n[[projects.workspaces]]\nname = "ws1"\npath = "/r/site-ws1"\nallowed_tools = ["Read"]\n`,
+    `# My fleet.\nport = 7000\nwip = { running = 3 }\n\n[[projects]]\nname = "site"\npath = "/r/site"\n\n[[projects.workspaces]]\nname = "ws1"\npath = "/r/site-ws1"\nallowed_tools = ["Read"]\n`,
   );
   const before = loadConfig(home);
   const supervisor = new Supervisor({
@@ -173,7 +173,7 @@ it("adding a workspace keeps the file's header, its other settings and allowed_t
   expect(text).toMatch(/^# My fleet\.\n/);
   const after = loadConfig(home);
   expect(after.port).toBe(7000);
-  expect(after.wip).toEqual({ running: 3, review: 1 });
+  expect(after.wip).toEqual({ running: 3 });
   expect(after.projects).toEqual(before.projects);
   expect(after.projects[0]?.workspaces.map((ws) => [ws.name, ws.allowedTools])).toEqual([
     ["ws1", ["Read"]],

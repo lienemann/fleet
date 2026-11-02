@@ -29,7 +29,7 @@ async function start(
     host: "mac",
     workspaces: [],
     projects: [],
-    wip: { running: 4, review: 2 },
+    wip: { running: 4 },
     readWhileWatching: false,
     remotes: [],
   });

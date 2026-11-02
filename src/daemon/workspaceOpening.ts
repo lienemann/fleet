@@ -173,6 +173,6 @@ export function roomLines(room: Room, load: Workload, settings: OpenWorkspaces):
     `A new workspace takes about ${room.estimate === undefined ? "an unknown size" : sizeText(room.estimate)}, the size of ${room.estimateFrom}`,
     `Free memory: ${memory}`,
     `CPU load: ${room.load.toFixed(1)} on ${room.cores} cores`,
-    `Workspaces: ${of(load.workspaces, settings.max)}; tasks in progress: ${of(load.inProgress, load.limits.running)}, in review: ${of(load.inReview, load.limits.review)}`,
+    `Workspaces: ${of(load.workspaces, settings.max)}; tasks in progress: ${of(load.inProgress, load.limits.running)}, in review: ${load.inReview}`,
   ];
 }

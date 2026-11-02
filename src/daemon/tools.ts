@@ -41,7 +41,6 @@ export interface SpawnRequest {
 export interface LimitChanges {
   project?: string;
   running?: number | null;
-  review?: number | null;
 }
 
 export interface TaskChanges {
@@ -380,8 +379,8 @@ function fleetDirectorTools(agent: string, host: ToolHost) {
     ),
     tool(
       "set_limits",
-      "Change how many tasks may run and wait in review, for a project or, without one, for the whole fleet. Written to the config.",
-      { project: z.string().optional(), running: LIMIT, review: LIMIT },
+      "Change how many tasks may be in progress at once, for a project or, without one, for the whole fleet. Written to the config.",
+      { project: z.string().optional(), running: LIMIT },
       (args) => run(() => host.setLimits(args)),
     ),
     tool(

@@ -756,6 +756,7 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       });
     case "task_created":
     case "task_state":
+    case "stepped_aside":
     case "task_updated":
     case "linked":
     case "report":

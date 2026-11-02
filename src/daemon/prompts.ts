@@ -75,20 +75,14 @@ export const SETUP_CHANGED =
 /** A director's workspaces, limits and read-only repos, as bullet lines. */
 export function directorSetup(project: Project, fleet: Limits): string {
   const workspaces = project.workspaces.filter((w) => !w.explicit).map((w) => w.name);
-  const across = [
-    fleet.running !== undefined && `${fleet.running} running`,
-    fleet.review !== undefined && `${fleet.review} in review`,
-  ].filter(Boolean);
   const limits = [
     project.wip.running !== undefined &&
       `At most ${project.wip.running} of this project's tasks are in progress at once, sent-back ones included.`,
-    project.wip.review !== undefined &&
-      `At most ${project.wip.review} wait in review; while review is full, new tasks wait in the queue.`,
-    across.length > 0 && `Across all projects, at most ${across.join(" and ")}.`,
+    fleet.running !== undefined && `Across all projects, at most ${fleet.running} running.`,
   ].filter(Boolean);
   const counted = "Tasks of workers and investigators both count; parked tasks don't.";
   return [
-    `- Workspaces: ${workspaces.join(", ")}, one worker each. A task waits in the queue until an agent is free.`,
+    `- Workspaces: ${workspaces.join(", ")}, one worker each. A task waits in the queue until an agent is free; a worker whose task waits in review steps aside for it, and the task stays in review.`,
     limits.length > 0 && `- ${limits.join(" ")} ${counted}`,
     project.readOnly.length > 0 &&
       `- You and the workers read ${project.readOnly.join(", ")} without asking, but do not change them.`,
@@ -130,7 +124,7 @@ ${directorSetup(project, fleet)}
   aside: its agent writes a handover note and is free, and unpark_task queues the task again. drop_task closes
   a task; the user confirms first when its workspace holds work. Accept and Request changes are the user's.
 - start_task starts a queued task past the limits above, on a free agent. Keep it for a task that really
-  cannot wait; the limits keep the user's review load bearable.
+  cannot wait; the limits keep the user's load bearable.
 - fleet tells you, a few lines at a time, about moves that others make on your project's tasks: a task the
   user created, accepted, parked or dropped. Nobody waits for an answer; change your plan where it needs to.
 - Workers report results and send you messages; answer their questions when you are sure, and pass on to the
@@ -139,8 +133,8 @@ ${directorSetup(project, fleet)}
 `.trim();
 }
 
-const limitText = ({ running, review }: Limits): string =>
-  `${running === undefined ? "any number" : `at most ${running}`} running, ${review === undefined ? "any number" : `at most ${review}`} in review`;
+const limitText = ({ running }: Limits): string =>
+  `${running === undefined ? "any number" : `at most ${running}`} running`;
 
 /** Every project with its director, workspaces and limits, and the fleet's limits. */
 export function fleetSetup(projects: Project[], wip: Limits): string {

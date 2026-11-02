@@ -227,9 +227,15 @@ export const CommandSchema = z.discriminatedUnion("type", [
   }),
   /**
    * Sends the held thread messages and the user's edits as one message; the task goes back to
-   * In progress, marked "changes requested".
+   * In progress, marked "changes requested". For a task whose worker stepped aside, the
+   * revision queues with the mark instead; with `sameWorker`, for the worker that held it.
    */
-  z.object({ type: z.literal("request_changes"), task, message: z.string().optional() }),
+  z.object({
+    type: z.literal("request_changes"),
+    task,
+    message: z.string().optional(),
+    sameWorker: z.boolean().optional(),
+  }),
 ]);
 
 const id = z.string().min(1);
@@ -483,10 +489,9 @@ interface WorkspaceInfo {
   explicit?: boolean;
 }
 
-/** How many tasks may run and wait in review; a limit that is absent is no limit. */
+/** How many tasks may be in progress at once; a limit that is absent is no limit. */
 export interface Limits {
   running?: number;
-  review?: number;
 }
 
 /** One jj repo with its director and limits; its workspaces name it as their project. */
