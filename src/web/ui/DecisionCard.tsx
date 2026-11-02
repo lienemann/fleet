@@ -141,17 +141,18 @@ function Permission({
   commented,
   onAnswer,
 }: Pick<Props, "decision" | "onAnswer"> & { compact: boolean; commented: boolean }) {
+  const once = decision.alwaysFor === "never";
   return (
     <ItemActions
       actions={[
         {
-          label: "Approve",
+          label: once ? "Allow once" : "Approve",
           tone: "primary",
           keys: "alt+a",
           title: commented ? "Approves, then sends your comment to the agent" : undefined,
           run: () => onAnswer({ behavior: "allow" }),
         },
-        ...(compact
+        ...(compact || once
           ? []
           : [
               {

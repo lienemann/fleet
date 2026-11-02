@@ -443,6 +443,7 @@ export function App() {
       (behavior: "allow" | "deny", alwaysAllow = false) =>
       () =>
         decision &&
+        !(alwaysAllow && decision.alwaysFor === "never") &&
         send({
           type: "answer",
           requestId: decision.requestId,

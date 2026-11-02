@@ -260,18 +260,28 @@ describe("director", () => {
     expect(log.state.agents.alpha?.task).toBeUndefined();
   });
 
-  it("may write its notes but no code", () => {
+  it("writes its notes and leaves its edits of code to the user", () => {
     const { director } = setup();
     const policy = (tool: string, input: Record<string, unknown>) =>
       readOnlyPolicy(director, DIRECTOR, "director", tool, input);
     expect(
       policy("Write", { file_path: join(director, `.fleet/${DIRECTOR}/plan.md`) }),
     ).toMatchObject({ behavior: "allow" });
-    expect(policy("Edit", { file_path: join(director, "src/main.py") })).toMatchObject({
-      behavior: "deny",
-      message: expect.stringContaining("The director does not edit code."),
-    });
+    expect(policy("Edit", { file_path: join(director, "src/main.py") })).toBeUndefined();
     expect(policy("Bash", { command: "ls" })).toBeUndefined();
+  });
+
+  it("keeps the fleet director from editing code", () => {
+    const { director } = setup();
+    const policy = (file: string) =>
+      readOnlyPolicy(director, FLEET_DIRECTOR, "fleet-director", "Edit", {
+        file_path: join(director, file),
+      });
+    expect(policy("src/main.py")).toMatchObject({
+      behavior: "deny",
+      message: expect.stringContaining("The fleet director does not edit code."),
+    });
+    expect(policy(`.fleet/${FLEET_DIRECTOR}/plan.md`)).toMatchObject({ behavior: "allow" });
   });
 
   it("holds for an investigator too, and leaves a worker alone", () => {
@@ -297,8 +307,9 @@ describe("director", () => {
       const other = join(configDir, "projects", `${slug}-other`, "memory");
       mkdirSync(memory, { recursive: true });
       mkdirSync(other, { recursive: true });
+      // An investigator, whose other edits are refused rather than asked of the user.
       const verdict = (tool: string, file_path: string) =>
-        readOnlyPolicy(director, DIRECTOR, "director", tool, { file_path }, configDir)?.behavior;
+        readOnlyPolicy(director, "alpha", "investigator", tool, { file_path }, configDir)?.behavior;
       return { configDir, memory, other, verdict };
     }
 
@@ -799,35 +810,77 @@ describe("scheduling and policy", () => {
     expect(log.state.tasks.t1?.state).toBe("done");
   });
 
-  it("keeps the director from editing code in every permission mode", async () => {
-    const root = mkdtempSync(join(tmpdir(), "fleet-hook-"));
-    const log = new EventLog(":memory:");
-    const fake = fakeQuery(echoing(result()));
-    const supervisor = new Supervisor({
-      changes: noChanges,
-      log,
-      queryFn: fake.queryFn,
-      config: testConfig({ director: root }),
-    });
-    supervisor.init();
-    supervisor.handle({ type: "prompt", agent: DIRECTOR, text: "plan" });
-    const hook = fake.calls[0]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
-    const run = (file: string) =>
-      hook?.(
-        {
-          hook_event_name: "PreToolUse",
-          tool_name: "Edit",
-          tool_input: { file_path: join(root, file) },
-        } as never,
-        undefined,
+  describe("edits in every permission mode", () => {
+    /** The session options of a director that was prompted, and its edit hook on a file. */
+    async function prompted(agent: string) {
+      const root = mkdtempSync(join(tmpdir(), "fleet-hook-"));
+      const log = new EventLog(":memory:");
+      const fake = fakeQuery(echoing(result()));
+      const supervisor = new Supervisor({
+        changes: noChanges,
+        log,
+        queryFn: fake.queryFn,
+        config: testConfig({ director: root }),
+        fleetDir: join(root, "fleet-director"),
+      });
+      supervisor.init();
+      supervisor.handle({ type: "prompt", agent, text: "plan" });
+      const options = fake.calls[0]?.options;
+      const cwd = options?.cwd ?? "";
+      const hook = options?.hooks?.PreToolUse?.[0]?.hooks[0];
+      const decide = (file: string) =>
+        hook?.(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "Edit",
+            tool_input: { file_path: join(cwd, file) },
+          } as never,
+          undefined,
+          { signal: new AbortController().signal },
+        );
+      return { log, supervisor, options, cwd, decide };
+    }
+
+    it("asks the user about each of a project director's edits", async () => {
+      const { log, supervisor, options, cwd, decide } = await prompted(DIRECTOR);
+      await expect(decide("src/main.py")).resolves.toMatchObject({
+        hookSpecificOutput: { permissionDecision: "ask" },
+      });
+      await expect(decide(`.fleet/${DIRECTOR}/plan.md`)).resolves.toEqual({});
+
+      const file_path = join(cwd, "src/main.py");
+      const answered = options?.canUseTool?.(
+        "Edit",
+        { file_path },
         {
           signal: new AbortController().signal,
+          toolUseID: "e1",
+          requestId: "e1",
+          suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
         },
       );
-    await expect(run("src/main.py")).resolves.toMatchObject({
-      hookSpecificOutput: { permissionDecision: "deny" },
+      await until(() => pendingDecisions(log.state).length === 1);
+      expect(pendingDecisions(log.state)[0]).toMatchObject({
+        agent: DIRECTOR,
+        decision: "permission",
+        alwaysFor: "never",
+      });
+      supervisor.handle({
+        type: "answer",
+        requestId: "e1",
+        answer: { behavior: "allow", alwaysAllow: true },
+      });
+      // Allowed once: Claude Code gets none of the rules it suggested.
+      expect(await answered).toEqual({ behavior: "allow", updatedInput: { file_path } });
     });
-    await expect(run(`.fleet/${DIRECTOR}/plan.md`)).resolves.toEqual({});
+
+    it("refuses the fleet director's edits", async () => {
+      const { decide } = await prompted(FLEET_DIRECTOR);
+      await expect(decide("src/main.py")).resolves.toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+      await expect(decide(`.fleet/${FLEET_DIRECTOR}/plan.md`)).resolves.toEqual({});
+    });
   });
 });
 

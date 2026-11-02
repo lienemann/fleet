@@ -54,6 +54,8 @@ export interface SessionOptions {
    * allow" for them itself instead of handing Claude Code the rules it suggests.
    */
   foreignEdit?: (toolName: string, input: Record<string, unknown>) => string | undefined;
+  /** Whether a hook asks about the call every time, so the user can allow it only once. */
+  asksEveryTime?: (toolName: string, input: Record<string, unknown>) => boolean;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -533,6 +535,7 @@ export class AgentSession {
     if (automatic) return automatic;
     const questions = toolName === "AskUserQuestion" ? parseQuestions(input) : undefined;
     const foreign = this.options.foreignEdit?.(toolName, input);
+    const once = this.options.asksEveryTime?.(toolName, input) ?? false;
     const answer = await this.ask(
       options.toolUseID,
       {
@@ -543,6 +546,7 @@ export class AgentSession {
         risk: deriveRisk(toolName, input, this.options.cwd),
         questions,
         ...(foreign !== undefined && { alwaysFor: "task" as const }),
+        ...(once && { alwaysFor: "never" as const }),
       },
       options.signal,
     );
@@ -550,6 +554,8 @@ export class AgentSession {
       this.options.emit({ kind: "edit_allowed", path: foreign });
       return { behavior: "allow", updatedInput: input };
     }
+    // Allowed once: the hook asks again next time, whatever rules Claude Code would add.
+    if (once && answer?.behavior === "allow") return { behavior: "allow", updatedInput: input };
     return toPermission(answer, input, options.suggestions);
   };
 

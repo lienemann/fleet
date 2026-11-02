@@ -396,8 +396,11 @@ export type EventBody =
       /** For reviews: the file to look at, relative to the agent's workspace. */
       path?: string;
       reviewKind?: ReviewKind;
-      /** "Always allow" holds for the agent's task, and fleet keeps it, not Claude Code. */
-      alwaysFor?: "task";
+      /**
+       * "task": "Always allow" holds for the agent's task, and fleet keeps it, not Claude Code.
+       * "never": fleet asks about every such call, so the user allows this one only.
+       */
+      alwaysFor?: "task" | "never";
     }
   | {
       kind: "decision_resolved";

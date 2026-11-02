@@ -49,6 +49,38 @@ export function demoQuery(delayMs = 400): QueryFn {
     const between: SDKMessage[] = [];
     let wakeBetween: (() => void) | undefined;
 
+    /**
+     * Whether a Write goes ahead: like the CLI, the PreToolUse hooks decide first, and a hook
+     * that asks hands the call to `canUseTool`. Without a hook's verdict the demo writes.
+     */
+    async function mayWrite(id: string, input: Record<string, unknown>): Promise<boolean> {
+      for (const matcher of options.hooks?.PreToolUse ?? []) {
+        if (matcher.matcher && !new RegExp(`^(${matcher.matcher})$`).test("Write")) continue;
+        for (const hook of matcher.hooks) {
+          const output = await hook(
+            { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: input } as never,
+            id,
+            { signal: turnSignal.signal },
+          );
+          const decision =
+            "hookSpecificOutput" in output &&
+            output.hookSpecificOutput?.hookEventName === "PreToolUse"
+              ? output.hookSpecificOutput.permissionDecision
+              : undefined;
+          if (decision === "deny") return false;
+          if (decision === "ask") {
+            const verdict = await options.canUseTool?.("Write", input, {
+              signal: turnSignal.signal,
+              toolUseID: id,
+              requestId: `req-${id}`,
+            });
+            return verdict?.behavior === "allow";
+          }
+        }
+      }
+      return true;
+    }
+
     /** Runs a step; tool steps yield the call and then its result, like the CLI. */
     async function* perform(step: Step): AsyncGenerator<SDKMessage> {
       if (step.type === "say") return yield say(step.text, step.parent);
@@ -73,7 +105,9 @@ export function demoQuery(delayMs = 400): QueryFn {
         const filePath = resolve(options.cwd ?? ".", step.path);
         const before = existsSync(filePath) ? readFileSync(filePath, "utf8") : null;
         const id = `${sessionId}-write-${step.path}`;
-        yield use(id, "Write", { file_path: filePath, content: step.content });
+        const input = { file_path: filePath, content: step.content };
+        yield use(id, "Write", input);
+        if (!(await mayWrite(id, input))) return yield toolResult(id, "Denied by the user.");
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, step.content);
         const lines = (text: string, sign: string) =>
@@ -658,6 +692,13 @@ function directorScript(turn: number, prompt: string): Step[] {
         content: "# Outline\n\nOne worker per page, then a pass over the navigation.\n",
       },
       { type: "say", text: "The outline is in my plans." },
+    ];
+  }
+  // An edit the user asked for in the director's checkout, which fleet asks the user about.
+  if (prompt.startsWith("Fix the typo")) {
+    return [
+      { type: "write", path: "README.md", content: "# Site\n\nThe pages of the site.\n" },
+      { type: "say", text: "That was the typo in README.md." },
     ];
   }
   const tasks = prompt

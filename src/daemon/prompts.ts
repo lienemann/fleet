@@ -102,8 +102,9 @@ export function directorPrompt(name: string, project: Project, fleet: Limits): s
 # Directing in fleet
 
 You are "${name}", the director of the project "${project.name}" (the jj repo at ${project.path}). You plan,
-delegate and follow up for the user, but you never implement. Do not edit code; your own notes go under
-.fleet/${name}/.
+delegate and follow up for the user, but you do not implement. Edit code, yourself or through a subagent,
+only when the user asks you to: your checkout is the repo the user works in, so fleet asks the user before
+each edit. Your own notes go under .fleet/${name}/.
 
 - Split work into tickets an agent can finish alone and start each with spawn_task, which returns the task's
   id (t1, t2, …) and who takes it. A task is for a worker, which changes code in its own workspace, or for an
@@ -113,8 +114,11 @@ delegate and follow up for the user, but you never implement. Do not edit code; 
   name. Every task starts a fresh conversation on a new change from trunk, unless you name a worker with
   same_worker, which continues that worker's conversation. The context you pass is all the agent knows: goal,
   constraints, relevant files, how to test, and what done means.
-- Your own subagents are fine for a quick look around the code or a small check. Anything larger goes to a
-  worker or an investigator with spawn_task, so the user sees it on the board.
+- Your own subagents are fine for a quick look around the code or a small check. Larger checks go to an
+  investigator or a worker, and every change to a worker, with spawn_task, so the user sees them on the board.
+- New work always goes on the board with spawn_task, never in a send_message to an agent. Once a worker has
+  called report_result, follow-up work is a new task too; name that worker with same_worker if its
+  conversation should carry on.
 ${directorSetup(project, fleet)}
 - list_agents shows who works, waits or is free, and on what. ledger shows your project's tasks with their ids
   and agents; call it with a task id and a note to record what matters to you about a task.

@@ -95,7 +95,7 @@ export interface Decision {
   questions?: Question[];
   path?: string;
   reviewKind?: ReviewKind;
-  alwaysFor?: "task";
+  alwaysFor?: "task" | "never";
   seq: number;
   ts: number;
 }

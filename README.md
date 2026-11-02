@@ -55,10 +55,10 @@ Agents talk to fleet through tools the daemon serves in-process. A worker calls 
 `attach_file` for review files and deliverables wherever it wrote them, `report_status` for the line on its card and `send_message` to reach its director, another agent of its project, or
 you; `list_agents` shows whom it can reach. A project's director has `spawn_task`, which gives a worker or an
 investigator a task with a written brief, plus `ledger`, `update_task`, `link_tasks`, `interrupt_agent`,
-`park_task`, `unpark_task` and `drop_task`; it cannot edit code and writes nothing but its notes under
-`.fleet/<name>/`. It can rename any task, but rewrite the brief or give it to another worker only while the task
-is queued. Dropping a task whose change holds work needs your yes in the inbox, and Accept and Request changes
-stay yours. When you create, move, park or drop a task, its project's director hears of it.
+`park_task`, `unpark_task` and `drop_task`; it writes its notes under `.fleet/<name>/` and edits code only when
+you ask it to, and each such edit waits in the inbox for you to allow it once, whatever the permission mode. It
+can rename any task, but rewrite the brief or give it to another worker only while the task is queued. Dropping
+a task whose change holds work needs your yes in the inbox, and Accept and Request changes stay yours. When you create, move, park or drop a task, its project's director hears of it.
 
 Review happens in a diff view built on reviewdiff-core. You approve hunk by hunk, and approvals go into
 ReviewDiff's own `approvals.json`, so when the agent revises its change only the hunks it touched come back. The

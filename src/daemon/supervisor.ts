@@ -3375,6 +3375,10 @@ export class Supervisor implements ToolHost {
         // Fleet's own files, its secret among them, are never allowed for good.
         return path === undefined || isFleetHome(path) ? undefined : path;
       },
+      asksEveryTime: (tool, input) =>
+        readOnly &&
+        readOnlyEdit(agent.cwd, name, agent.role, tool, input, claudeConfigDir())?.behavior ===
+          "ask",
       hooks: readOnly
         ? readOnlyHooks(agent.cwd, name, agent.role)
         : foreignEditHooks(agent.cwd, workspaces, allowedEdits),
@@ -3480,17 +3484,56 @@ function attachFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Why a director's or an investigator's edit is refused, by role. */
-const READ_ONLY: Partial<Record<Role, string>> = {
-  "fleet-director": "The director does not edit code. Delegate the change with spawn_task.",
-  director: "The director does not edit code. Delegate the change with spawn_task.",
+/**
+ * Why the fleet director's or an investigator's edit is refused, by role. A project director's
+ * edits are not refused: it edits when the user asks, and the user approves each edit.
+ */
+const REFUSALS: Partial<Record<Role, string>> = {
+  "fleet-director": "The fleet director does not edit code. Delegate the change with spawn_task.",
   investigator: "An investigator only reads. Report what needs changing with report_result.",
 };
 
+type ReadOnlyVerdict = { behavior: "allow" } | { behavior: "ask" | "deny"; message: string };
+
 /**
- * A director plans and delegates, and an investigator only reads: the only files they write
- * are their own notes, the auto-memory Claude Code keeps for their project and the plan files
- * of plan mode. Undefined for the other roles, and for tools that do not edit.
+ * Directors plan and delegate, and investigators only read. They write their own notes, the
+ * auto-memory Claude Code keeps for their project and the plan files of plan mode; any other
+ * edit is refused, or for a project director asked of the user every time. Undefined for
+ * workers, and for tools that do not edit.
+ */
+function readOnlyEdit(
+  cwd: string,
+  agent: string,
+  role: Role,
+  tool: string,
+  input: Record<string, unknown>,
+  configDir: string,
+): ReadOnlyVerdict | undefined {
+  if (role === "worker" || !EDIT_TOOLS.has(tool)) return undefined;
+  const notes = join(cwd, ".fleet", agent);
+  const path = String(input.file_path ?? input.notebook_path ?? "");
+  mkdirSync(notes, { recursive: true });
+  for (const root of [notes, memoryDir(cwd, configDir), join(configDir, "plans")]) {
+    try {
+      resolveInside(root, path);
+      return { behavior: "allow" };
+    } catch (error) {
+      if (!(error instanceof OutsideWorkspaceError)) throw error;
+    }
+  }
+  const refusal = REFUSALS[role];
+  return refusal === undefined
+    ? { behavior: "ask", message: "The director edits only when the user asks for the edit." }
+    : {
+        behavior: "deny",
+        message: `${refusal} It may write only its notes under .fleet/, its Claude Code memory and its plans.`,
+      };
+}
+
+/**
+ * The verdict on a director's or an investigator's edit when Claude Code asks fleet: its own
+ * files are allowed and refused edits denied. A project director's other edits get none, so they
+ * reach the user's inbox. Undefined for workers, and for tools that do not edit.
  */
 export function readOnlyPolicy(
   cwd: string,
@@ -3500,23 +3543,15 @@ export function readOnlyPolicy(
   input: Record<string, unknown>,
   configDir: string = claudeConfigDir(),
 ): PermissionResult | undefined {
-  const refusal = READ_ONLY[role];
-  if (refusal === undefined || !EDIT_TOOLS.has(tool)) return undefined;
-  const notes = join(cwd, ".fleet", agent);
-  const path = String(input.file_path ?? input.notebook_path ?? "");
-  mkdirSync(notes, { recursive: true });
-  for (const root of [notes, memoryDir(cwd, configDir), join(configDir, "plans")]) {
-    try {
-      resolveInside(root, path);
+  const verdict = readOnlyEdit(cwd, agent, role, tool, input, configDir);
+  switch (verdict?.behavior) {
+    case "allow":
       return { behavior: "allow", updatedInput: input };
-    } catch (error) {
-      if (!(error instanceof OutsideWorkspaceError)) throw error;
-    }
+    case "deny":
+      return { behavior: "deny", message: verdict.message };
+    default:
+      return undefined;
   }
-  return {
-    behavior: "deny",
-    message: `${refusal} It may write only its notes under .fleet/, its Claude Code memory and its plans.`,
-  };
 }
 
 /** Agents keep notes for the user under .fleet/; they never belong in a diff or a commit. */
@@ -3534,7 +3569,7 @@ function keepNotesOutOfVcs(cwd: string): void {
 /**
  * The same policy as a PreToolUse hook: the CLI runs hooks in every permission mode and
  * whatever the settings files allow, so a director or an investigator cannot edit code in
- * acceptEdits or auto mode either.
+ * acceptEdits or auto mode either, and a project director's edit asks the user in every mode.
  */
 function readOnlyHooks(cwd: string, agent: string, role: Role): NonNullable<Options["hooks"]> {
   return {
@@ -3544,19 +3579,19 @@ function readOnlyHooks(cwd: string, agent: string, role: Role): NonNullable<Opti
         hooks: [
           async (input) => {
             if (input.hook_event_name !== "PreToolUse") return {};
-            const tool = input.tool_name;
-            const verdict = readOnlyPolicy(
+            const verdict = readOnlyEdit(
               cwd,
               agent,
               role,
-              tool,
+              input.tool_name,
               (input.tool_input ?? {}) as Record<string, unknown>,
+              claudeConfigDir(),
             );
-            if (verdict?.behavior !== "deny") return {};
+            if (verdict === undefined || verdict.behavior === "allow") return {};
             return {
               hookSpecificOutput: {
                 hookEventName: "PreToolUse",
-                permissionDecision: "deny",
+                permissionDecision: verdict.behavior,
                 permissionDecisionReason: verdict.message,
               },
             };

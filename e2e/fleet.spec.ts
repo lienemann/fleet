@@ -790,6 +790,26 @@ test("a director's files outside its checkout open in the Files tab and copy the
   await page.keyboard.press("Alt+x");
 });
 
+test("a director's edit in its checkout waits in the inbox, to be allowed once", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const dock = page.locator(".dock");
+  await dock.getByLabel("Talk to").selectOption("director-site");
+  const prompt = dock.getByPlaceholder(/Message the director of site/);
+  await prompt.fill("Fix the typo in the README");
+  await prompt.press("Enter");
+  await page
+    .getByRole("navigation", { name: "Views" })
+    .getByRole("button", { name: /^Inbox/ })
+    .click();
+  const permission = page.locator(".inbox .decision", { hasText: "README.md" });
+  const actions = permission.locator("footer.actions button");
+  await expect(actions).toHaveText([/^Allow once/, /^Reject/], { timeout: 15_000 });
+  await actions.first().click();
+  await expect(permission).toHaveCount(0);
+});
+
 test("a path is copied through a selection where the page has no clipboard API", async ({
   page,
 }) => {
