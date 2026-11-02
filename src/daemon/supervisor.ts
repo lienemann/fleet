@@ -875,6 +875,10 @@ export class Supervisor implements ToolHost {
     if (call.type === "list_sessions") return this.listSessions(call.workspace);
     if (call.type === "list_jj_workspaces") return this.listJjWorkspaces(call.project);
     if (call.type === "add_project") return { name: this.createProject(call.path, call.name).name };
+    if (call.type === "remove_project") {
+      await this.removeProject(call.project);
+      return null;
+    }
     if (call.type === "inspect_directory") return this.inspectDirectory(call.path);
     if (call.type === "open_terminal") return this.openTerminal(call);
     if (call.type === "done_tasks") {
@@ -1083,6 +1087,30 @@ export class Supervisor implements ToolHost {
 
   private projectNames(): string {
     return this.config.projects.map((p) => p.name).join(", ");
+  }
+
+  /**
+   * Takes a project out of fleet and config.toml once none of its tasks is open: its agents
+   * end and leave, the director included. The repo and its workspaces stay on disk, and the log
+   * keeps their history.
+   */
+  private async removeProject(name: string): Promise<void> {
+    const project = this.projectNamed(name);
+    const open = taskList(this.state).filter((t) => t.project === name && !CLOSED.has(t.state));
+    if (open.length > 0) {
+      const tasks = new Intl.ListFormat("en").format(open.map((t) => `${t.id} "${t.title}"`));
+      const one = open.length === 1;
+      throw new ToolError(
+        `${name} stays while ${tasks} ${one ? "is" : "are"} open; accept or drop ${one ? "it" : "them"} first.`,
+      );
+    }
+    const agents = this.agents.filter((a) => a.project === name);
+    for (const ws of project.workspaces) {
+      if (this.state.claims[ws.name]) this.release(ws.name);
+    }
+    this.config.projects.splice(this.config.projects.indexOf(project), 1);
+    this.configChanged([]);
+    await Promise.all(agents.map((a) => this.removeAgent(a.name)));
   }
 
   /** Takes a workspace out of fleet and config.toml; jj and the directory stay as they are. */
@@ -1938,6 +1966,9 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(director);
     let project = agent && this.projectOf(agent);
     if (agent?.role === "fleet-director") {
+      if (this.config.projects.length === 0) {
+        throw new ToolError("There is no project yet; add one with add_project first.");
+      }
       project = this.config.projects.find((p) => p.name === named);
       if (!project) throw new ToolError(`Name the project: ${this.projectNames()}.`);
     }

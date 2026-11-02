@@ -39,6 +39,7 @@ interface Props {
   onSelect: (task: string) => void;
   /** Opens the agent and puts the cursor into its prompt. */
   onMessage: (agent: string) => void;
+  onAddProject: () => void;
 }
 
 /** The agent whose task keeps a queued task from starting in its workspace now, if any. */
@@ -47,13 +48,33 @@ function startBlocker(state: FleetState, task: TaskView): string | undefined {
   return workspace === undefined ? undefined : workspaceHolder(state, workspace, task.id);
 }
 
+/** The task board; without any project, it offers to add one instead. */
+export function Board({ onAddProject, ...props }: Props) {
+  const { info } = useFleet();
+  const projects = useProjects();
+  if (info && projects.length === 0) {
+    return (
+      <div className="empty-box board-empty">
+        <p>
+          No project yet. A project is a jj repo: its director starts as soon as you add it, and its
+          workspaces take the tasks.
+        </p>
+        <button type="button" className="primary" onClick={onAddProject}>
+          + Add project
+        </button>
+      </div>
+    );
+  }
+  return <Columns {...props} />;
+}
+
 /**
  * One column per task state, Dropped folded under Done. Cards can be dragged between columns or
  * moved with their buttons; both make the same moves. In progress and Review count against the
  * fleet's limits, or the filtered project's. Done shows a week at first, and a week more with
  * each "More…".
  */
-export function Board({ selected, onSelect, onMessage }: Props) {
+function Columns({ selected, onSelect, onMessage }: Omit<Props, "onAddProject">) {
   const { info, send } = useFleet();
   const state = useShownState();
   const projects = useProjects();

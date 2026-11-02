@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -1320,5 +1321,79 @@ describe("fleet director", () => {
       path: join(root, "docs-d1"),
     });
     expect(loadConfig(home).projects[2]?.workspaces.map((w) => w.name)).toEqual(["d1"]);
+  });
+
+  it("starts with no project and the fleet director, then adds one", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-empty-")));
+    const home = join(root, "home");
+    const log = new EventLog(":memory:");
+    const supervisor = new Supervisor({
+      changes: noChanges,
+      log,
+      queryFn: fakeQuery(echoing(result())).queryFn,
+      config: { ...testConfig(), projects: [] },
+      configFile: join(home, "config.toml"),
+      fleetDir: join(home, "fleet-director"),
+    });
+    supervisor.init();
+    expect(Object.keys(log.state.agents)).toEqual([FLEET_DIRECTOR]);
+    expect(supervisor.daemonInfo()).toMatchObject({ projects: [], workspaces: [] });
+    expect(supervisor.createTask("Fix it", "Do it.", undefined)).toBeUndefined();
+    expect(() => supervisor.spawn(FLEET_DIRECTOR, { title: "Fix it", context: "x" })).toThrow(
+      "There is no project yet; add one with add_project first.",
+    );
+
+    const repo = join(root, "docs");
+    execFileSync("jj", ["git", "init", repo], { env: jjEnv });
+    await supervisor.call({ type: "add_project", id: "1", path: repo });
+    expect(loadConfig(home).projects.map((p) => p.name)).toEqual(["docs"]);
+    expect(log.state.agents["director-docs"]).toMatchObject({ project: "docs", cwd: repo });
+  });
+
+  it("removes a project: its agents end, config.toml forgets it, its directories stay", async () => {
+    const { root, home, log, supervisor } = fleet();
+    supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Done one", context: "x" });
+    await until(() => log.state.agents.bravo?.activity === "idle");
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    await until(() => log.state.tasks.t1?.state === "done");
+    // The director's session runs, so removing the project has to end it.
+    supervisor.handle({ type: "prompt", agent: "director-site", text: "Hello" });
+    await until(() => log.state.agents["director-site"]?.activity === "idle");
+
+    await expect(
+      supervisor.call({ type: "remove_project", id: "1", project: "site" }),
+    ).resolves.toBeNull();
+    expect(log.state.agents["director-site"]).toBeUndefined();
+    expect(log.state.agents.bravo).toBeUndefined();
+    expect(log.state.agents[DIRECTOR]).toBeDefined();
+    expect(loadConfig(home).projects.map((p) => p.name)).toEqual(["test"]);
+    expect(supervisor.daemonInfo().workspaces.map((ws) => ws.name)).toEqual(["ws1"]);
+    // The log keeps the history; nothing on disk goes.
+    expect(log.state.tasks.t1).toMatchObject({ project: "site", state: "done" });
+    expect(existsSync(join(root, "site")) && existsSync(join(root, "s1"))).toBe(true);
+    await expect(
+      supervisor.call({ type: "remove_project", id: "2", project: "site" }),
+    ).rejects.toThrow('No project "site"');
+  });
+
+  it("refuses to remove a project while one of its tasks is open, and says which", async () => {
+    const { log, supervisor } = fleet();
+    supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Parked", context: "x" });
+    await until(() => log.state.agents.bravo?.activity === "idle");
+    await supervisor.parkTask("t1", FLEET_DIRECTOR);
+    supervisor.spawn(FLEET_DIRECTOR, { project: "site", title: "Running", context: "y" });
+    await until(() => log.state.tasks.t2?.state === "in_progress");
+    await expect(
+      supervisor.call({ type: "remove_project", id: "1", project: "site" }),
+    ).rejects.toThrow(
+      'site stays while t1 "Parked" and t2 "Running" are open; accept or drop them first.',
+    );
+    expect(log.state.agents["director-site"]).toBeDefined();
+    expect(supervisor.daemonInfo().projects.map((p) => p.name)).toEqual(["test", "site"]);
+
+    await supervisor.dropTask("t2", FLEET_DIRECTOR);
+    await expect(
+      supervisor.call({ type: "remove_project", id: "2", project: "site" }),
+    ).rejects.toThrow('site stays while t1 "Parked" is open; accept or drop it first.');
   });
 });

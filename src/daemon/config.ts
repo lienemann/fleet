@@ -11,9 +11,6 @@ import { TERMINAL_APPS, type TerminalConfig } from "./terminal.ts";
 
 export type { Limits };
 
-/** The limits of the one project fleet runs without a config. */
-const DEFAULT_LIMITS = { running: 4, review: 2 };
-
 /** Names of projects, workspaces and remotes, which appear in agent names and URLs. */
 export const NAME = /^[\w.-]+$/;
 
@@ -64,7 +61,7 @@ const ConfigFile = z.object({
   /** What a new agent starts with; the model pill changes it per agent. */
   model: z.string().default("opus"),
   effort: z.enum(EFFORT_LEVELS).default("high"),
-  projects: z.array(ProjectConfig).optional(),
+  projects: z.array(ProjectConfig).default([]),
   /** Daemons on other hosts (Coder pods), reached through a tunnel to their loopback port. */
   remotes: z
     .array(
@@ -227,21 +224,12 @@ export function projectAt(config: Pick<Config, "projects">, cwd: string): Projec
   return closest?.project;
 }
 
-/**
- * Reads `config.toml`; without a list of projects, the current directory is the only one,
- * unless that is fleet's own home.
- */
-export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Config {
+/** Reads `config.toml`; without one, or without a list of projects, fleet has no project. */
+export function loadConfig(home = fleetHome()): Config {
   const file = join(home, "config.toml");
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
   const parsed = ConfigFile.parse(raw);
-  const only = ProjectConfig.parse({
-    name: projectName(fallbackCwd),
-    path: fallbackCwd,
-    wip: DEFAULT_LIMITS,
-  });
-  const listed = parsed.projects ?? (isFleetHome(fallbackCwd, home) ? [] : [only]);
-  const configured = listed.map((p) => {
+  const configured = parsed.projects.map((p) => {
     const allowedTools = p.allowed_tools ?? parsed.allowed_tools;
     const path = expandHome(p.path);
     if (isFleetHome(path, home)) throw new Error(`config.toml: ${fleetHomeMessage(path, home)}`);
@@ -286,7 +274,7 @@ export function loadConfig(home = fleetHome(), fallbackCwd = process.cwd()): Con
     history: parsed.history.enabled ? { python: parsed.history.python } : undefined,
   };
   // The pick is written down, or it would shift when another project comes or goes.
-  if (parsed.projects && configured.some((p) => p.color === undefined)) writeConfig(file, config);
+  if (configured.some((p) => p.color === undefined)) writeConfig(file, config);
   return config;
 }
 
@@ -346,10 +334,8 @@ const limitsTable = (limits: Limits): Table | undefined => {
 export function writeConfig(file: string, config: Pick<Config, "projects" | "wip">): void {
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
   const { projects, wip: _limits, ...rest } = parse(text);
-  const table = {
-    ...rest,
-    wip: limitsTable(config.wip),
-    projects: config.projects.map((project) => {
+  const listed = withoutUndefined(
+    config.projects.map((project) => {
       const {
         name: _,
         path,
@@ -391,13 +377,22 @@ export function writeConfig(file: string, config: Pick<Config, "projects" | "wip
           }),
       };
     }),
-  };
-  const wanted = withoutUndefined(table);
+  );
+  // Without projects the key goes, as in a config that never had any.
+  const some = config.projects.length > 0;
+  const wanted = withoutUndefined({
+    ...rest,
+    wip: limitsTable(config.wip),
+    projects: some ? listed : undefined,
+  });
   if (text === "") {
     writeFileSync(file, `# Written by fleet; see the README.\n\n${stringify(wanted)}\n`);
-  } else {
-    writeFileSync(file, patch(text, wanted));
+    return;
   }
+  // The patcher cannot add a list of tables the file lacks, so the first projects go at its end.
+  const first = some && projects === undefined;
+  const base = first ? `${text.trimEnd()}\n\n${stringify({ projects: listed })}\n` : text;
+  writeFileSync(file, patch(base, wanted));
 }
 
 /** TOML has no undefined; leaving a key undefined above means leaving it out. */

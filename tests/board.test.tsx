@@ -25,9 +25,9 @@ const project: ProjectInfo = {
 };
 
 /** The board as the page renders it for `state`, with t2 selected. */
-function render(state: FleetState): string {
+function render(state: FleetState, projects = [project]): string {
   const info = {
-    projects: [project],
+    projects,
     wip: {},
     remotes: [],
     workspaces: [],
@@ -35,7 +35,7 @@ function render(state: FleetState): string {
   const fleet = { state, info, color: (c: string) => c, send: () => {} } as unknown as Fleet;
   return renderToStaticMarkup(
     <FleetContext value={fleet}>
-      <Board selected="t2" onSelect={() => {}} onMessage={() => {}} />
+      <Board selected="t2" onSelect={() => {}} onMessage={() => {}} onAddProject={() => {}} />
     </FleetContext>,
   );
 }
@@ -87,6 +87,14 @@ const buttons = (card: string): string[] =>
     .slice(1);
 
 describe("Board", () => {
+  it("offers to add a project while there is none", () => {
+    const empty = render(emptyState(), []);
+    expect(empty).toContain("No project yet.");
+    expect(empty).toContain("+ Add project");
+    expect(empty).not.toContain('class="column');
+    expect(html).not.toContain("No project yet.");
+  });
+
   it("offers each task the moves of its state", () => {
     expect(buttons(cardOf("Pinned one"))).toEqual(["Start now", "Unpin", "Drop"]);
     expect(buttons(cardOf("Running one"))).toEqual(["Message", "To review", "Park", "Drop"]);

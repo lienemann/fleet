@@ -182,7 +182,7 @@ describe("[terminal] in config.toml", () => {
   const load = (toml: string) => {
     const home = mkdtempSync(join(tmpdir(), "fleet-home-"));
     writeFileSync(join(home, "config.toml"), toml);
-    return () => loadConfig(home, "/work/here");
+    return () => loadConfig(home);
   };
 
   it("takes a preset, or custom templates with their placeholders", () => {

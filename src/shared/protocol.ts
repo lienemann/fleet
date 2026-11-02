@@ -266,6 +266,11 @@ export const CallSchema = z.discriminatedUnion("type", [
       .regex(/^[\w.-]+$/)
       .optional(),
   }),
+  /**
+   * Ends a project's agents and takes it out of fleet and config.toml; its repo and workspaces
+   * stay on disk. Refused while one of its tasks is open.
+   */
+  z.object({ type: z.literal("remove_project"), id, project: z.string().min(1) }),
   /** Any directory, e.g. another repo, checked before it is added as a workspace. */
   z.object({ type: z.literal("inspect_directory"), id, path: z.string().min(1).max(4096) }),
   /** Claude Code sessions recorded for a workspace's directory, newest first. */
@@ -353,6 +358,7 @@ export interface CallResults {
   list_sessions: SessionSummary[];
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
   add_project: { name: string };
+  remove_project: null;
   inspect_directory: DirectoryInfo;
   notes: Array<{ path: string; modified: number; size: number }>;
   task_output: TaskOutput;

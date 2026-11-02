@@ -1,8 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
+import { EMPTY_OFFSET } from "./e2e/ports.ts";
 import { MAC_SECRET } from "./e2e/secrets.ts";
 import { Auth } from "./src/daemon/auth.ts";
 
-// Each browser gets its own demo daemon, so their runs cannot see each other's tasks.
+// Each browser gets its own demo daemon, so their runs cannot see each other's tasks, and a
+// second one EMPTY_OFFSET ports up that starts without any project (projects.spec.ts).
 // FLEET_E2E_PORT moves them all, for running two suites side by side.
 const base = Number(process.env.FLEET_E2E_PORT ?? 7791);
 const browsers = [
@@ -38,11 +40,20 @@ export default defineConfig({
     name,
     use: { ...device, baseURL: `http://127.0.0.1:${port}` },
   })),
-  webServer: browsers.map(({ port }, i) => ({
-    // Build once; the other servers start from the same bundle.
-    command: i === 0 ? "npm run build:web && node e2e/serve.ts" : "node e2e/serve.ts",
-    url: `http://127.0.0.1:${port}`,
-    env: { PORT: String(port) },
-    reuseExistingServer: false,
-  })),
+  webServer: [
+    ...browsers.map(({ port }, i) => ({
+      // Build once; the other servers start from the same bundle.
+      command: i === 0 ? "npm run build:web && node e2e/serve.ts" : "node e2e/serve.ts",
+      url: `http://127.0.0.1:${port}`,
+      env: { PORT: String(port) },
+      reuseExistingServer: false,
+    })),
+    ...browsers.map(({ port }) => ({
+      // Started once the first server has built the bundle.
+      command: "node e2e/serve.ts",
+      url: `http://127.0.0.1:${port + EMPTY_OFFSET}`,
+      env: { PORT: String(port + EMPTY_OFFSET), FLEET_E2E_EMPTY: "1" },
+      reuseExistingServer: false,
+    })),
+  ],
 });

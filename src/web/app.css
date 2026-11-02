@@ -974,6 +974,18 @@ button.link.accent {
   color: var(--muted);
   text-align: center;
 }
+/* The board before there is any project: what a project is, and the button that adds one. */
+.main > .board-empty {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.board-empty p {
+  max-width: 44ch;
+  margin: 0;
+}
 /* A decision on its own, in the inbox */
 .decision {
   display: flex;
@@ -3036,6 +3048,23 @@ button.ln:hover {
   text-transform: none;
   letter-spacing: 0;
   color: var(--accent);
+}
+/* Removing a project asks first; with a mouse, its × shows while the pointer is on the heading. */
+.rail-head .remove-project {
+  color: var(--dim);
+  font: 14px / 1 var(--font-sans);
+}
+.rail-head .remove-project:hover {
+  color: var(--strong);
+}
+@media (hover: hover) {
+  .remove-project {
+    opacity: 0;
+  }
+  .rail-head:hover .remove-project,
+  .remove-project:focus-visible {
+    opacity: 1;
+  }
 }
 .rail-sub .link {
   opacity: 0;

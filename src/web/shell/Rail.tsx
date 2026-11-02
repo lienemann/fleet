@@ -32,6 +32,8 @@ interface Props {
   onImport: () => void;
   onAddWorkspace: (project?: string) => void;
   onAddProject: () => void;
+  /** Asks whether to remove a project. */
+  onRemoveProject: (project: string) => void;
   /** Opens the color picker of a project. */
   onColor: (project: string) => void;
   collapsed: boolean;
@@ -122,6 +124,7 @@ export function Rail({
   onImport,
   onAddWorkspace,
   onAddProject,
+  onRemoveProject,
   onColor,
   collapsed,
   onToggleCollapsed,
@@ -159,7 +162,12 @@ export function Rail({
       <h2 className="rail-head">
         <span className="rail-label">Agents</span>
         <span className="rail-actions">
-          {!grouped && local[0] && <ColorDot project={local[0].name} onColor={onColor} />}
+          {!grouped && local[0] && (
+            <>
+              <ColorDot project={local[0].name} onColor={onColor} />
+              <RemoveProjectButton project={local[0].name} onRemove={onRemoveProject} />
+            </>
+          )}
           <button
             type="button"
             className="link"
@@ -200,7 +208,12 @@ export function Rail({
                 <span className="caret" aria-hidden="true" />
                 {name}
               </button>
-              {local.some((p) => p.name === name) && <ColorDot project={name} onColor={onColor} />}
+              {local.some((p) => p.name === name) && (
+                <>
+                  <ColorDot project={name} onColor={onColor} />
+                  <RemoveProjectButton project={name} onRemove={onRemoveProject} />
+                </>
+              )}
               {!open && own.some((a) => needsYou(state, a)) && (
                 <span className="dot col-needs_you" title={`An agent of ${name} needs you`} />
               )}
@@ -214,7 +227,7 @@ export function Rail({
           </section>
         );
       })}
-      {!grouped && info && (
+      {projects.length === 1 && info && (
         <WorkspaceList
           title={`Workspaces · ${info.host}`}
           onSelect={onSelect}
@@ -254,6 +267,27 @@ function ColorDot({ project, onColor }: { project: string; onColor: (project: st
       onClick={() => onColor(project)}
     >
       <span className="dot" style={{ background: color }} />
+    </button>
+  );
+}
+
+/** Opens the question whether to take a project out of fleet. */
+function RemoveProjectButton({
+  project,
+  onRemove,
+}: {
+  project: string;
+  onRemove: (project: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="link remove-project"
+      aria-label={`Remove project ${project}`}
+      title={`Remove ${project} from fleet; the repo and its workspaces stay`}
+      onClick={() => onRemove(project)}
+    >
+      ×
     </button>
   );
 }

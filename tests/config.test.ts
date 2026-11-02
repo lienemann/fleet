@@ -1,37 +1,44 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
-import { allWorkspaces, loadConfig, projectOf, writeConfig } from "../src/daemon/config.ts";
+import { expect, it, vi } from "vitest";
+import {
+  allWorkspaces,
+  type Config,
+  loadConfig,
+  projectOf,
+  standIn,
+  writeConfig,
+} from "../src/daemon/config.ts";
 import { SWATCHES } from "../src/shared/colors.ts";
 
 const home = () => mkdtempSync(join(tmpdir(), "fleet-home-"));
 
-it("falls back to the current directory as the only project and workspace", () => {
-  const config = loadConfig(home(), "/work/here");
-  expect(config.projects).toMatchObject([
-    { name: "here", path: "/work/here", director: true, wip: { running: 4, review: 2 } },
-  ]);
-  expect(allWorkspaces(config)).toMatchObject([
-    { name: "here", path: "/work/here", project: "here", explicit: true, fallback: true },
-  ]);
+it("starts with no project and the defaults without a config.toml", () => {
+  const config = loadConfig(home());
+  expect(config.projects).toEqual([]);
   expect(config.port).toBe(7777);
   expect(config.fleetDirector).toBe(true);
   expect(config.wip).toEqual({});
   expect(config.diskMinFree).toBe(10 * 1024 ** 3);
 });
 
-it("has no project when the current directory is fleet's own home", () => {
+it("has no project with an empty list of projects", () => {
   const dir = home();
-  expect(loadConfig(dir, join(dir, "fleet-director")).projects).toEqual([]);
   writeFileSync(join(dir, "config.toml"), "projects = []\n");
-  expect(loadConfig(dir, "/work/here").projects).toEqual([]);
+  expect(loadConfig(dir).projects).toEqual([]);
 });
 
-it("refuses a project inside fleet's home", () => {
+it("refuses a project inside fleet's home, wherever FLEET_HOME puts it", () => {
   const dir = home();
   writeFileSync(join(dir, "config.toml"), `[[projects]]\nname = "x"\npath = "${dir}/sub"\n`);
   expect(() => loadConfig(dir)).toThrow(/where fleet keeps its own files/);
+  vi.stubEnv("FLEET_HOME", dir);
+  try {
+    expect(() => loadConfig()).toThrow(/where fleet keeps its own files/);
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 it("reads workspaces and lets them override the allow list", () => {
@@ -128,28 +135,28 @@ it("rejects a workspace name used in two projects", () => {
 });
 
 it("keeps Finished items unread while the user watches, unless the setting says otherwise", () => {
-  expect(loadConfig(home(), "/work/here").readWhileWatching).toBe(false);
+  expect(loadConfig(home()).readWhileWatching).toBe(false);
   const dir = home();
   writeFileSync(join(dir, "config.toml"), "[inbox]\nread_while_watching = true\n");
-  expect(loadConfig(dir, "/work/here").readWhileWatching).toBe(true);
+  expect(loadConfig(dir).readWhileWatching).toBe(true);
 });
 
 it("starts new agents on Opus with high effort unless config.toml says otherwise", () => {
-  expect(loadConfig(home(), "/work/here")).toMatchObject({ model: "opus", effort: "high" });
+  expect(loadConfig(home())).toMatchObject({ model: "opus", effort: "high" });
   const dir = home();
   writeFileSync(join(dir, "config.toml"), 'model = "fable"\neffort = "max"\n');
-  expect(loadConfig(dir, "/work/here")).toMatchObject({ model: "fable", effort: "max" });
+  expect(loadConfig(dir)).toMatchObject({ model: "fable", effort: "max" });
   writeFileSync(join(dir, "config.toml"), 'effort = "huge"\n');
-  expect(() => loadConfig(dir, "/work/here")).toThrow();
+  expect(() => loadConfig(dir)).toThrow();
 });
 
 it("reads the inbox threshold, 15 s by default", () => {
-  expect(loadConfig(home(), "/work/here").finishedAfterMs).toBe(15_000);
+  expect(loadConfig(home()).finishedAfterMs).toBe(15_000);
   const dir = home();
   writeFileSync(join(dir, "config.toml"), "[inbox]\nfinished_after_seconds = 2.5\n");
-  expect(loadConfig(dir, "/work/here").finishedAfterMs).toBe(2500);
+  expect(loadConfig(dir).finishedAfterMs).toBe(2500);
   writeFileSync(join(dir, "config.toml"), "[inbox]\nfinished_after_seconds = -1\n");
-  expect(() => loadConfig(dir, "/work/here")).toThrow();
+  expect(() => loadConfig(dir)).toThrow();
 });
 
 it("writes changes into config.toml without losing its comments, spacing or key order", () => {
@@ -214,12 +221,78 @@ allowed_tools = ["Read"]
   expect(after.projects[0]?.workspaces.map((ws) => ws.name)).toEqual(["ws1", "ws3"]);
 });
 
+/** Adds the project "here" to `config`, as Add project does. */
+function addHere(config: Config): void {
+  const here = { name: "here", path: "/work/here", allowedTools: [] };
+  config.projects.push({
+    ...here,
+    color: SWATCHES[0],
+    director: true,
+    readOnly: [],
+    wip: {},
+    workspaces: [standIn(here)],
+  });
+}
+
 it("creates config.toml with a header when there is none", () => {
   const dir = home();
   const file = join(dir, "config.toml");
-  writeConfig(file, loadConfig(dir, "/work/here"));
+  const config = loadConfig(dir);
+  addHere(config);
+  writeConfig(file, config);
   expect(readFileSync(file, "utf8")).toMatch(/^# Written by fleet/);
   expect(loadConfig(dir).projects.map((p) => p.name)).toEqual(["here"]);
+});
+
+it("adds the first project to a config.toml that lists none", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  writeFileSync(file, "# Mine.\nport = 7000\n\n[inbox]\nread_while_watching = true # watched\n");
+  const config = loadConfig(dir);
+  addHere(config);
+  writeConfig(file, config);
+  const written = readFileSync(file, "utf8");
+  expect(written).toContain("# Mine.\nport = 7000");
+  expect(written).toContain("read_while_watching = true # watched");
+  expect(loadConfig(dir).projects.map((p) => p.name)).toEqual(["here"]);
+});
+
+it("takes removed projects out of config.toml and keeps the comments of the rest", () => {
+  const dir = home();
+  const file = join(dir, "config.toml");
+  writeFileSync(
+    file,
+    `# My fleet.
+port = 7000 # not the default
+
+[[projects]]
+name = "a" # stays
+path = "/r/a"
+
+[[projects]]
+name = "b"
+path = "/r/b"
+`,
+  );
+  const config = loadConfig(dir);
+  config.projects.splice(1, 1);
+  writeConfig(file, config);
+  const written = readFileSync(file, "utf8");
+  expect(written).toContain("# My fleet.\nport = 7000 # not the default");
+  expect(written).toContain('name = "a" # stays');
+  expect(written).not.toContain('"b"');
+
+  config.projects.splice(0, 1);
+  writeConfig(file, config);
+  const emptied = readFileSync(file, "utf8");
+  expect(emptied).toContain("# My fleet.\nport = 7000 # not the default");
+  expect(emptied).not.toContain("projects");
+  expect(loadConfig(dir).projects).toEqual([]);
+
+  // The next one comes back as a table of its own.
+  addHere(config);
+  writeConfig(file, config);
+  expect(readFileSync(file, "utf8")).toContain('[[projects]]\nname = "here"');
 });
 
 const twoProjects = (colors: { a?: string; b?: string } = {}) => `

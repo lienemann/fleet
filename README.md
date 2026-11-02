@@ -89,8 +89,11 @@ toward neither, and a limit you leave out means no limit.
 
 Board, inbox, grid, timeline and flow show the agents of every project. With more than one, cards and tiles name
 their project, the rail has a section per project that folds away, and the picker in the header (or `f`) narrows
-every view to one project. The history view shows one repo at a time. "+ Add project" at the bottom of the rail
-takes any directory inside a jj repo, starts that project's director, and offers the repo's other jj workspaces.
+every view to one project. The history view shows one repo at a time. "+ Add project" at the bottom of the rail,
+or on the board while there is no project yet, takes any directory inside a jj repo, starts that project's
+director, and offers the repo's other jj workspaces. The × in a project's rail head, or "Remove project" in the
+palette, asks first, then ends the project's agents and takes it out of fleet and `config.toml`. The repo and its
+workspaces stay on disk. A project with open tasks stays until they are accepted or dropped.
 
 The box at the bottom of the page talks to the fleet director; its picker switches to a project's director. The
 fleet director runs in `~/.fleet/fleet-director` without a repo of its own and reads every project's code without
@@ -117,8 +120,8 @@ fleet             # starts the daemon and prints the link that logs your browser
 ```
 
 `fleet init -n 2` makes two workspaces instead of four, and `--into DIR` puts them somewhere else. fleet keeps its
-config and event log in `~/.fleet/`, or wherever `FLEET_HOME` points; without a config, the current directory is the
-only workspace.
+config and event log in `~/.fleet/`, or wherever `FLEET_HOME` points; without a config, it starts with no project,
+and you add one from the board.
 
 In the browser, `n` starts a new task: give it a title and a brief, pick a workspace, and a worker starts on it
 there. Or tell a director what you want in the box at the bottom, and it splits the work into tasks itself. `i`,

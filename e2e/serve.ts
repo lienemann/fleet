@@ -2,6 +2,8 @@
 // and ws2, each a jj repo whose trunk has one file the demo agents change (ws1 has a commit of
 // its own on top), and "site", a repo with the one workspace "pages". Unless it is the pod
 // itself, it also starts a second daemon, "pod", and relays it as a remote, as a Coder pod would be.
+// With FLEET_E2E_EMPTY=1 it starts on a home without any project and without a pod instead, as
+// fleet does on its first start.
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +12,7 @@ import { MAC_SECRET, POD_SECRET } from "./secrets.ts";
 
 const port = Number(process.env.PORT ?? 7791);
 const isPod = process.env.FLEET_POD === "1";
+const isEmpty = process.env.FLEET_E2E_EMPTY === "1";
 const podPort = port + 100;
 
 // The repos sit next to fleet's home, not in it: nothing inside the home is a project.
@@ -59,7 +62,9 @@ const inbox = "[inbox]\nfinished_after_seconds = 0\nread_while_watching = true\n
 const disk = "[disk]\nmin_free_gb = 1\n\n";
 
 let config: string;
-if (isPod) {
+if (isEmpty) {
+  config = `port = ${port}\nhost = "macbook"\n\n${inbox}${disk}`;
+} else if (isPod) {
   // A pod has workers only; the directors live on the Mac.
   config = `port = ${port}\nhost = "pod"\nfleet_director = false\n\n[history]\nenabled = false\n\n${inbox}${disk}${daemon(false)}`;
 } else {
@@ -80,12 +85,9 @@ if (isPod) {
 }
 writeFileSync(join(home, "config.toml"), config);
 writeFileSync(join(home, "secret"), isPod ? POD_SECRET : MAC_SECRET, { mode: 0o600 });
-if (!isPod) {
+if (!isPod && !isEmpty) {
   mkdirSync(join(home, "remotes"));
   writeFileSync(join(home, "remotes", "pod.secret"), POD_SECRET, { mode: 0o600 });
-}
-
-if (!isPod) {
   const pod = spawn(process.execPath, [new URL(import.meta.url).pathname], {
     env: { ...process.env, PORT: String(podPort), FLEET_POD: "1" },
     stdio: "inherit",

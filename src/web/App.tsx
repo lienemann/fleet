@@ -27,6 +27,7 @@ import { ImportSessions } from "./shell/ImportSessions.tsx";
 import { NewTask } from "./shell/NewTask.tsx";
 import { ProjectColor } from "./shell/ProjectColor.tsx";
 import { Rail, railSequence } from "./shell/Rail.tsx";
+import { RemoveProject } from "./shell/RemoveProject.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
 import { CONTINUE_KEYS, MOVE_ORDER, TASK_MOVES, useTaskMoves } from "./taskMoves.ts";
 import { UnopenedTerminal, useTerminals } from "./terminal.tsx";
@@ -47,7 +48,15 @@ import { Timeline } from "./views/Timeline.tsx";
 import { VIEWS, type View } from "./views.ts";
 import { toMarkRead, useWindowFocus } from "./watching.ts";
 
-type Overlay = "new-task" | "import" | "workspaces" | "project" | "color" | "shortcuts" | "palette";
+type Overlay =
+  | "new-task"
+  | "import"
+  | "workspaces"
+  | "project"
+  | "remove-project"
+  | "color"
+  | "shortcuts"
+  | "palette";
 
 const focus = (selector: string): void => document.querySelector<HTMLElement>(selector)?.focus();
 
@@ -229,6 +238,14 @@ export function App() {
       localProjects.map((p) => p.name),
       filter.project ?? task?.project ?? agent?.project,
       (project) => show("color", project),
+    ),
+    ...localProjects.map(
+      ({ name }): Command => ({
+        id: `project.remove.${name}`,
+        label: `Remove project ${name}`,
+        group: "Projects",
+        run: () => show("remove-project", name),
+      }),
     ),
     {
       id: "task.import",
@@ -631,6 +648,7 @@ export function App() {
           onImport={() => show("import")}
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
+          onRemoveProject={(project) => show("remove-project", project)}
           onColor={(project) => show("color", project)}
           collapsed={rail.collapsed}
           onToggleCollapsed={rail.toggle}
@@ -639,7 +657,12 @@ export function App() {
         <main className="main" data-pane="main" tabIndex={-1}>
           <ViewHead view={view}>{view === "grid" && !enlarged && <TileZoom {...tiles} />}</ViewHead>
           {view === "board" && (
-            <Board selected={task?.id} onSelect={selectTask} onMessage={message} />
+            <Board
+              selected={task?.id}
+              onSelect={selectTask}
+              onMessage={message}
+              onAddProject={() => show("project")}
+            />
           )}
           {view === "inbox" && (
             <Inbox
@@ -715,6 +738,13 @@ export function App() {
       )}
       {overlay?.kind === "project" && (
         <AddProject key={overlay.id} onClose={() => setOverlay(undefined)} />
+      )}
+      {overlay?.kind === "remove-project" && overlay.project && (
+        <RemoveProject
+          key={overlay.id}
+          project={overlay.project}
+          onClose={() => setOverlay(undefined)}
+        />
       )}
       {overlay?.kind === "palette" && (
         <Palette key={overlay.id} onClose={() => setOverlay(undefined)} />
