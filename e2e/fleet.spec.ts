@@ -451,6 +451,35 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
   await acceptOnceIdle(card(page, "Review", sentBack));
 });
 
+test("Esc leaves the drawer's prompt for the drawer, keeping the draft, and ⌥M A accepts right after", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const title = "Tidy the replay fixtures";
+  await newTask(page, title, "ws1");
+  await expect(markedCard(page, title)).toBeVisible({ timeout: 15_000 });
+  await answerFromInbox(page, title);
+  await expect(page.locator(".finished", { hasText: title })).toContainText("Finished", {
+    timeout: 15_000,
+  });
+  await page.keyboard.press("Alt+1");
+  const review = card(page, "Review", title);
+  await expect(review.locator(".working-note")).toHaveCount(0, { timeout: 15_000 });
+  await review.locator(".card-main").click();
+
+  const drawer = page.locator(".drawer");
+  const prompt = drawer.locator("[data-prompt]");
+  await prompt.fill("a thought for later");
+  // In the field, Option types characters; out of it, the move keys act on the selected task.
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeFocused();
+  await expect(prompt).toHaveValue("a thought for later");
+  await page.keyboard.press("Alt+m");
+  await page.keyboard.press("a");
+  await expect(card(page, "Done", title)).toBeVisible();
+});
+
 test("an agent's group reads oldest first, its items go to Read one by one or all but the review, and ⌘↵ accepts", async ({
   page,
 }) => {
@@ -1203,6 +1232,24 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /^Board/ })).toHaveClass(/active/);
 
+  // In a dialog, Esc leaves a field with text in it and keeps the text; the next Esc closes, as
+  // the first does from an empty field.
+  const newTaskDialog = page.getByRole("dialog", { name: "New task" });
+  const titleField = newTaskDialog.getByLabel("Title");
+  await page.keyboard.press("Alt+n");
+  await page.keyboard.type("Half a title");
+  await page.keyboard.press("Escape");
+  await expect(titleField).not.toBeFocused();
+  await expect(titleField).toHaveValue("Half a title");
+  await page.keyboard.press("Escape");
+  await expect(newTaskDialog).toBeHidden();
+  // New task keeps its draft for the next time.
+  await page.keyboard.press("Alt+n");
+  await expect(titleField).toHaveValue("Half a title");
+  await titleField.clear();
+  await page.keyboard.press("Escape");
+  await expect(newTaskDialog).toBeHidden();
+
   await page.keyboard.press("Alt+n");
   await page.keyboard.type("Keyboard only task");
   await page.keyboard.press("Enter");
@@ -1218,7 +1265,7 @@ test("everything works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Alt+p");
   await expect(page.locator(".drawer textarea[data-prompt]")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".drawer textarea[data-prompt]")).not.toBeFocused();
+  await expect(page.locator(".drawer")).toBeFocused();
   await page.keyboard.press("Alt+t");
   await expect(page.getByRole("button", { name: "Session" })).toHaveClass(/active/);
 
@@ -1986,6 +2033,12 @@ test("the dock keeps its choice of director and one line of text, which follows 
 
   await page.reload();
   await expect(dock.getByLabel("Talk to")).toHaveValue("director-site");
+  await expect(inDock).toHaveValue("Half a thought");
+
+  // The dock lies outside the panes, so Esc leaves it for the view, and the text stays.
+  await inDock.focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("main")).toBeFocused();
   await expect(inDock).toHaveValue("Half a thought");
 
   await inDock.press("Enter");

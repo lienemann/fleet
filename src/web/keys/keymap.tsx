@@ -132,6 +132,27 @@ export function keyLabel(sequence: string): string {
 const typingIn = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && target.matches("input, textarea, select, [contenteditable]");
 
+/** Input types that take text, unlike checkboxes, radios and buttons. */
+const TEXT_INPUTS = new Set(["text", "search", "url", "email", "tel", "password", "number"]);
+
+/** Whether the target is a text field with something in it. */
+export const holdsText = (target: EventTarget | null): boolean =>
+  (target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type))) &&
+  target.value !== "";
+
+/**
+ * Moves the focus out of a field into the pane around it, or into the main view from a field
+ * outside the panes such as the dock. The field keeps what it holds, and the pane's keys work.
+ */
+function leaveField(field: HTMLElement): void {
+  const pane =
+    field.closest<HTMLElement>("[data-pane]") ??
+    document.querySelector<HTMLElement>('[data-pane="main"]');
+  field.blur();
+  pane?.focus();
+}
+
 export function KeymapProvider({ children }: { children: ReactNode }) {
   const [owners, setOwners] = useState<Array<[string, Command[]]>>([]);
   const [pending, setPending] = useState<string>();
@@ -215,7 +236,7 @@ export function KeymapProvider({ children }: { children: ReactNode }) {
       }
       if (typing && event.key === "Escape") {
         // Leaving a field is the first step; a second Esc reaches the commands.
-        (event.target as HTMLElement).blur();
+        leaveField(event.target as HTMLElement);
         return;
       }
       setChord(undefined);

@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
 } from "react";
+import { holdsText } from "../keys/keymap.tsx";
 import { closeOnBackdrop } from "./backdrop.ts";
 
 const CloseContext = createContext<() => void>(() => {});
@@ -25,7 +26,8 @@ type DialogProps = {
 /**
  * A modal dialog that opens when mounted, under a heading with a close button. The focus moves to
  * the element marked `data-autofocus`, if any. Esc, the close button, Cancel, a click outside and
- * submitting a `method="dialog"` form all close it, and the focus returns to where it was.
+ * submitting a `method="dialog"` form all close it, and the focus returns to where it was. In a
+ * field with text in it, Esc only leaves the field, so a typed draft takes a second Esc to go.
  */
 export function Dialog({ title, label, className, onClose, closeKey, children }: DialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -36,6 +38,12 @@ export function Dialog({ title, label, className, onClose, closeKey, children }:
     onClose();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDialogElement>): void => {
+    if (event.key === "Escape" && holdsText(event.target)) {
+      // Esc leaves a field with text in it first, keeping the text; the next one closes.
+      event.preventDefault();
+      dialog.current?.focus();
+      return;
+    }
     if (event.key !== closeKey) return;
     // Stopped here, so the key does not open the dialog again.
     event.preventDefault();
@@ -59,7 +67,8 @@ export function Dialog({ title, label, className, onClose, closeKey, children }:
         event.preventDefault();
         close();
       }}
-      onKeyDown={closeKey ? onKeyDown : undefined}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       onSubmit={(event) => {
         const form = event.target;
         if (event.defaultPrevented || !(form instanceof HTMLFormElement)) return;

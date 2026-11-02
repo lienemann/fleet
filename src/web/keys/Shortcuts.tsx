@@ -36,8 +36,9 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
         ))}
       </div>
       <p className="dim">
-        Esc leaves a text field; Esc again interrupts the selected agent. Tab moves between
-        controls.
+        In a text field, keys with {keyLabel("alt+")} type characters; press Esc, then{" "}
+        {keyLabel("alt+…")}. Esc leaves the field and keeps what it holds; Esc again interrupts the
+        selected agent. Tab moves between controls.
       </p>
     </Dialog>
   );
