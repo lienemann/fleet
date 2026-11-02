@@ -1314,7 +1314,17 @@ export class Supervisor implements ToolHost {
       }
     }
     if (signal.aborted) return false;
-    const opened = await this.openWorkspace(project);
+    let opened: Workspace;
+    try {
+      opened = await this.openWorkspace(project);
+    } catch (error) {
+      // The user has to step in, so it goes to the inbox; asking again would fail the same way.
+      const why = error instanceof Error ? error.message.trim() : String(error);
+      const body = `Opening a workspace for ${id} "${task.title}" failed, so it stays queued; New workspace under the project's workspaces tries again.\n\n${why}`;
+      if (asker === undefined) throw error;
+      this.append(asker, { kind: "message", to: USER, body });
+      return false;
+    }
     const worker = this.workerOf(opened.name);
     const now = this.task(id);
     if (worker && now?.state === "queued" && this.noRoom(project.name) === undefined) {

@@ -20,7 +20,9 @@ import {
   type Room,
   roomLines,
   type Workload,
+  type WorkspaceHost,
 } from "../src/daemon/workspaceOpening.ts";
+import { USER } from "../src/shared/events.ts";
 import { pendingDecisions } from "../src/shared/reducer.ts";
 import { echoing, fakeQuery, noChanges, result, settled, until } from "./helpers.ts";
 
@@ -84,7 +86,11 @@ it("tells the user the disk, the estimate, memory, CPU and the workers against t
  * A jj repo `foo` with the workspace foo-ws1, and fleet with it as its project; `extra` goes into
  * the project's table. Sizes, free space and load are made up; jj is real.
  */
-function setup(extra = "", workspaces = '[[projects.workspaces]]\nname = "foo-ws1"\n') {
+function setup(
+  extra = "",
+  workspaces = '[[projects.workspaces]]\nname = "foo-ws1"\n',
+  host: Partial<WorkspaceHost> = {},
+) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-open-")));
   const repo = join(root, "foo");
   jj(["git", "init", repo], root);
@@ -109,6 +115,7 @@ function setup(extra = "", workspaces = '[[projects.workspaces]]\nname = "foo-ws
       size: async () => 2 * GB,
       free: async () => 100 * GB,
       memory: () => ({ free: 8 * GB, total: 32 * GB, load: 2.5, cores: 10 }),
+      ...host,
     },
   });
   supervisor.init();
@@ -163,6 +170,25 @@ describe("a task that only lacks a free worker", () => {
     expect(pendingDecisions(log.state).map((d) => d.questions?.[0]?.question)).toEqual([
       'Open a workspace for t3 "three"?',
     ]);
+    expect(log.state.tasks.t2?.state).toBe("queued");
+    expect(configured()).toEqual(["foo-ws1"]);
+  });
+
+  it("tells the user in the inbox when the workspace cannot be opened, and asks no more", async () => {
+    const add = async () => {
+      throw new Error("jj: the disk is full");
+    };
+    const { log, supervisor, answer, configured } = setup(undefined, undefined, { add });
+    supervisor.createTask("one", "x", undefined);
+    supervisor.createTask("two", "y", undefined);
+    await answer("Open");
+    await until(() => log.state.messages.some((m) => m.to === USER));
+    const [message] = log.state.messages.filter((m) => m.to === USER);
+    expect(message?.from).toBe("director-foo");
+    expect(message?.body).toContain('Opening a workspace for t2 "two" failed');
+    expect(message?.body).toContain("jj: the disk is full");
+    await settled();
+    expect(pendingDecisions(log.state)).toEqual([]);
     expect(log.state.tasks.t2?.state).toBe("queued");
     expect(configured()).toEqual(["foo-ws1"]);
   });
