@@ -1,11 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { keyLabel } from "../src/web/keys/keymap.tsx";
 import { movesOf } from "../src/web/taskMoves.ts";
 import { ItemActions } from "../src/web/ui/ItemActions.tsx";
 
+/** The buttons' labels, without their keys. */
 const labels = (html: string): string[] =>
   [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label = ""]) =>
-    label.replace(/<[^>]*>/g, "").trim(),
+    label.replace(/<kbd>.*?<\/kbd>/g, "").trim(),
   );
 
 const run = () => {};
@@ -41,6 +43,20 @@ describe("ItemActions", () => {
     expect(html).toContain("<kbd>");
     expect(html).toContain('aria-disabled="true"');
     expect(html).not.toContain(' disabled=""');
+  });
+
+  it("puts ⌘↵ on the primary action only, before the key of its command", () => {
+    const html = renderToStaticMarkup(
+      <ItemActions
+        actions={[
+          { label: "Approve", tone: "primary", keys: "alt+a", run },
+          { label: "Reject", tone: "danger", keys: "alt+r", run },
+        ]}
+      />,
+    );
+    const submit = `<kbd>${keyLabel("mod+enter")}</kbd>`;
+    expect(html).toContain(`Approve ${submit} <kbd>${keyLabel("alt+a")}</kbd></button>`);
+    expect(html.match(new RegExp(submit.replace(/[+]/g, "\\+"), "g"))).toHaveLength(1);
   });
 });
 

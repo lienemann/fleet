@@ -1,4 +1,5 @@
 import type { TaskState } from "../shared/events.ts";
+import type { Command } from "../shared/protocol.ts";
 import type { AgentView, FleetState } from "../shared/reducer.ts";
 import { holderOf, type TaskView } from "../shared/tasks.ts";
 import { useFleet } from "./fleet.tsx";
@@ -104,26 +105,28 @@ export function workingHolder(state: FleetState, task: TaskView): AgentView | un
  * Sends the moves. A note for the agent goes with Request changes, Accept and Drop, and into
  * the handover note with Park; the others ignore it. Drop asks the user in the inbox first when
  * the task's change holds work; Accept and Request changes ask here first while the task's agent
- * works, since they interrupt it.
+ * works, since they interrupt it. Each says whether it sent the move, false when the user said no.
  */
-export function useTaskMoves(): Record<TaskMove, (task: string, note?: string) => void> {
+export function useTaskMoves(): Record<TaskMove, (task: string, note?: string) => boolean> {
   const { state, send } = useFleet();
   const interrupts = (id: string, verb: string): boolean => {
     const task = state.tasks[id];
     const agent = task && workingHolder(state, task);
     return !agent || confirm(`${agent.name} is still working on ${id}: interrupt and ${verb}?`);
   };
+  const sent = (command: Command): true => {
+    send(command);
+    return true;
+  };
   return {
-    review: (task) => send({ type: "move", task, to: "review" }),
-    accept: (task, note) => {
-      if (interrupts(task, "accept")) send({ type: "move", task, to: "done", note });
-    },
-    changes: (task, message) => {
-      if (interrupts(task, "request changes")) send({ type: "request_changes", task, message });
-    },
-    park: (task, note) => send({ type: "park", task, note }),
-    unpark: (task) => send({ type: "unpark", task }),
-    unpin: (task) => send({ type: "unpin", task }),
-    drop: (task, note) => send({ type: "drop", task, note }),
+    review: (task) => sent({ type: "move", task, to: "review" }),
+    accept: (task, note) =>
+      interrupts(task, "accept") && sent({ type: "move", task, to: "done", note }),
+    changes: (task, message) =>
+      interrupts(task, "request changes") && sent({ type: "request_changes", task, message }),
+    park: (task, note) => sent({ type: "park", task, note }),
+    unpark: (task) => sent({ type: "unpark", task }),
+    unpin: (task) => sent({ type: "unpin", task }),
+    drop: (task, note) => sent({ type: "drop", task, note }),
   };
 }

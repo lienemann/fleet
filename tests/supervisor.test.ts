@@ -391,7 +391,7 @@ describe("restart", () => {
 });
 
 describe("messages to the user", () => {
-  it("are read with the agent's Finished items, or one by one", () => {
+  it("are read one by one, apart from the agent's Finished items", () => {
     const { log, supervisor } = setup();
     const unread = () => log.state.messages.filter((m) => !m.read).map((m) => m.body);
     const write = (body: string) => log.append({ kind: "message", agent: "alpha", to: USER, body });
@@ -405,11 +405,17 @@ describe("messages to the user", () => {
     });
 
     supervisor.handle({ type: "finished_read", agent: "alpha", ids: ["r1"] });
-    expect(unread()).toEqual(["Done."]);
+    expect(log.state.agents.alpha?.finished.map((r) => r.read)).toEqual([true]);
+    expect(unread()).toEqual(["Which branch?", "main or v2?", "Done."]);
 
-    const [done] = log.state.messages.filter((m) => !m.read);
-    supervisor.handle({ type: "messages_read", agent: "bravo", seqs: [done?.seq ?? 0] });
-    expect(unread()).toEqual([]);
+    const seqOf = (body: string) => log.state.messages.find((m) => m.body === body)?.seq ?? 0;
+    supervisor.handle({ type: "messages_read", agent: "alpha", seqs: [seqOf("main or v2?")] });
+    expect(unread()).toEqual(["Which branch?", "Done."]);
+    // A message names its sender, so another agent's seq reads nothing.
+    supervisor.handle({ type: "messages_read", agent: "alpha", seqs: [seqOf("Done.")] });
+    expect(unread()).toEqual(["Which branch?", "Done."]);
+    supervisor.handle({ type: "messages_read", agent: "bravo", seqs: [seqOf("Done.")] });
+    expect(unread()).toEqual(["Which branch?"]);
   });
 });
 

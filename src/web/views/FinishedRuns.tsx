@@ -1,17 +1,18 @@
-import { type KeyboardEvent, useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { AgentView } from "../../shared/reducer.ts";
 import { withReference } from "../../shared/replies.ts";
 import { taskOf } from "../../shared/tasks.ts";
-import { useAgentDraft } from "../drafts.ts";
+import { itemSlot, useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { foldKey, useFold } from "../folds.ts";
 import {
   type GroupItem,
-  groupIds,
-  groupSlot,
   type InboxGroup,
+  itemIds,
+  readCommands,
   readItems,
   referenceTo,
+  reviewItem,
 } from "../inboxItems.ts";
 import { useCommands } from "../keys/keymap.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
@@ -91,36 +92,59 @@ function Subject({ agent, item }: { agent: AgentView; item: GroupItem }) {
 }
 
 /**
- * One item that folds to a line and unfolds to its text; `agent` is named where the line stands
- * alone.
+ * One item as a line that unfolds to its text. `agent` is named where the line stands alone,
+ * and `end` closes the line.
  */
-function FoldedItem({
+function ItemLine({
   item,
   owner,
   agent,
-  unfolded = false,
+  folded,
+  onToggle,
+  end,
 }: {
   item: GroupItem;
   /** Whose item it is, for fetching a run's whole text. */
   owner: string;
   agent?: AgentView;
-  /** Whether it starts unfolded. */
-  unfolded?: boolean;
+  folded: boolean;
+  onToggle: () => void;
+  end?: ReactNode;
 }) {
-  const [open, setOpen] = useState(unfolded);
   const text = item.kind === "run" ? item.run.text : item.message.body;
   return (
-    <div className="run">
+    <div className="run" data-item={item.key}>
       <div className="run-line">
         {agent && <Subject agent={agent} item={item} />}
-        <button type="button" className="fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <button type="button" className="fold" aria-expanded={!folded} onClick={onToggle}>
           <Tag item={item} />
           <When item={item} />
-          {!open && <span className="first-line">{firstLine(text)}</span>}
+          {folded && <span className="first-line">{firstLine(text)}</span>}
         </button>
+        {end}
       </div>
-      {open && <ItemText item={item} agent={owner} />}
+      {!folded && <ItemText item={item} agent={owner} />}
     </div>
+  );
+}
+
+/** An unread item in its agent's group, unfolded until the user folds it. */
+function GroupEntry({ item, owner, end }: { item: GroupItem; owner: string; end: ReactNode }) {
+  const [folded, toggle] = useFold(foldKey.item(owner, item.key));
+  return <ItemLine item={item} owner={owner} folded={folded} onToggle={toggle} end={end} />;
+}
+
+/** An item under Read, folded until the user opens it. */
+function ReadItem({ item, agent }: { item: GroupItem; agent: AgentView }) {
+  const [folded, setFolded] = useState(true);
+  return (
+    <ItemLine
+      item={item}
+      owner={agent.name}
+      agent={agent}
+      folded={folded}
+      onToggle={() => setFolded(!folded)}
+    />
   );
 }
 
@@ -128,10 +152,11 @@ function FoldedItem({
 type Tab = "diff" | "report";
 
 /**
- * One agent's unread Finished items and messages, newest first, all unfolded; the earlier ones
- * fold to a line. The comment box and the buttons act on all of them,
- * and a comment tells the agent which item it answers. When the task the agent holds waits for
- * a verdict, the group is also the task's review: it offers the board's moves.
+ * One agent's unread Finished items and messages, oldest first and all unfolded, each with its
+ * own Mark read. The comment box and the buttons below the newest item act on all of them, and a
+ * comment tells the agent which item it answers. When the task the agent holds waits for a
+ * verdict, the group is also the task's review: it offers the board's moves, and the task's
+ * report stays until the verdict.
  */
 export function FinishedGroup({
   agent,
@@ -150,28 +175,27 @@ export function FinishedGroup({
   const { state, send } = useFleet();
   const moves = useTaskMoves();
   const task = taskOf(state, agent);
-  const [comment, setComment] = useAgentDraft(agent.name, groupSlot(group));
-  const [folded, toggleFold] = useFold(foldKey.group(agent.name, group.items.at(-1)?.key ?? ""));
-  const [newest, ...earlier] = group.items;
-  const { ids, seqs } = groupIds(group);
+  const [comment, setComment] = useAgentDraft(agent.name, itemSlot.group);
+  const [folded, toggleFold] = useFold(foldKey.group(agent.name));
+  const newest = group.items.at(-1);
+  const { ids, seqs } = itemIds(group.items);
   const text = comment.trim();
   const note = newest && text ? withReference(referenceTo(newest), text) : undefined;
-  const read = () =>
-    send(
-      ids.length > 0
-        ? { type: "finished_read", agent: agent.name, ids }
-        : { type: "messages_read", agent: agent.name, seqs },
-    );
+  const read = (items: readonly GroupItem[]) => {
+    for (const command of readCommands(agent.name, items)) send(command);
+  };
   const reviewable = task !== undefined && movesOf(task).includes("accept");
+  // Mark read and Mark all read pass the task's report by while it waits for a verdict.
+  const review = reviewItem(state, group);
+  const readable = group.items.filter((item) => item !== review);
   // While the task waits for a verdict, the group offers the task's moves, and the comment goes
   // along. A verdict deals with the whole group; Park and Drop with the task's items, once the
   // task is parked or dropped. A Drop that asks first may be kept, so the group and its comment
   // stay until the task is gone, and the comment's slot goes with the group.
   const offered = task && reviewable ? movesOf(task) : [];
   const runMove = (move: TaskMove) => () => {
-    if (!task) return;
-    moves[move](task.id, note);
-    if (move === "accept" || move === "changes") read();
+    if (!task || !moves[move](task.id, note)) return;
+    if (move === "accept" || move === "changes") read(group.items);
     if (move !== "drop") setComment("");
   };
   // An agent that stopped without the user waits until it is told to go on.
@@ -184,13 +208,31 @@ export function FinishedGroup({
     send({ type: "continue", agent: agent.name, note });
     setComment("");
   };
-  // A review leaves the inbox with a verdict only, so there is no Mark read for it; Fold puts
-  // it aside.
   const submit = () => {
     if (note) send({ type: "finished_reply", agent: agent.name, ids, seqs, text: note });
-    else if (!reviewable) read();
+    else read(readable);
     setComment("");
   };
+  // With a comment the button sends it. Without one it reads what it may; a review alone leaves
+  // the inbox with a verdict only, and Fold puts it aside.
+  const several = group.items.length > 1;
+  const submitAction = text
+    ? { label: "Send", run: submit }
+    : readable.length > 0
+      ? {
+          label: several ? "Mark all read" : "Mark read",
+          title:
+            review && task
+              ? `Reads all but the report of ${task.id}, which waits for your verdict`
+              : undefined,
+          run: submit,
+        }
+      : {
+          label: "Send",
+          inactive: true,
+          title: "Write a comment first; the review waits for a verdict",
+          run: submit,
+        };
 
   // While the group is the one the keys act on, so do the moves' own keys.
   const inbox = { group: "Inbox", scope: "main" } as const;
@@ -232,12 +274,17 @@ export function FinishedGroup({
   ]);
 
   if (!newest) return null;
-  const pressed = (event: KeyboardEvent) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      submit();
-    }
-  };
+  // A lone item is read with the group's button.
+  const entryEnd = (item: GroupItem): ReactNode =>
+    item === review ? (
+      <span className="dim">waits for your verdict</span>
+    ) : (
+      several && (
+        <button type="button" className="link accent" onClick={() => read([item])}>
+          Mark read
+        </button>
+      )
+    );
   return (
     <article
       className={`finished ${folded ? "folded" : ""}`}
@@ -246,10 +293,10 @@ export function FinishedGroup({
     >
       <header>
         <FoldToggle folded={folded} onToggle={toggleFold} />
-        <Tag item={newest} />
+        {folded && <Tag item={newest} />}
         <Subject agent={agent} item={newest} />
         <span className="spacer" />
-        <When item={newest} />
+        {folded && <When item={newest} />}
         {reviewable && (
           <>
             <button type="button" className="link accent" onClick={() => onOpenTab("diff")}>
@@ -261,17 +308,18 @@ export function FinishedGroup({
           </>
         )}
       </header>
-      <ItemText item={newest} agent={agent.name} />
+      {group.items.map((item) => (
+        <GroupEntry key={item.key} item={item} owner={agent.name} end={entryEnd(item)} />
+      ))}
       <textarea
         rows={2}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
-        onKeyDown={pressed}
         aria-label={`Comment for ${agent.name}`}
         placeholder={
           reviewable
             ? `Comment for ${agent.name}`
-            : `Comment for ${agent.name} (leave empty to just mark it read)`
+            : `Comment for ${agent.name} (leave empty to just mark ${several ? "them" : "it"} read)`
         }
       />
       <ItemActions
@@ -295,20 +343,7 @@ export function FinishedGroup({
                 },
               ]
             : []),
-          reviewable
-            ? {
-                label: "Send",
-                keys: text ? "mod+enter" : undefined,
-                inactive: text === "",
-                title: text ? undefined : "Write a comment first; the review waits for a verdict",
-                run: submit,
-              }
-            : {
-                label: text ? "Send" : "Mark read",
-                keys: text ? "mod+enter" : undefined,
-                tone: stopped ? undefined : "primary",
-                run: submit,
-              },
+          { ...submitAction, tone: reviewable || stopped ? undefined : ("primary" as const) },
           {
             label: "Go",
             inactive: text !== "",
@@ -317,9 +352,6 @@ export function FinishedGroup({
           },
         ]}
       />
-      {earlier.map((item) => (
-        <FoldedItem key={item.key} item={item} owner={agent.name} unfolded />
-      ))}
     </article>
   );
 }
@@ -334,7 +366,7 @@ export function ReadItems() {
       <summary>Read · {read.length}</summary>
       {read.map(({ agent, item }) => {
         const view = state.agents[agent];
-        return view && <FoldedItem key={item.key} item={item} owner={agent} agent={view} />;
+        return view && <ReadItem key={item.key} item={item} agent={view} />;
       })}
     </details>
   );

@@ -687,7 +687,7 @@ export function App() {
           )}
           {view === "inbox" && (
             <Inbox
-              onOpen={open}
+              onOpen={selectAgent}
               onOpenTab={(name, next) => {
                 selectAgent(name);
                 goTab(next);

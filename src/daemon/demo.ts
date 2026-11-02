@@ -375,6 +375,8 @@ interface Scenario {
   crashes?: boolean;
   /** A plan the worker writes to plan.md and asks the user to review before it goes on. */
   plan?: string;
+  /** Messages the worker writes to the user before it reports. */
+  notes?: string[];
 }
 
 const FLAKY_TEST: Scenario = {
@@ -439,6 +441,15 @@ const PLAN_REVIEW: Scenario = {
   plan: `# Plan\n\n${Array.from({ length: 12 }, (_, i) => `${i + 1}. Measure the jitter of runner ${i + 1} and keep the largest value.`).join("\n")}\n`,
 };
 
+/** A worker that writes the user two messages before it reports. */
+const NOTES_FIRST: Scenario = {
+  ...FLAKY_TEST,
+  notes: [
+    "Heads-up: the replay fixtures are shared with the bench suite.",
+    "The bench suite runs nightly, so it tells us by tomorrow whether they still fit.",
+  ],
+};
+
 const scenarioOf = (prompt: string): Scenario =>
   prompt.includes("Batch the event log writes")
     ? BATCHED_WRITES
@@ -450,7 +461,9 @@ const scenarioOf = (prompt: string): Scenario =>
           ? CRASH
           : prompt.includes("plan reviewed")
             ? PLAN_REVIEW
-            : FLAKY_TEST;
+            : prompt.includes("notes first")
+              ? NOTES_FIRST
+              : FLAKY_TEST;
 
 /** `session` keeps tool and request ids apart between workers that run the same script. */
 function workerScript(turn: number, prompt: string, session: string, scenario: Scenario): Step[] {
@@ -607,6 +620,14 @@ function workerScript(turn: number, prompt: string, session: string, scenario: S
       name: "submit_open_points",
       input: { path: ".fleet/open-points.md" },
     },
+    ...(scenario.notes ?? []).map(
+      (body, i): Step => ({
+        type: "fleet",
+        id: id(20 + i),
+        name: "send_message",
+        input: { to: "you", body },
+      }),
+    ),
     {
       type: "fleet",
       id: id(8),

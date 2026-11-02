@@ -731,10 +731,8 @@ export class Supervisor implements ToolHost {
         this.background(this.interrupt(message.agent));
         return;
       case "finished_read":
-        // The agent's messages sit in the same group, so they are read with it.
         if (this.agent(message.agent)) {
           this.append(message.agent, { kind: "finished_read", ids: message.ids });
-          this.readMessages(message.agent);
         }
         return;
       case "messages_read":
@@ -752,7 +750,7 @@ export class Supervisor implements ToolHost {
         if (!unread) return;
         this.handle({ type: "prompt", agent, text });
         if (ids.length > 0) this.handle({ type: "finished_read", agent, ids });
-        else this.readMessages(agent, new Set(seqs));
+        this.readMessages(agent, new Set(seqs));
         return;
       }
       case "stop_task":
@@ -4121,10 +4119,10 @@ export class Supervisor implements ToolHost {
     }
   }
 
-  /** Marks the agent's unread messages to the user read: those in `only`, or all of them. */
-  private readMessages(name: string, only?: ReadonlySet<number>): void {
+  /** Marks those of `only` read that are unread messages from the agent to the user. */
+  private readMessages(name: string, only: ReadonlySet<number>): void {
     const seqs = this.state.messages.flatMap((m) =>
-      m.from === name && m.to === USER && !m.read && (!only || only.has(m.seq)) ? [m.seq] : [],
+      m.from === name && m.to === USER && !m.read && only.has(m.seq) ? [m.seq] : [],
     );
     if (seqs.length > 0) this.append(name, { kind: "messages_read", seqs });
   }

@@ -98,7 +98,7 @@ const physicalKey = (event: KeyboardEvent): string =>
 const SIGNS: Record<string, string> = { Equal: "=", Minus: "-" };
 
 /** Normalises a key event to "mod+shift+k" form; shift only shows for letters and named keys. */
-function keyName(event: KeyboardEvent): string {
+export function keyName(event: KeyboardEvent): string {
   const key = event.altKey ? physicalKey(event) : event.key.toLowerCase();
   const mods: string[] = [];
   if (isMac ? event.metaKey : event.ctrlKey) mods.push("mod");

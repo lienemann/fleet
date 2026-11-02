@@ -28,10 +28,10 @@ describe("fold store", () => {
   it("forgets the folds of items that left the inbox", () => {
     const store = new FoldStore(memory());
     store.toggle(foldKey.decision("r1"));
-    store.toggle(foldKey.group("alpha", "r2"));
-    store.prune(new Set([foldKey.group("alpha", "r2")]));
+    store.toggle(foldKey.group("alpha"));
+    store.prune(new Set([foldKey.group("alpha")]));
     expect(store.has(foldKey.decision("r1"))).toBe(false);
-    expect(store.has(foldKey.group("alpha", "r2"))).toBe(true);
+    expect(store.has(foldKey.group("alpha"))).toBe(true);
   });
 
   it("keeps the newest folds within its limit and ignores what it cannot read", () => {

@@ -1,17 +1,11 @@
 import { useState } from "react";
 import { type OpenPointsDoc, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
 import type { LineThread } from "../../shared/review.ts";
-import {
-  awaitingVerdict,
-  lastAgentOf,
-  type TaskView,
-  taskOf,
-  unreadThreads,
-} from "../../shared/tasks.ts";
+import { awaitingVerdict, lastAgentOf, type TaskView, unreadThreads } from "../../shared/tasks.ts";
 import { itemSlot, useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { foldKey, useFold } from "../folds.ts";
-import { groupIds, inboxGroups } from "../inboxItems.ts";
+import { inboxGroups, readCommands, reviewItem } from "../inboxItems.ts";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
@@ -104,19 +98,13 @@ export function Inbox({
     {
       ...inboxCommand,
       id: "inbox.finished.read",
-      label: "Mark the focused agent's runs and messages read",
+      label: "Mark all of the focused agent's runs and messages read",
       run: () => {
         if (!group) return;
         // A review leaves the inbox with a verdict only.
-        const agent = state.agents[group.agent];
-        const task = agent && taskOf(state, agent);
-        if (task && movesOf(task).includes("accept")) return;
-        const { ids, seqs } = groupIds(group);
-        send(
-          ids.length > 0
-            ? { type: "finished_read", agent: group.agent, ids }
-            : { type: "messages_read", agent: group.agent, seqs },
-        );
+        const review = reviewItem(all, group);
+        const items = group.items.filter((item) => item !== review);
+        for (const command of readCommands(group.agent, items)) send(command);
       },
     },
   ]);

@@ -187,13 +187,13 @@ describe("draft store", () => {
     });
 
     it("drops the drafts of inbox items that left the inbox, and keeps the others", () => {
-      const live = itemSlot.group("r2");
+      const live = itemSlot.group;
       const gone = itemSlot.comment("req-1");
-      drafts.set("agent:mike", live, "about r2");
+      drafts.set("agent:mike", live, "about the group");
       drafts.set("agent:mike", gone, "about a decision answered elsewhere");
       drafts.set("agent:mike", "reply:th1", "a thread reply");
       pruneAgentDrafts(new Set(["mike"]), new Set([liveItem("mike", live)]));
-      expect(drafts.get("agent:mike", live)).toBe("about r2");
+      expect(drafts.get("agent:mike", live)).toBe("about the group");
       expect(drafts.get("agent:mike", gone)).toBe("");
       // Only inbox items go with their item; the prompt and thread drafts stay.
       expect(drafts.get("agent:mike", "reply:th1")).toBe("a thread reply");

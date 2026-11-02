@@ -75,8 +75,10 @@ globalThis.addEventListener?.("storage", (event) => {
 
 /** How an inbox item is named among the folds. */
 export const foldKey = {
-  /** An agent's Finished items and messages, by the oldest of them, as its draft slot is. */
-  group: (agent: string, oldest: string): string => `group:${agent}:${oldest}`,
+  /** An agent's group of Finished items and messages. */
+  group: (agent: string): string => `group:${agent}`,
+  /** One Finished item or message in its agent's group. */
+  item: (agent: string, key: string): string => `item:${agent}:${key}`,
   decision: (requestId: string): string => `decision:${requestId}`,
   points: (docId: string): string => `points:${docId}`,
   reply: (task: string, thread: string): string => `reply:${task}:${thread}`,

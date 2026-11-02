@@ -324,23 +324,28 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await expect(group).toContainText("Finished", { timeout: 15_000 });
   await expect(group).toContainText("Replaced the fixed 1 ms tolerance");
   await shot(page, "finished");
-  await expect(group.getByRole("button", { name: "Go" })).toBeVisible();
-  // A review leaves the inbox with a verdict, so there is no Mark read.
-  await expect(group.getByRole("button", { name: "Mark read" })).toHaveCount(0);
+  await expect(group.getByRole("button", { name: "Go", exact: true })).toBeVisible();
+  // A review leaves the inbox with a verdict, so the report has no Mark read.
+  await expect(group.locator(".run").last().getByRole("button", { name: "Mark read" })).toHaveCount(
+    0,
+  );
 
   await group.getByPlaceholder(/^Comment for/).fill("Thanks");
   // The comment is the item's own draft: a reload keeps it, and the agent's prompt stays apart.
   await page.reload();
   await page.keyboard.press("Alt+2");
   await expect(group.getByPlaceholder(/^Comment for/)).toHaveValue("Thanks");
-  // The agent's name opens the agent; the item has no Open link of its own.
+  // The agent's name opens the agent and its task in the drawer, and the inbox stays; the item
+  // has no Open link of its own.
   await expect(group.getByRole("button", { name: "Open", exact: true })).toHaveCount(0);
+  const taskId = (await group.locator("header .task-id").textContent()) ?? "";
   await group.locator("header .agent-label .name").click();
-  await expect(page.locator(".tile [data-prompt]")).toHaveValue("");
-  await page.keyboard.press("Escape"); // leaves the field
-  await page.keyboard.press("Alt+2");
+  const drawer = page.locator(".drawer");
+  await expect(drawer.locator(".drawer-head .task-id")).toHaveText(taskId);
+  await expect(drawer.locator(".tile [data-prompt]")).toHaveValue("");
+  await expect(group.getByPlaceholder(/^Comment for/)).toHaveValue("Thanks");
   // Go would drop the comment, so only Send is left.
-  await expect(group.getByRole("button", { name: "Go" })).toBeDisabled();
+  await expect(group.getByRole("button", { name: "Go", exact: true })).toBeDisabled();
   await group.getByRole("button", { name: /^Send/ }).click();
   await expect(group).toHaveCount(0);
   const read = page.locator(".read-finished");
@@ -349,9 +354,8 @@ test("a finished run waits in the inbox until the user comments on it", async ({
 
   // The comment went to the agent as a prompt, saying which message it answers.
   await read.locator(".run", { hasText: title }).locator(".agent-label .name").click();
-  await expect(page.locator(".tile .log")).toContainText("Re: your closing message of");
-  await expect(page.locator(".tile .log")).toContainText("Thanks");
-  await page.keyboard.press("Alt+2");
+  await expect(drawer.locator(".tile .log")).toContainText("Re: your closing message of");
+  await expect(drawer.locator(".tile .log")).toContainText("Thanks");
   await expect(group.getByPlaceholder(/^Comment for/)).toHaveCount(0);
   // The comment woke the agent, so the task went back to work, marked; accepting it now asks
   // first and interrupts the agent.
@@ -447,6 +451,63 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
   await acceptOnceIdle(card(page, "Review", sentBack));
 });
 
+test("an agent's group reads oldest first, its items go to Read one by one or all but the review, and ⌘↵ accepts", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const title = "Leave two notes first, then report";
+  await newTask(page, title, "ws1");
+  await expect(markedCard(page, title)).toBeVisible({ timeout: 15_000 });
+  await answerFromInbox(page, title);
+  const group = page.locator(".finished", { hasText: title });
+  await expect(group).toContainText("Finished", { timeout: 15_000 });
+
+  // Oldest first: the two notes, then the report, then the comment box and the buttons.
+  const heads = group.locator(".run", { hasText: "Heads-up" });
+  const nightly = group.locator(".run", { hasText: "runs nightly" });
+  const report = group.locator(".run").last();
+  await expect(report.locator(".kind")).toHaveText("Finished");
+  const top = async (locator: Locator) => (await locator.boundingBox())?.y ?? Number.NaN;
+  const tops = [
+    await top(heads),
+    await top(nightly),
+    await top(report),
+    await top(group.locator("textarea")),
+    await top(group.locator("footer.actions")),
+  ];
+  expect(tops.every(Number.isFinite)).toBe(true);
+  expect(tops).toEqual(tops.toSorted((a, b) => a - b));
+
+  // Each note has a Mark read of its own; the report waits for the verdict instead.
+  await expect(report.getByRole("button", { name: "Mark read" })).toHaveCount(0);
+  await expect(report).toContainText("waits for your verdict");
+  await heads.getByRole("button", { name: "Mark read" }).click();
+  await expect(heads).toHaveCount(0);
+  await expect(nightly).toBeVisible();
+  const read = page.locator(".read-finished");
+  await read.locator("summary").click();
+  await expect(read).toContainText("Heads-up");
+
+  // Mark all read reads the rest and says that it leaves the review.
+  const all = group.getByRole("button", { name: "Mark all read" });
+  await expect(all).toHaveAttribute("title", /^Reads all but the report of t\d+/);
+  await all.click();
+  await expect(nightly).toHaveCount(0);
+  await expect(read).toContainText("runs nightly");
+  await expect(report).toContainText("waits for your verdict");
+  await expect(group.getByRole("button", { name: /^Mark (all )?read/ })).toHaveCount(0);
+
+  // ⌘↵ in the comment box takes the group's first button, Accept, with the comment.
+  await expect(group.locator(".working-note")).toHaveCount(0, { timeout: 15_000 });
+  const comment = group.getByPlaceholder(/^Comment for/);
+  await comment.fill("Thanks, merged.");
+  await comment.press("ControlOrMeta+Enter");
+  await expect(group).toHaveCount(0);
+  await page.keyboard.press("Alt+1");
+  await expect(card(page, "Done", title)).toBeVisible();
+});
+
 test("a question and a permission are answered from the inbox with the same buttons", async ({
   page,
 }) => {
@@ -520,10 +581,12 @@ test("a review request shows its file above the comment and the buttons, whereve
   await expectStacked(strip);
   await page.keyboard.press("Alt+z");
 
-  // The comment goes with the approval, and the worker carries on to its questions.
+  // ⌘↵ in the comment box approves, the comment goes along, and the worker carries on to its
+  // questions.
   await page.keyboard.press("Alt+2");
-  await inInbox.getByLabel("Comment for the agent").fill("Start with runner 3.");
-  await inInbox.getByRole("button", { name: "Approve" }).click();
+  const reviewComment = inInbox.getByLabel("Comment for the agent");
+  await reviewComment.fill("Start with runner 3.");
+  await reviewComment.press("ControlOrMeta+Enter");
   await expect(inInbox).toHaveCount(0);
   await expect(page.locator(".drawer .log")).toContainText("The user adds: Start with runner 3.");
   await answerFromInbox(page, title);
@@ -951,11 +1014,14 @@ test("a message to the user sits in its agent's group with its time, and leaves 
   const group = page.locator('.finished[data-agent="director-daemon"]');
   await expect(group).toContainText("Started 2 worker(s).");
   await expect(group.locator(".kind-message").first()).toHaveText("Message");
-  // The message is on top, or folded under a newer Finished item of the director.
-  const line = group.locator(":is(header, .run-line):has(.kind-message)").first();
+  const line = group.locator(".run-line:has(.kind-message)").first();
   await expect(line.locator("time")).toContainText(/\d\d:\d\d/);
   await expect(page.getByRole("heading", { name: "Messages for you" })).toHaveCount(0);
-  await group.getByRole("button", { name: "Mark read" }).click();
+  // Mark read for a lone item, Mark all read for several.
+  await group
+    .locator("footer.actions")
+    .getByRole("button", { name: /^Mark (all )?read/ })
+    .click();
   await expect(group).toHaveCount(0);
 
   // Once read, it stays out of the unread items, also after a reload, and waits under Read.
@@ -1558,14 +1624,17 @@ test("a card's Needs you mark goes with its inbox item, and accepting on the boa
     await expect(card(page, "Done", title)).toBeVisible();
   };
 
-  // Mark read in the inbox takes the item, and the agent's messages read with it, off the card's
-  // count; the worker may still have open points of an earlier task.
+  // Marking the group read in the inbox takes its items off the card's count; the worker may still
+  // have open points of an earlier task.
   const first = "Let the first board worker crash mid-turn";
   const group = await stopped(first);
   const running = card(page, "In progress", first);
   const before = await inboxItems(running);
   await page.keyboard.press("Alt+2");
-  await group.getByRole("button", { name: "Mark read" }).click();
+  await group
+    .locator("footer.actions")
+    .getByRole("button", { name: /^Mark (all )?read/ })
+    .click();
   await page.keyboard.press("Alt+1");
   await expect.poll(() => inboxItems(running)).toBeLessThan(before);
   await accept(first);

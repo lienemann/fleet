@@ -137,8 +137,11 @@ const APP_OWNER = "app";
  * the agent's prompt. The slot goes with its item.
  */
 export const itemSlot = {
-  /** An agent's Finished items and messages, by the oldest of them, which stays as new ones come. */
-  group: (oldest: string): string => `group:${oldest}`,
+  /**
+   * The comment on an agent's group of Finished items and messages. It stays while items come and
+   * go, and goes once the agent has no unread item left.
+   */
+  group: "group:unread",
   /** The comment on a decision, a permission or a review request. */
   comment: (requestId: string): string => `comment:${requestId}`,
   /** The typed answers to a decision's questions. */
