@@ -896,6 +896,11 @@ button.link.accent {
 .card-meta .chg {
   color: var(--chg);
 }
+.working-note {
+  align-self: center;
+  color: var(--run);
+  font-size: 11.5px;
+}
 .card footer {
   display: flex;
   flex-wrap: wrap;

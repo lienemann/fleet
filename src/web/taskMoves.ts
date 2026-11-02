@@ -1,5 +1,6 @@
 import type { TaskState } from "../shared/events.ts";
-import type { TaskView } from "../shared/tasks.ts";
+import type { AgentView, FleetState } from "../shared/reducer.ts";
+import { holderOf, type TaskView } from "../shared/tasks.ts";
 import { useFleet } from "./fleet.tsx";
 
 /** A move of a task the user can make from the board, the inbox, the diff or the palette. */
@@ -90,16 +91,35 @@ export function moveInto(
 }
 
 /**
+ * The agent in a turn on the task right now, which a verdict interrupts. One that rests while a
+ * shell or subagent of its runs in the background has no turn to interrupt.
+ */
+export function workingHolder(state: FleetState, task: TaskView): AgentView | undefined {
+  const agent = holderOf(state, task);
+  return agent?.activity === "working" ? agent : undefined;
+}
+
+/**
  * Sends the moves. A note for the agent goes with Request changes, Accept and Drop, and into
  * the handover note with Park; the others ignore it. Drop asks the user in the inbox first when
- * the task's change holds work.
+ * the task's change holds work; Accept and Request changes ask here first while the task's agent
+ * works, since they interrupt it.
  */
 export function useTaskMoves(): Record<TaskMove, (task: string, note?: string) => void> {
-  const { send } = useFleet();
+  const { state, send } = useFleet();
+  const interrupts = (id: string, verb: string): boolean => {
+    const task = state.tasks[id];
+    const agent = task && workingHolder(state, task);
+    return !agent || confirm(`${agent.name} is still working on ${id}: interrupt and ${verb}?`);
+  };
   return {
     review: (task) => send({ type: "move", task, to: "review" }),
-    accept: (task, note) => send({ type: "move", task, to: "done", note }),
-    changes: (task, message) => send({ type: "request_changes", task, message }),
+    accept: (task, note) => {
+      if (interrupts(task, "accept")) send({ type: "move", task, to: "done", note });
+    },
+    changes: (task, message) => {
+      if (interrupts(task, "request changes")) send({ type: "request_changes", task, message });
+    },
     park: (task, note) => send({ type: "park", task, note }),
     unpark: (task) => send({ type: "unpark", task }),
     unpin: (task) => send({ type: "unpin", task }),

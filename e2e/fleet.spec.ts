@@ -52,6 +52,12 @@ const column = (page: Page, name: string) =>
 const card = (page: Page, columnName: string, title: string) =>
   column(page, columnName).locator(".card", { hasText: title });
 
+/** Accepts a task once its agent rests, since Accept asks first while the agent works. */
+async function acceptOnceIdle(taskCard: Locator) {
+  await expect(taskCard.locator(".working-note")).toHaveCount(0, { timeout: 15_000 });
+  await taskCard.getByRole("button", { name: "Accept" }).click();
+}
+
 /** The card of a task whose agent has something in the inbox for the user. */
 const markedCard = (page: Page, title: string) => page.locator(".card.waiting", { hasText: title });
 
@@ -184,7 +190,10 @@ test("a task asks for permission and a decision, hands in open points, and is re
   await compose.getByRole("button", { name: "Send", exact: true }).click();
   const thread = diff.locator(".thread", { hasText: "Why 50 runs?" });
   await expect(thread).toContainText("Fifty runs", { timeout: 10_000 });
-  await expect(reviewed).toContainText("hunks approved");
+  // Asking at once sends the task back to work, marked with the thread.
+  const sentBack = card(page, "In progress", "Fix the flaky replay test");
+  await expect(sentBack).toContainText("changes requested · 1 thread");
+  await expect(sentBack).toContainText("hunks approved");
   await thread.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await shot(page, "thread");
 
@@ -292,7 +301,7 @@ test("a task asks for permission and a decision, hands in open points, and is re
   // The wide diff covers the card.
   await page.getByRole("button", { name: "Live" }).click();
 
-  await reviewed.getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(reviewed);
   await expect(card(page, "Done", "Fix the flaky replay test")).toBeVisible();
 });
 
@@ -316,7 +325,8 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await expect(group).toContainText("Replaced the fixed 1 ms tolerance");
   await shot(page, "finished");
   await expect(group.getByRole("button", { name: "Go" })).toBeVisible();
-  await expect(group.getByRole("button", { name: "Mark read" })).toBeVisible();
+  // A review leaves the inbox with a verdict, so there is no Mark read.
+  await expect(group.getByRole("button", { name: "Mark read" })).toHaveCount(0);
 
   await group.getByPlaceholder(/^Comment for/).fill("Thanks");
   // The comment is the item's own draft: a reload keeps it, and the agent's prompt stays apart.
@@ -343,11 +353,17 @@ test("a finished run waits in the inbox until the user comments on it", async ({
   await expect(page.locator(".tile .log")).toContainText("Thanks");
   await page.keyboard.press("Alt+2");
   await expect(group.getByPlaceholder(/^Comment for/)).toHaveCount(0);
+  // The comment woke the agent, so the task went back to work, marked; accepting it now asks
+  // first and interrupts the agent.
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+  const sentBack = card(page, "In progress", title);
+  await expect(sentBack).toContainText("changes requested");
+  page.once("dialog", (dialog) => dialog.accept());
+  await sentBack.getByRole("button", { name: "Accept" }).click();
+  await expect(card(page, "Done", title)).toBeVisible();
 });
 
-test("Mark read and Go deal with a finished run without a comment", async ({ page }) => {
+test("Fold puts a review aside, and Go sends it back to work", async ({ page }) => {
   await page.goto("/");
   const read = page.locator(".read-finished");
   const finishedTask = async (title: string, workspace: string) => {
@@ -359,23 +375,33 @@ test("Mark read and Go deal with a finished run without a comment", async ({ pag
     return group;
   };
 
-  const marked = await finishedTask("Sort the imports", "ws1");
-  await marked.getByRole("button", { name: "Mark read" }).click();
-  await expect(marked).toHaveCount(0);
+  // Folded, the review stays in the inbox and keeps its fold across a reload.
+  const folded = await finishedTask("Sort the imports", "ws1");
+  await folded.getByRole("button", { name: "Fold", exact: true }).click();
+  await expect(folded.getByPlaceholder(/^Comment for/)).toBeHidden();
+  await page.reload();
+  await page.keyboard.press("Alt+2");
+  await expect(folded.getByRole("button", { name: "Unfold" })).toBeVisible();
+  await expect(folded.getByPlaceholder(/^Comment for/)).toBeHidden();
+  await page.keyboard.press("Alt+1");
+  await acceptOnceIdle(card(page, "Review", "Sort the imports"));
+  await page.keyboard.press("Alt+2");
+  await expect(folded).toHaveCount(0);
   await read.locator("summary").click();
   await expect(read).toContainText("Sort the imports");
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", "Sort the imports").getByRole("button", { name: "Accept" }).click();
 
   // Go answers for the user, so the agent gets a prompt and the group is read.
   const go = await finishedTask("Rename the helpers", "ws2");
   await go.getByRole("button", { name: "Go", exact: true }).click();
   await expect(go).toHaveCount(0);
   await page.keyboard.press("Alt+1");
+  // Go woke the agent, which revised and reported again.
   const task = card(page, "Review", "Rename the helpers");
+  await expect(task).toBeVisible({ timeout: 15_000 });
   await task.locator(".card-main").click();
   await expect(page.locator(".drawer .log")).toContainText("Go ahead.");
-  await task.getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(task);
 });
 
 test("a task waiting for a verdict is accepted or sent back from its inbox item", async ({
@@ -396,17 +422,11 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
   const accepted = "Order the replay imports";
   const group = await finishedTask(accepted, "ws1");
   const labels = group.locator("footer.actions button");
-  await expect(labels).toHaveText([
-    /^Accept/,
-    /^Request changes/,
-    /^Park/,
-    /^Mark read/,
-    "Go",
-    /^Drop/,
-  ]);
+  await expect(labels).toHaveText([/^Accept/, /^Request changes/, /^Park/, /^Send/, "Go", /^Drop/]);
   await expect(labels.first()).toHaveClass(/primary/);
   await expect(labels.last()).toHaveClass(/danger/);
   await expect(group.getByRole("button", { name: "Diff", exact: true })).toBeVisible();
+  await expect(group.locator(".working-note")).toHaveCount(0, { timeout: 15_000 });
   await group.getByRole("button", { name: /^Accept/ }).click();
   await expect(group).toHaveCount(0);
   await page.keyboard.press("Alt+1");
@@ -424,7 +444,7 @@ test("a task waiting for a verdict is accepted or sent back from its inbox item"
   await page.getByRole("button", { name: /^Messages/ }).click();
   await expect(page.locator(".drawer")).toContainText("Keep the old fixture names too.");
   await page.getByRole("button", { name: "Live" }).click();
-  await card(page, "Review", sentBack).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", sentBack));
 });
 
 test("a question and a permission are answered from the inbox with the same buttons", async ({
@@ -452,7 +472,7 @@ test("a question and a permission are answered from the inbox with the same butt
     timeout: 15_000,
   });
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", title));
 });
 
 /** Whether, inside `item`, the file preview spans the item and the comment and buttons follow below. */
@@ -511,7 +531,7 @@ test("a review request shows its file above the comment and the buttons, whereve
   await page.keyboard.press("Alt+1");
   const reviewed = card(page, "Review", title);
   await expect(reviewed).toBeVisible({ timeout: 15_000 });
-  await reviewed.getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(reviewed);
   await expect(card(page, "Done", title)).toBeVisible();
   await page.locator(".drawer").getByRole("button", { name: "Close", exact: true }).click();
 });
@@ -574,9 +594,8 @@ test("a closing message cut to the state's limit shows the rest on request", asy
   await group.getByRole("button", { name: "Show all" }).click();
   await expect(group).toContainText("That is every timing.");
   await expect(group).not.toContainText("cut off at");
-  await group.getByRole("button", { name: "Mark read" }).click();
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", title));
 });
 
 /** An agent's row in the rail, or in a part of it. */
@@ -590,20 +609,19 @@ test("an agent stays in the rail after its task, and the Done task keeps its log
 }) => {
   test.setTimeout(60_000);
   await page.goto("/");
-  /** Runs a task in ws1 up to its Finished item, which it leaves read. */
+  /** Runs a task in ws1 up to its Finished item. */
   const finish = async (title: string) => {
     await newTask(page, title, "ws1");
     await expect(markedCard(page, title)).toBeVisible({ timeout: 15_000 });
     await answerFromInbox(page, title);
     const group = page.locator(".finished", { hasText: title });
     await expect(group).toContainText("Finished", { timeout: 15_000 });
-    await group.getByRole("button", { name: "Mark read" }).click();
     await page.keyboard.press("Alt+1");
   };
   const first = "Index the golden traces";
   await finish(first);
   const name = await holderName(page, first);
-  await card(page, "Review", first).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", first));
 
   // The worker stays listed with the task it did last; free agents come after every other one.
   const daemon = page.locator(".rail .rail-project", {
@@ -636,9 +654,8 @@ test("an agent stays in the rail after its task, and the Done task keeps its log
   // The drawer watches the worker, so its closing text is read at once.
   await answerFromInbox(page, second);
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", second)
-    .getByRole("button", { name: "Accept" })
-    .click({ timeout: 15_000 });
+  await expect(card(page, "Review", second)).toBeVisible({ timeout: 15_000 });
+  await acceptOnceIdle(card(page, "Review", second));
 });
 
 /** The number on a header counter. */
@@ -698,7 +715,7 @@ test("a run that ends while the user watches the agent goes straight to read", a
   await expect(read).toContainText(title, { timeout: 15_000 });
   await expect(page.locator(".finished", { hasText: title })).toHaveCount(0);
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", title));
 });
 
 test("files open from the edit card, the Outputs panel and the Report, also those outside the workspace", async ({
@@ -769,7 +786,7 @@ test("files open from the edit card, the Outputs panel and the Report, also thos
   await shot(page, "files");
 
   await page.keyboard.press("Alt+1");
-  await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(card(page, "Review", title));
 });
 
 test("a director's files outside its checkout open in the Files tab and copy their path", async ({
@@ -1539,7 +1556,7 @@ test("a card's Needs you mark goes with its inbox item, and accepting on the boa
   };
   const accept = async (title: string) => {
     await card(page, "In progress", title).getByRole("button", { name: "To review" }).click();
-    await card(page, "Review", title).getByRole("button", { name: "Accept" }).click();
+    await acceptOnceIdle(card(page, "Review", title));
     await expect(card(page, "Done", title)).toBeVisible();
   };
 
@@ -1632,7 +1649,7 @@ test("a question to the director goes to an investigator, which reports and goes
   await page.locator(".drawer").getByRole("button", { name: "Report", exact: true }).click();
   await expect(page.locator(".drawer")).toContainText("a fixed 1 ms, below the jitter");
 
-  await review.getByRole("button", { name: "Accept" }).click();
+  await acceptOnceIdle(review);
   await expect(card(page, "Done", title)).toBeVisible();
   await expectFree(page, name);
   // Free, it stays in the rail, faded, with the task it did last.

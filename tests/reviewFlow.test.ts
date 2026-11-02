@@ -292,9 +292,10 @@ describe("review flow", () => {
     await until(() => promptsOf(log).some((l) => l.text.includes("I edited these lines myself")));
 
     supervisor.handle(open(true));
+    // The agent may still answer the first message; the request interrupts it.
     supervisor.handle({ type: "request_changes", task: "t1" });
+    await until(() => log.state.messages.at(-1)?.body.includes("thread ") ?? false);
     const bus = log.state.messages.at(-1)?.body ?? "";
-    expect(bus).toContain("thread ");
     expect(bus).not.toContain("I edited these lines myself");
   });
 

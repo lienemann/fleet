@@ -15,13 +15,14 @@ import { groupIds, inboxGroups } from "../inboxItems.ts";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
-import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
+import { movesOf, TASK_MOVES, useTaskMoves, workingHolder } from "../taskMoves.ts";
 import { AgentLabel, OpenAgentProvider } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { FoldToggle } from "../ui/FoldToggle.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Options } from "../ui/Options.tsx";
 import { TaskHead } from "../ui/TaskHead.tsx";
+import { WorkingNote } from "../ui/WorkingNote.tsx";
 import { FinishedGroup, ReadItems } from "./FinishedRuns.tsx";
 
 /** Answers most open points get; anything else is typed. */
@@ -251,6 +252,7 @@ function Verdict({
   task: TaskView;
   onOpenTab: (agent: string, tab: "diff" | "report") => void;
 }) {
+  const { state } = useFleet();
   const moves = useTaskMoves();
   const [folded, toggleFold] = useFold(foldKey.verdict(task.id));
   const { agent } = task;
@@ -277,6 +279,7 @@ function Verdict({
         )}
       </header>
       <ItemActions
+        note={workingHolder(state, task) && <WorkingNote />}
         actions={movesOf(task).map((move) => ({
           label: TASK_MOVES[move].button,
           tone: move === "accept" ? ("primary" as const) : TASK_MOVES[move].tone,

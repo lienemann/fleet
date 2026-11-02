@@ -26,10 +26,18 @@ import {
   waitsFor,
 } from "../labels.ts";
 import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
-import { moveInto, movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
+import {
+  moveInto,
+  movesOf,
+  TASK_MOVES,
+  type TaskMove,
+  useTaskMoves,
+  workingHolder,
+} from "../taskMoves.ts";
 import { AgentLabel, useProjectColor } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
 import { TaskHead } from "../ui/TaskHead.tsx";
+import { WorkingNote } from "../ui/WorkingNote.tsx";
 import { useEdgeFades } from "../useEdgeFades.ts";
 import { useNow } from "../useNow.ts";
 
@@ -403,6 +411,7 @@ function Card({
             Message
           </button>
         )}
+        {movesOf(task).includes("accept") && workingHolder(state, task) && <WorkingNote />}
         {movesOf(task).map((move) => {
           const { label, button, keys, tone } = TASK_MOVES[move];
           return (

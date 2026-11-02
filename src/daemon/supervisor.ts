@@ -870,7 +870,7 @@ export class Supervisor implements ToolHost {
         return;
       }
       case "request_changes":
-        this.requestChanges(message.task, message.message);
+        this.background(this.requestChanges(message.task, message.message));
         return;
       case "import_session":
         this.background(this.importSession(message.sessionId, message.workspace, message.title));
@@ -2912,11 +2912,16 @@ export class Supervisor implements ToolHost {
     this.append(this.task(id)?.agent ?? DAEMON, event);
   }
 
-  /** Sends the held thread messages and edits as one message, and the task goes back to work. */
-  private requestChanges(id: string, note: string | undefined): void {
+  /**
+   * Sends the held thread messages and edits as one message, and the task goes back to work. An
+   * agent at work is interrupted first, so the request starts a turn of its own.
+   */
+  private async requestChanges(id: string, note: string | undefined): Promise<void> {
+    const holder = this.task(id)?.agent;
+    if (holder === undefined) return;
+    if (this.agent(holder)?.activity === "working") await this.interrupt(holder);
     const task = this.task(id);
-    const holder = task?.agent;
-    if (!task || holder === undefined) return;
+    if (!task || task.agent !== holder) return;
     const body = changeRequest(task, note);
     const threads = task.threads.filter((t) => t.messages.some((m) => m.held)).map((t) => t.id);
     this.append(holder, { kind: "review_sent", task: id });
@@ -3106,7 +3111,7 @@ export class Supervisor implements ToolHost {
 
   /**
    * The user's move of a task. In progress starts a queued task now, past the limits; Done frees
-   * its agent, whose session carries on. Done and Dropped are final.
+   * its agent, interrupted if it works, whose session carries on. Done and Dropped are final.
    */
   private move(id: string, to: UserMove, note?: string): void {
     const task = this.task(id);
@@ -3116,9 +3121,12 @@ export class Supervisor implements ToolHost {
       return;
     }
     if (!HOLDS_WORKSPACE.has(task.state)) return;
+    const holder = holderOf(this.state, task);
+    // An accepted task's change takes no more edits.
+    if (to === "done" && holder?.activity === "working")
+      this.background(this.interrupt(holder.name));
     this.append(DAEMON, { kind: "task_state", task: id, state: to });
     this.tellMove(id, USER_MOVE_NAMES[to], USER, task.agent);
-    const holder = holderOf(this.state, task);
     // A session another client holds runs again once fleet takes it back.
     if (to === "in_progress" && holder && holder.activity !== "detached") {
       this.session(holder.name)?.start();

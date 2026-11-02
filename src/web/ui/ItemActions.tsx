@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { keyLabel } from "../keys/keymap.tsx";
 
 /** One thing the user can do with an inbox item. */
@@ -21,13 +21,14 @@ const rank = (action: ItemAction): number =>
 
 /**
  * The buttons of an inbox item, the same way for every kind: what the user most likely wants
- * first and filled, what cannot be undone at the end behind a gap.
+ * first and filled, what cannot be undone at the end behind a gap. `note` goes before them.
  */
-export function ItemActions({ actions }: { actions: ItemAction[] }) {
+export function ItemActions({ actions, note }: { actions: ItemAction[]; note?: ReactNode }) {
   const ordered = actions.toSorted((a, b) => rank(a) - rank(b));
   const firstDanger = ordered.findIndex((a) => a.tone === "danger");
   return (
     <footer className="actions">
+      {note}
       {ordered.map((action, i) => (
         <Fragment key={action.label}>
           {i === firstDanger && i > 0 && <span className="spacer" />}

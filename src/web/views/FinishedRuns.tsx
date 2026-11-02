@@ -16,12 +16,20 @@ import {
 import { useCommands } from "../keys/keymap.tsx";
 import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
-import { CONTINUE_KEYS, movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
+import {
+  CONTINUE_KEYS,
+  movesOf,
+  TASK_MOVES,
+  type TaskMove,
+  useTaskMoves,
+  workingHolder,
+} from "../taskMoves.ts";
 import { CutText } from "../ui/CutText.tsx";
 import { FoldToggle } from "../ui/FoldToggle.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { TaskHead } from "../ui/TaskHead.tsx";
+import { WorkingNote } from "../ui/WorkingNote.tsx";
 import { useNow } from "../useNow.ts";
 
 /** What Go sends: for an agent that waited for the user's go. */
@@ -267,6 +275,7 @@ export function FinishedGroup({
         }
       />
       <ItemActions
+        note={reviewable && workingHolder(state, task) && <WorkingNote />}
         actions={[
           ...offered.map((move) => ({
             label: TASK_MOVES[move].button,

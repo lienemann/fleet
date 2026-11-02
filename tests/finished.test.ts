@@ -164,7 +164,7 @@ describe("Finished runs", () => {
     expect(alpha()?.finished).toEqual([]);
   });
 
-  it("leaves out the run of a task the user dropped; an accepted one runs on to its end", async () => {
+  it("leaves out the run of a task the user accepted or dropped, which interrupts it", async () => {
     const finishedAfter = async (to: "done" | "dropped") => {
       const { script, release } = held(result());
       const { supervisor, alpha, log } = setup(script);
@@ -177,8 +177,7 @@ describe("Finished runs", () => {
       return log.since(0).filter((e) => e.kind === "run_finished");
     };
     expect(await finishedAfter("dropped")).toEqual([]);
-    // Accepting frees the worker but leaves its session be, so its run ends as runs do.
-    expect(await finishedAfter("done")).toHaveLength(1);
+    expect(await finishedAfter("done")).toEqual([]);
   });
 
   it("does not report a run that a daemon restart interrupted", async () => {

@@ -322,6 +322,33 @@ describe("the protocol", () => {
   });
 });
 
+describe("a verdict while the agent works", () => {
+  it("Accept interrupts the agent, so the accepted change takes no more edits", async () => {
+    const { supervisor, fake, task, alpha, release } = setup();
+    supervisor.createTask("one", "hold", undefined);
+    await until(() => alpha()?.activity === "working");
+    supervisor.handle({ type: "move", task: "t1", to: "review" });
+    supervisor.handle({ type: "move", task: "t1", to: "done" });
+    await vi.waitFor(() => expect(fake.queries[0]?.interrupt).toHaveBeenCalledOnce());
+    expect(task("t1")?.state).toBe("done");
+    expect(alpha()?.task).toBeUndefined();
+    release();
+  });
+
+  it("Request changes interrupts the agent first, then sends the request as a turn of its own", async () => {
+    const { supervisor, fake, task, alpha, prompts, release } = setup();
+    supervisor.createTask("one", "hold", undefined);
+    await until(() => alpha()?.activity === "working");
+    supervisor.handle({ type: "move", task: "t1", to: "review" });
+    supervisor.handle({ type: "request_changes", task: "t1", message: "Rename it" });
+    await vi.waitFor(() => expect(fake.queries[0]?.interrupt).toHaveBeenCalledOnce());
+    release();
+    await until(() => task("t1")?.state === "in_progress");
+    expect(task("t1")?.changesRequested).toEqual({ note: "Rename it" });
+    await until(() => prompts("alpha").some((p) => p.text.includes("Rename it")));
+  });
+});
+
 describe("comments from the inbox", () => {
   const COMMENT = "Re: your closing message of 14:20 on t1:\n> ok\n\nNice work.";
   const told = (env: ReturnType<typeof setup>) =>

@@ -75,8 +75,8 @@ const state: FleetState = {
 const html = render(state);
 
 /** The card of the task with this title. */
-const cardOf = (title: string): string =>
-  html.match(new RegExp(`<article(?:(?!</article>).)*>${title}<.*?</article>`))?.[0] ?? "";
+const cardOf = (title: string, board = html): string =>
+  board.match(new RegExp(`<article(?:(?!</article>).)*>${title}<.*?</article>`))?.[0] ?? "";
 
 /** The labels of a card's buttons, without the key hints. */
 const buttons = (card: string): string[] =>
@@ -143,6 +143,18 @@ describe("Board", () => {
       '<span class="chg" title="Rename it\n\nwith 2 threads">changes requested · 2 threads</span>',
     );
     expect(html).toContain("WIP 1/1");
+  });
+
+  it("says working next to the verdict while the agent of a task in review works", () => {
+    const working = reduceAll(
+      stamped(
+        [taskState("t3", "review"), { kind: "activity", agent: "bravo", activity: "working" }],
+        state.lastSeq + 1,
+      ),
+      state,
+    );
+    expect(cardOf("Reviewed one", render(working))).toContain('class="working-note"');
+    expect(cardOf("Reviewed one")).not.toContain('class="working-note"');
   });
 
   it("shows the last week under Done, folds the dropped tasks, and offers more", () => {
