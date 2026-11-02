@@ -6,7 +6,9 @@ import {
   type Message,
 } from "../shared/reducer.ts";
 import { messageReference, runReference } from "../shared/replies.ts";
+import { awaitingVerdict, unreadThreads } from "../shared/tasks.ts";
 import { itemSlot, liveItem } from "./drafts.ts";
+import { foldKey } from "./folds.ts";
 
 /** One item of an agent's inbox group: a Finished run, or a message the agent wrote to the user. */
 export type GroupItem =
@@ -110,4 +112,15 @@ export function liveItems(state: FleetState): Set<string> {
     }
   }
   return live;
+}
+
+/** The fold key of every item in the inbox, for pruning the folds of the items that left it. */
+export function liveFolds(state: FleetState): Set<string> {
+  return new Set([
+    ...inboxGroups(state).map((g) => foldKey.group(g.agent, g.items.at(-1)?.key ?? "")),
+    ...Object.keys(state.decisions).map(foldKey.decision),
+    ...Object.keys(state.openPoints).map(foldKey.points),
+    ...unreadThreads(state).map(({ task, thread }) => foldKey.reply(task, thread.id)),
+    ...awaitingVerdict(state).map((t) => foldKey.verdict(t.id)),
+  ]);
 }

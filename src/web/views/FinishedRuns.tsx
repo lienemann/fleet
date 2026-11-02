@@ -4,6 +4,7 @@ import { withReference } from "../../shared/replies.ts";
 import { taskOf } from "../../shared/tasks.ts";
 import { useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
+import { foldKey, useFold } from "../folds.ts";
 import {
   type GroupItem,
   groupIds,
@@ -17,6 +18,7 @@ import { ago, duration, firstLine } from "../labels.ts";
 import { useShownState } from "../projects.tsx";
 import { CONTINUE_KEYS, movesOf, TASK_MOVES, type TaskMove, useTaskMoves } from "../taskMoves.ts";
 import { CutText } from "../ui/CutText.tsx";
+import { FoldToggle } from "../ui/FoldToggle.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Markdown } from "../ui/Markdown.tsx";
 import { TaskHead } from "../ui/TaskHead.tsx";
@@ -141,6 +143,7 @@ export function FinishedGroup({
   const moves = useTaskMoves();
   const task = taskOf(state, agent);
   const [comment, setComment] = useAgentDraft(agent.name, groupSlot(group));
+  const [folded, toggleFold] = useFold(foldKey.group(agent.name, group.items.at(-1)?.key ?? ""));
   const [newest, ...earlier] = group.items;
   const { ids, seqs } = groupIds(group);
   const text = comment.trim();
@@ -173,9 +176,11 @@ export function FinishedGroup({
     send({ type: "continue", agent: agent.name, note });
     setComment("");
   };
+  // A review leaves the inbox with a verdict only, so there is no Mark read for it; Fold puts
+  // it aside.
   const submit = () => {
     if (note) send({ type: "finished_reply", agent: agent.name, ids, seqs, text: note });
-    else read();
+    else if (!reviewable) read();
     setComment("");
   };
 
@@ -226,8 +231,13 @@ export function FinishedGroup({
     }
   };
   return (
-    <article className="finished" data-agent={agent.name} onFocus={onFocus}>
+    <article
+      className={`finished ${folded ? "folded" : ""}`}
+      data-agent={agent.name}
+      onFocus={onFocus}
+    >
       <header>
+        <FoldToggle folded={folded} onToggle={toggleFold} />
         <Tag item={newest} />
         <Subject agent={agent} item={newest} />
         <span className="spacer" />
@@ -250,7 +260,11 @@ export function FinishedGroup({
         onChange={(e) => setComment(e.target.value)}
         onKeyDown={pressed}
         aria-label={`Comment for ${agent.name}`}
-        placeholder={`Comment for ${agent.name} (leave empty to just mark it read)`}
+        placeholder={
+          reviewable
+            ? `Comment for ${agent.name}`
+            : `Comment for ${agent.name} (leave empty to just mark it read)`
+        }
       />
       <ItemActions
         actions={[
@@ -272,12 +286,20 @@ export function FinishedGroup({
                 },
               ]
             : []),
-          {
-            label: text ? "Send" : "Mark read",
-            keys: text ? "mod+enter" : undefined,
-            tone: reviewable || stopped ? undefined : "primary",
-            run: submit,
-          },
+          reviewable
+            ? {
+                label: "Send",
+                keys: text ? "mod+enter" : undefined,
+                inactive: text === "",
+                title: text ? undefined : "Write a comment first; the review waits for a verdict",
+                run: submit,
+              }
+            : {
+                label: text ? "Send" : "Mark read",
+                keys: text ? "mod+enter" : undefined,
+                tone: stopped ? undefined : "primary",
+                run: submit,
+              },
           {
             label: "Go",
             inactive: text !== "",

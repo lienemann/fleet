@@ -16,7 +16,8 @@ import type { Call, CallResults, Command, DaemonInfo } from "../shared/protocol.
 import { emptyState, type FleetState, reduceAll, withoutProjects } from "../shared/reducer.ts";
 import { Connection } from "./connection.ts";
 import { pruneAgentDrafts } from "./drafts.ts";
-import { liveItems } from "./inboxItems.ts";
+import { folds } from "./folds.ts";
+import { liveFolds, liveItems } from "./inboxItems.ts";
 import { type Theme, useTheme } from "./useTheme.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -184,11 +185,14 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const everyoneKey = everyone.join("\u0000");
   // So do the drafts of inbox items that have left the inbox.
   const itemsKey = useMemo(() => [...liveItems(state)].join("\u0001"), [state]);
+  // And so do the folds.
+  const foldsKey = useMemo(() => [...liveFolds(state)].join("\u0001"), [state]);
   useEffect(() => {
     if (!heard) return;
     const items = new Set(itemsKey ? itemsKey.split("\u0001") : []);
     pruneAgentDrafts(new Set(everyoneKey ? everyoneKey.split("\u0000") : []), items);
-  }, [heard, everyoneKey, itemsKey]);
+    folds.prune(new Set(foldsKey ? foldsKey.split("\u0001") : []));
+  }, [heard, everyoneKey, itemsKey, foldsKey]);
 
   const value: Fleet = {
     state,

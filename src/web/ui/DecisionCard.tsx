@@ -4,9 +4,11 @@ import type { Answer } from "../../shared/protocol.ts";
 import type { AgentView, Decision } from "../../shared/reducer.ts";
 import { decisionSubject } from "../../shared/replies.ts";
 import { itemSlot, useAgentDraft } from "../drafts.ts";
+import { foldKey, useFold } from "../folds.ts";
 import { duration, RISK_LABELS } from "../labels.ts";
 import { useNow } from "../useNow.ts";
 import { FileBody } from "./FileBody.tsx";
+import { FoldToggle } from "./FoldToggle.tsx";
 import { ItemActions } from "./ItemActions.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Options } from "./Options.tsx";
@@ -15,7 +17,7 @@ import { TaskHead } from "./TaskHead.tsx";
 interface Props {
   decision: Decision;
   /**
-   * "card" stands alone in the inbox and names the agent; "strip" sits above a tile's CLI bar and
+   * "card" stands alone in the inbox, names the agent and folds; "strip" sits above a tile's CLI bar and
    * puts the command into its first line; "compact" sits on a board card and keeps only the
    * command and the quick answers.
    */
@@ -50,6 +52,8 @@ export function DecisionCard({ decision, variant = "card", agent, focused, onAns
   const compact = variant === "compact";
   const subject = decisionSubject(decision);
   const [comment, setComment] = useAgentDraft(decision.agent, itemSlot.comment(decision.requestId));
+  const [fold, toggleFold] = useFold(foldKey.decision(decision.requestId));
+  const folded = variant === "card" && fold;
   const message = compact ? undefined : comment.trim() || undefined;
   const answer = (given: Answer): void => {
     onAnswer(message ? { ...given, message } : given);
@@ -66,10 +70,11 @@ export function DecisionCard({ decision, variant = "card", agent, focused, onAns
   );
   return (
     <article
-      className={`decision ${variant} ${focused ? "focused" : ""}`}
+      className={`decision ${variant} ${focused ? "focused" : ""} ${folded ? "folded" : ""}`}
       data-request={decision.requestId}
     >
       <header>
+        {variant === "card" && <FoldToggle folded={folded} onToggle={toggleFold} />}
         <span className={`kind kind-${decision.decision}`}>{KIND_LABELS[decision.decision]}</span>
         {agent && (
           <>

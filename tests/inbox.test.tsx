@@ -2,10 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { type FleetEvent, type NewEvent, USER } from "../src/shared/events.ts";
 import type { Command, DaemonInfo, ProjectInfo } from "../src/shared/protocol.ts";
-import { type FinishedRun, reduceAll } from "../src/shared/reducer.ts";
+import { type FinishedRun, type FleetState, inboxCount, reduceAll } from "../src/shared/reducer.ts";
 import { itemSlot, liveItem } from "../src/web/drafts.ts";
 import { type Fleet, FleetContext } from "../src/web/fleet.tsx";
-import { groupSlot, inboxGroups, liveItems, readItems } from "../src/web/inboxItems.ts";
+import { foldKey, folds } from "../src/web/folds.ts";
+import { groupSlot, inboxGroups, liveFolds, liveItems, readItems } from "../src/web/inboxItems.ts";
 import { KeymapProvider } from "../src/web/keys/keymap.tsx";
 import { Inbox } from "../src/web/views/Inbox.tsx";
 import { heldTask, taskState, worker } from "./helpers.ts";
@@ -81,10 +82,10 @@ describe("the inbox", () => {
     defaultWorkspace: "ws1",
     wip: { running: 1, review: 2 },
   };
-  const render = (sent: Command[] = []): string => {
+  const render = (sent: Command[] = [], shown: FleetState = state): string => {
     const info = { projects: [project], wip: {}, remotes: [] } as unknown as DaemonInfo;
     const fleet = {
-      state,
+      state: shown,
       info,
       color: (c: string) => c,
       send: (c: Command) => sent.push(c),
@@ -100,15 +101,50 @@ describe("the inbox", () => {
 
   it("shows a message and a Finished item of one agent in one group, with the task's moves", () => {
     const html = render();
-    const groups = html.match(/<article class="finished"/g) ?? [];
+    const groups = html.match(/<article class="finished /g) ?? [];
     expect(groups).toHaveLength(1);
     expect(html).toContain("Which port should it use?");
     expect(html).toContain("Run r1 done.");
     expect(html).not.toContain("Messages for you");
     const actions = html.slice(html.indexOf('<footer class="actions">'));
     const labels = [...actions.matchAll(/<button[^>]*>([^<]*)/g)].map(([, l]) => l?.trim());
-    expect(labels.slice(0, 4)).toEqual(["Accept", "Request changes", "Park", "Mark read"]);
-    expect(labels).toContain("Drop");
+    // A review leaves the inbox with a verdict, so there is no Mark read.
+    expect(labels.slice(0, 6)).toEqual(["Accept", "Request changes", "Park", "Send", "Go", "Drop"]);
+    expect(labels).not.toContain("Mark read");
+  });
+
+  describe("a task in Review whose items were read", () => {
+    const then = (from: FleetState, events: NewEvent[]) =>
+      reduceAll(
+        timed(events).map((e, i) => ({ ...e, seq: from.lastSeq + 1 + i })),
+        from,
+      );
+    const read = then(state, [
+      { kind: "finished_read", agent: "alpha", ids: ["r1"] },
+      { kind: "messages_read", agent: "alpha", seqs: [6] },
+    ]);
+    const settled = then(read, [taskState("t1", "done")]);
+
+    it("still waits for a verdict in the inbox, with the task's moves, until it leaves Review", () => {
+      const html = render([], read);
+      expect(html).toContain("waits for your verdict");
+      expect(inboxCount(read)).toBe(1 + inboxCount(settled));
+      const row = html.slice(html.indexOf('data-task="t1"'));
+      const labels = [...row.matchAll(/<button[^>]*>([^<]*)/g)].map(([, l]) => l?.trim());
+      expect(labels).toEqual(expect.arrayContaining(["Accept", "Request changes", "Park", "Drop"]));
+      expect(render([], settled)).not.toContain("waits for your verdict");
+    });
+
+    it("folds to its header line and stays", () => {
+      folds.toggle(foldKey.verdict("t1"));
+      try {
+        expect(render([], read)).toContain('class="decision verdict folded"');
+        expect(liveFolds(read)).toContain(foldKey.verdict("t1"));
+        expect(liveFolds(settled)).not.toContain(foldKey.verdict("t1"));
+      } finally {
+        folds.toggle(foldKey.verdict("t1"));
+      }
+    });
   });
 
   it("makes every agent's name open the agent, and has no Open link", () => {

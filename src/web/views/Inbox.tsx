@@ -1,14 +1,24 @@
 import { useState } from "react";
 import { type OpenPointsDoc, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
-import { lastAgentOf, unreadThreads } from "../../shared/tasks.ts";
+import type { LineThread } from "../../shared/review.ts";
+import {
+  awaitingVerdict,
+  lastAgentOf,
+  type TaskView,
+  taskOf,
+  unreadThreads,
+} from "../../shared/tasks.ts";
 import { itemSlot, useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
+import { foldKey, useFold } from "../folds.ts";
 import { groupIds, inboxGroups } from "../inboxItems.ts";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
+import { movesOf, TASK_MOVES, useTaskMoves } from "../taskMoves.ts";
 import { AgentLabel, OpenAgentProvider } from "../ui/AgentLabel.tsx";
 import { DecisionCard } from "../ui/DecisionCard.tsx";
+import { FoldToggle } from "../ui/FoldToggle.tsx";
 import { ItemActions } from "../ui/ItemActions.tsx";
 import { Options } from "../ui/Options.tsx";
 import { TaskHead } from "../ui/TaskHead.tsx";
@@ -40,6 +50,7 @@ export function Inbox({
   const docs = openPointDocs(state);
   const replies = unreadThreads(state);
   const groups = inboxGroups(state);
+  const verdicts = awaitingVerdict(state);
   const [cursor, setCursor] = useState(0);
   const index = Math.min(cursor, Math.max(0, items.length - 1));
   const focused = items[index];
@@ -95,6 +106,10 @@ export function Inbox({
       label: "Mark the focused agent's runs and messages read",
       run: () => {
         if (!group) return;
+        // A review leaves the inbox with a verdict only.
+        const agent = state.agents[group.agent];
+        const task = agent && taskOf(state, agent);
+        if (task && movesOf(task).includes("accept")) return;
         const { ids, seqs } = groupIds(group);
         send(
           ids.length > 0
@@ -108,9 +123,13 @@ export function Inbox({
   return (
     <OpenAgentProvider value={onOpen}>
       <div className="inbox">
-        {items.length === 0 && docs.length === 0 && replies.length === 0 && groups.length === 0 && (
-          <p className="empty-box">Nothing waits on you. Agents keep working.</p>
-        )}
+        {items.length === 0 &&
+          docs.length === 0 &&
+          replies.length === 0 &&
+          groups.length === 0 &&
+          verdicts.length === 0 && (
+            <p className="empty-box">Nothing waits on you. Agents keep working.</p>
+          )}
         {items.map((decision) => (
           <DecisionCard
             key={decision.requestId}
@@ -143,6 +162,16 @@ export function Inbox({
             })}
           </section>
         )}
+        {verdicts.length > 0 && (
+          <section>
+            <h2>
+              Reviews <span className="lede">· tasks in Review whose items you have read</span>
+            </h2>
+            {verdicts.map((task) => (
+              <Verdict key={task.id} task={task} onOpenTab={onOpenTab} />
+            ))}
+          </section>
+        )}
         {docs.length > 0 && (
           <section>
             <h2>
@@ -162,37 +191,7 @@ export function Inbox({
               Replies <span className="lede">· answers under the lines you asked about</span>
             </h2>
             {replies.map(({ task, thread }) => (
-              <article key={thread.id} className="decision reply">
-                <header>
-                  <ReplyFrom task={task} />
-                  <code className="name">
-                    {threadPlace(thread.path, thread.side, thread.lines)}
-                  </code>
-                  <span className="spacer" />
-                  <button
-                    type="button"
-                    className="link accent"
-                    onClick={() => onOpenThread(task, thread.id)}
-                  >
-                    Thread
-                  </button>
-                </header>
-                <p className="reply-text">
-                  {(thread.messages.at(-1)?.body ?? "")
-                    .split("\n")
-                    .slice(0, REPLY_LINES)
-                    .join("\n")}
-                </p>
-                <ItemActions
-                  actions={[
-                    {
-                      label: "Mark read",
-                      tone: "primary",
-                      run: () => send({ type: "thread_read", task, threadId: thread.id }),
-                    },
-                  ]}
-                />
-              </article>
+              <Reply key={thread.id} task={task} thread={thread} onOpenThread={onOpenThread} />
             ))}
           </section>
         )}
@@ -202,11 +201,99 @@ export function Inbox({
   );
 }
 
+/** A thread reply the user has not read, with the first lines of the answer. */
+function Reply({
+  task,
+  thread,
+  onOpenThread,
+}: {
+  task: string;
+  thread: LineThread;
+  onOpenThread: (task: string, thread: string) => void;
+}) {
+  const { send } = useFleet();
+  const [folded, toggleFold] = useFold(foldKey.reply(task, thread.id));
+  return (
+    <article className={`decision reply ${folded ? "folded" : ""}`}>
+      <header>
+        <FoldToggle folded={folded} onToggle={toggleFold} />
+        <ReplyFrom task={task} />
+        <code className="name">{threadPlace(thread.path, thread.side, thread.lines)}</code>
+        <span className="spacer" />
+        <button type="button" className="link accent" onClick={() => onOpenThread(task, thread.id)}>
+          Thread
+        </button>
+      </header>
+      <p className="reply-text">
+        {(thread.messages.at(-1)?.body ?? "").split("\n").slice(0, REPLY_LINES).join("\n")}
+      </p>
+      <ItemActions
+        actions={[
+          {
+            label: "Mark read",
+            tone: "primary",
+            run: () => send({ type: "thread_read", task, threadId: thread.id }),
+          },
+        ]}
+      />
+    </article>
+  );
+}
+
+/**
+ * A task in Review with no unread item about it: the user read the run that reported, the run
+ * was cut short, or the user moved the task to Review. It stays until the task leaves Review.
+ */
+function Verdict({
+  task,
+  onOpenTab,
+}: {
+  task: TaskView;
+  onOpenTab: (agent: string, tab: "diff" | "report") => void;
+}) {
+  const moves = useTaskMoves();
+  const [folded, toggleFold] = useFold(foldKey.verdict(task.id));
+  const { agent } = task;
+  return (
+    <article className={`decision verdict ${folded ? "folded" : ""}`} data-task={task.id}>
+      <header>
+        <FoldToggle folded={folded} onToggle={toggleFold} />
+        <TaskHead task={task.id} agent={agent} />
+        <span className="dim">waits for your verdict</span>
+        <span className="spacer" />
+        {agent && (
+          <>
+            <button type="button" className="link accent" onClick={() => onOpenTab(agent, "diff")}>
+              Diff
+            </button>
+            <button
+              type="button"
+              className="link accent"
+              onClick={() => onOpenTab(agent, "report")}
+            >
+              Report
+            </button>
+          </>
+        )}
+      </header>
+      <ItemActions
+        actions={movesOf(task).map((move) => ({
+          label: TASK_MOVES[move].button,
+          tone: move === "accept" ? ("primary" as const) : TASK_MOVES[move].tone,
+          run: () => moves[move](task.id),
+        }))}
+      />
+    </article>
+  );
+}
+
 function OpenPoints({ doc }: { doc: OpenPointsDoc }) {
   const open = doc.points.filter((p) => p.answer === undefined);
+  const [folded, toggleFold] = useFold(foldKey.points(doc.docId));
   return (
-    <article className="decision points">
+    <article className={`decision points ${folded ? "folded" : ""}`}>
       <header>
+        <FoldToggle folded={folded} onToggle={toggleFold} />
         <AgentLabel agent={doc.agent} />
         <code className="name">{doc.path}</code>
         <span className="dim">

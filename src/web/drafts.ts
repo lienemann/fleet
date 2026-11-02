@@ -114,7 +114,7 @@ const isDrafts = (value: unknown): value is Drafts =>
       Object.values(slots).every((text) => typeof text === "string"),
   );
 
-const browserStorage = (): Storage | undefined => {
+export const browserStorage = (): Storage | undefined => {
   try {
     return globalThis.localStorage;
   } catch {

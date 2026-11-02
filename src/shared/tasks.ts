@@ -324,6 +324,20 @@ const describe = (task: TaskView): string => `${task.id} "${task.title}"`;
 export const heldMessages = (task: TaskView): number =>
   task.threads.reduce((sum, t) => sum + t.messages.filter((m) => m.held).length, 0);
 
+/**
+ * Tasks in Review with no unread item about them in the inbox, oldest first: the run that reported
+ * was read, cut short, or the user moved the task to Review. The inbox still asks for a verdict.
+ */
+export function awaitingVerdict(state: FleetState): TaskView[] {
+  const unread = new Set<string | undefined>(
+    [
+      ...Object.values(state.agents).flatMap((a) => a.finished.filter((r) => !r.read)),
+      ...state.messages.filter((m) => m.to === USER && !m.read && state.agents[m.from]),
+    ].map((item) => item.task),
+  );
+  return taskList(state).filter((t) => t.state === "review" && !unread.has(t.id));
+}
+
 /** Threads the agent replied to that the user has not looked at, oldest reply first. */
 export const unreadThreads = (state: FleetState): Array<{ task: string; thread: LineThread }> =>
   Object.values(state.tasks)

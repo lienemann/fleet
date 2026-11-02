@@ -994,6 +994,16 @@ button.link.accent {
   border: 1px solid var(--line);
   border-radius: 10px;
 }
+/* A folded inbox item shows its header line only. */
+.inbox article.folded > :not(header) {
+  display: none;
+}
+.item-fold {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--muted);
+}
 .decision.focused {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
