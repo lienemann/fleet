@@ -211,12 +211,17 @@ export function routeCall<C extends DistributiveOmit<Call, "id">>(
     return { host, call: { ...call, task: name } };
   }
   if (!("agent" in call) && !("workspace" in call)) return { host: LOCAL, call };
-  if ("workspace" in call) {
-    const { host, name } = locate(call.workspace, remotes);
-    return { host, call: { ...call, workspace: name } };
+  if ("agent" in call) {
+    const { host, name } = locate(call.agent, remotes);
+    if (!("workspace" in call) || call.workspace === undefined) {
+      return { host, call: { ...call, agent: name } };
+    }
+    // A workspace named along with an agent is one of the agent's daemon.
+    const workspace = locate(call.workspace, remotes).name;
+    return { host, call: { ...call, agent: name, workspace } };
   }
-  const { host, name } = locate(call.agent, remotes);
-  return { host, call: { ...call, agent: name } };
+  const { host, name } = locate(call.workspace, remotes);
+  return { host, call: { ...call, workspace: name } };
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

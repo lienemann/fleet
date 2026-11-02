@@ -8,10 +8,12 @@ import {
   holderOf,
   lastTaskOf,
   needsYou,
+  removable,
   taskOf,
   workspaceInUse,
   workspaceUse,
 } from "../../shared/tasks.ts";
+import { agentMoveItems, useAgentMoves } from "../agentMoves.tsx";
 import { useFleet } from "../fleet.tsx";
 import { type Command, keyLabel, useCommands } from "../keys/keymap.tsx";
 import { agentStatus, usageDetails, usageText } from "../labels.ts";
@@ -20,6 +22,7 @@ import { useTaskMoves } from "../taskMoves.ts";
 import { useTerminals } from "../terminal.tsx";
 import { AgentLabel, useProjectColor, useProjectColors } from "../ui/AgentLabel.tsx";
 import { Icon } from "../ui/Icon.tsx";
+import { Menu } from "../ui/Menu.tsx";
 import { useNow } from "../useNow.ts";
 import { SIDEBAR_KEYS } from "../useSidebarWidth.ts";
 import { isFree } from "../views/Grid.tsx";
@@ -314,12 +317,16 @@ function AgentTree({
 }) {
   const { state } = useFleet();
   const { drop } = useTaskMoves();
+  const moves = useAgentMoves();
   return (
     <ul className="tree">
       {agents.map((agent) => (
         <li key={agent.name}>
           <div className="rail-row">
             <AgentRow agent={agent} selected={agent.name === selected} onSelect={onSelect} />
+            {removable(agent) && (
+              <Menu label={`Moves of ${agent.name}`} items={agentMoveItems(agent, moves)} />
+            )}
             {agent.task !== undefined && (
               <button
                 type="button"

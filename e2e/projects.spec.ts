@@ -138,3 +138,78 @@ test("workspaces open from New workspace or the inbox's question, and leave with
   await expect.poll(() => existsSync(ws(2))).toBe(true);
   await expect(rail).toContainText("Write the summary");
 });
+
+test("a guest becomes the worker of a new workspace, and another guest is removed", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const repo = newRepo("crew");
+  await page.goto("/");
+  const rail = page.getByRole("complementary", { name: "Agents" });
+  await rail.getByRole("button", { name: "+ Add project" }).click();
+  const adding = page.getByRole("dialog", { name: "Add a project" });
+  await adding.getByLabel("Directory").fill(repo);
+  await adding.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(adding).toContainText("Added crew.");
+  await adding.getByRole("button", { name: "Close" }).click();
+  // With a workspace of its own, the project's checkout is only the director's.
+  await rail.getByTitle("Add a workspace to crew: a new one, or an existing directory").click();
+  const opening = page.getByRole("dialog", { name: "Add a workspace" });
+  await opening
+    .locator(".new-workspace")
+    .getByRole("button", { name: "Open", exact: true })
+    .click();
+  await expect(opening.locator(".new-workspace")).toContainText("opened crew-ws1");
+  await opening.getByRole("button", { name: "Close" }).click();
+
+  // Sessions imported into the checkout join as guests.
+  const importInto = async (title: string) => {
+    await rail.getByTitle(/^Import Claude Code sessions/).click();
+    const dialog = page.getByRole("dialog", { name: "Import sessions" });
+    await dialog.getByLabel("Workspace").selectOption("crew");
+    await dialog.getByLabel(title).check();
+    await dialog.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+  const row = (title: string) => rail.locator(".rail-row", { hasText: title });
+  await importInto("Speed up the event log replay");
+  await expect(row("Speed up the event log replay")).toBeVisible();
+
+  // The import dialog names who has a session already, and offers to make that guest a worker.
+  await rail.getByTitle(/^Import Claude Code sessions/).click();
+  const listing = page.getByRole("dialog", { name: "Import sessions" });
+  await listing.getByLabel("Workspace").selectOption("crew");
+  const listed = listing.locator(".option", { hasText: "Speed up the event log replay" });
+  await expect(listed).toContainText("has it");
+  await listed.getByRole("button", { name: "Make worker of …" }).click();
+  const making = page.getByRole("dialog", { name: /^Make \S+ a worker$/ });
+  await expect(making.locator(".option", { hasText: "crew-ws1" })).toContainText(
+    "is free and leaves fleet",
+  );
+  await making.getByLabel(/^A new workspace crew-ws2/).check();
+  // The guest still answers its import briefing; a turn has to end first.
+  const submit = making.getByRole("button", { name: "Make worker", exact: true });
+  await expect(making).toContainText("is in the middle of a turn.");
+  await expect(submit).toBeDisabled();
+  await making.getByRole("button", { name: "Interrupt" }).click();
+  await submit.click();
+  await expect(making).toBeHidden();
+  // Its conversation goes on there, as that workspace's worker.
+  const crew = rail.locator(".rail-project", {
+    has: page.getByRole("button", { name: "crew", exact: true }),
+  });
+  await expect(crew.locator(".workspaces")).toContainText("crew-ws2");
+  await expect.poll(() => existsSync(join(dirname(repo), "crew-ws2"))).toBe(true);
+  await expect(row("crew-ws2").getByRole("button", { name: /^Moves of / })).toHaveCount(0);
+
+  // Remove asks first, from the rail's row or the palette.
+  await importInto("Explain the scheduler");
+  const guest = row("Explain the scheduler");
+  await guest.getByRole("button", { name: /^Moves of / }).click();
+  await guest.getByRole("menuitem", { name: "Remove from fleet" }).click();
+  const removal = page.getByRole("dialog", { name: /^Remove \S+$/ });
+  await expect(removal).toContainText("Its session stays with Claude Code");
+  await removal.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(removal).toBeHidden();
+  await expect(guest).toBeHidden();
+});

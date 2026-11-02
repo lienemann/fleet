@@ -1371,13 +1371,11 @@ test("existing Claude Code sessions can be imported, run in fleet when free, and
   await expect(drawer.getByRole("button", { name: "Interrupt" })).toBeVisible();
   await expect(drawer.locator(".banner")).toBeHidden();
 
-  // Imported once, the session is marked in the list.
+  // Imported once, the session names the agent that has it.
   await page.locator(".drawer textarea[data-prompt]").focus();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Alt+i");
-  await expect(page.getByRole("dialog", { name: "Import sessions" })).toContainText(
-    "already in fleet",
-  );
+  await expect(page.getByRole("dialog", { name: "Import sessions" })).toContainText(" has it");
 });
 
 test("Open terminal offers the line to run where none opens, and Continue in a terminal resumes the session there", async ({

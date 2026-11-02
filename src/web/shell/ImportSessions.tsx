@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SessionSummary } from "../../shared/protocol.ts";
+import { useAgentMoves } from "../agentMoves.tsx";
 import { useFleet } from "../fleet.tsx";
 import { duration } from "../labels.ts";
 import { useProjects } from "../projects.tsx";
@@ -13,7 +14,8 @@ import { ImportTarget } from "./ImportTarget.tsx";
  * lets it go.
  */
 export function ImportSessions({ onClose }: { onClose: () => void }) {
-  const { info, call, send } = useFleet();
+  const { state, info, call, send } = useFleet();
+  const moves = useAgentMoves();
   const now = useNow();
   const projects = useProjects();
   // Each project's workspaces, led by its default one, where its director works.
@@ -114,20 +116,37 @@ export function ImportSessions({ onClose }: { onClose: () => void }) {
         {sessions && sessions.length > 0 && shown?.length === 0 && (
           <p className="empty">No session matches.</p>
         )}
-        <fieldset className="session-list">
+        <fieldset className="pick-list">
           <legend>Sessions</legend>
           {shown?.map((s) => (
-            <label key={s.sessionId} className={`option ${s.imported ? "dim" : ""}`}>
+            <label key={s.sessionId} className={`option ${s.agent ? "dim" : ""}`}>
               <input
                 type="checkbox"
-                disabled={s.imported}
+                disabled={s.agent !== undefined}
                 checked={picked.has(s.sessionId)}
                 onChange={() => toggle(s.sessionId)}
               />
               <span>{s.title}</span>
               <small>
                 {duration(now - s.lastModified)} ago{s.branch && ` · ${s.branch}`}
-                {s.imported && " · already in fleet"}
+                {s.agent && ` · ${s.agent} has it`}
+                {s.agent && state.agents[s.agent]?.guest && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="link"
+                      title={`Move ${s.agent}'s conversation into a workspace of its own and make it the worker there`}
+                      onClick={() => {
+                        const guest = s.agent ?? "";
+                        onClose();
+                        moves.makeWorker(guest);
+                      }}
+                    >
+                      Make worker of …
+                    </button>
+                  </>
+                )}
               </small>
             </label>
           ))}

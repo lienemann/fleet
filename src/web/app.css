@@ -2673,15 +2673,15 @@ button.ln:hover {
   border-radius: 6px;
 }
 
-/* Session import */
-.session-list {
+/* Session import, and where a guest moves */
+.pick-list {
   max-height: 40vh;
   margin: 0;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
 }
-.session-list legend {
+.pick-list legend {
   color: var(--muted);
 }
 .dialog .check-row {
@@ -2689,15 +2689,15 @@ button.ln:hover {
   align-items: baseline;
   gap: 8px;
 }
-.dialog .session-list .option {
+.dialog .pick-list .option {
   flex-direction: row;
   align-items: baseline;
   color: var(--fg);
 }
-.dialog .session-list .option.dim {
+.dialog .pick-list .option.dim {
   color: var(--muted);
 }
-.session-list .option small {
+.pick-list .option small {
   margin-left: auto;
   white-space: nowrap;
 }

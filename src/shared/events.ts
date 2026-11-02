@@ -238,6 +238,11 @@ export type EventBody =
     }
   /** The agent leaves fleet; the event's agent is the one that goes. */
   | { kind: "agent_removed" }
+  /**
+   * The guest became the worker of `workspace`: it continues in `cwd` with `session`, a fork of
+   * its conversation, and takes tasks from now on.
+   */
+  | { kind: "made_worker"; workspace: string; cwd: string; session: string }
   /** A ticket, logged by the daemon. `by` is who created it: the user or a director. */
   | {
       kind: "task_created";

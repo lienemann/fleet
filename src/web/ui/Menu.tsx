@@ -9,7 +9,7 @@ interface MenuItem {
 
 /**
  * Actions behind one button. The list is a popover, so a click elsewhere closes it; it opens
- * above the button, which sits at the bottom of a tile.
+ * above the button, which sits at the bottom of a tile, or below it where there is no room.
  */
 export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
   const id = useId();
@@ -34,7 +34,8 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         return;
       }
       menu.style.left = `${Math.max(8, anchor.right - menu.offsetWidth)}px`;
-      menu.style.top = `${Math.max(8, anchor.top - menu.offsetHeight - 4)}px`;
+      const above = anchor.top - menu.offsetHeight - 4;
+      menu.style.top = `${above >= 8 ? above : anchor.bottom + 4}px`;
       window.addEventListener("keydown", closeOnEscape, true);
     };
     menu.addEventListener("toggle", toggle);

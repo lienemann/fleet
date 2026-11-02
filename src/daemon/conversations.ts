@@ -24,6 +24,18 @@ export const movedBriefing = (move: {
   `Your earlier turns ran in ${move.from}, which belongs to another worker now: ` +
   `read and write only under ${move.cwd}.`;
 
+/** Tells a guest whose conversation moved into a workspace that it is that workspace's worker now. */
+export const madeWorkerBriefing = (move: {
+  worker: string;
+  workspace: string;
+  from: string;
+  cwd: string;
+}): string =>
+  `You are now ${move.worker}, the fleet worker of workspace ${move.workspace}, and this ` +
+  `conversation continues there. Your earlier turns ran in ${move.from}, which you no longer ` +
+  `share; what you changed there stays there. Read and write only under ${move.cwd}. From now ` +
+  `on fleet gives you tasks like any worker. Confirm in one line, then wait.`;
+
 /** A first prompt on a task, followed by the handover note it was parked with, if any. */
 export const withNote = (prompt: string, note?: string): string =>
   note ? `${prompt}\n\nHandover note from the last worker:\n\n${note}` : prompt;

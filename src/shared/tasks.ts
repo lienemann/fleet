@@ -199,6 +199,11 @@ export const isFree = (state: FleetState, agent: AgentView): boolean =>
   agent.pending === 0 &&
   (agent.role !== "worker" || workspaceHolder(state, agent.workspace) === undefined);
 
+/** Whether the user may take an agent out of fleet: a guest, or an investigator with nothing to do. */
+export const removable = (agent: AgentView): boolean =>
+  agent.guest === true ||
+  (agent.role === "investigator" && agent.task === undefined && agent.activity !== "working");
+
 /** Who a new task is for. */
 export interface PickRequest {
   project: string;

@@ -1,5 +1,6 @@
 import { EFFORT_LEVELS, type ModelChoice, PERMISSION_MODES } from "../../shared/events.ts";
 import type { AgentView } from "../../shared/reducer.ts";
+import { agentMoveItems, useAgentMoves } from "../agentMoves.tsx";
 import { useFleet } from "../fleet.tsx";
 import { keyLabel } from "../keys/keymap.tsx";
 import { contextPercent, effortsOf, MODE_LABELS, modelId, modelLabel } from "../labels.ts";
@@ -23,6 +24,7 @@ const capitalized = (text: string): string => text.charAt(0).toUpperCase() + tex
 export function CliBar({ agent }: { agent: AgentView }) {
   const { send, state } = useFleet();
   const terminals = useTerminals();
+  const moves = useAgentMoves();
   const name = agent.name;
   const live = agent.activity === "working" || agent.activity === "idle";
   const nextMode =
@@ -145,6 +147,7 @@ export function CliBar({ agent }: { agent: AgentView }) {
               title: `Open a terminal in ${agent.cwd} (${keyLabel("alt+shift+o")})`,
               run: () => terminals.open(name, agent.cwd),
             },
+            ...agentMoveItems(agent, moves),
           ]}
         />
       </div>

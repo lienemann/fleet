@@ -11,6 +11,7 @@ import {
   workspaceInUse,
   workspaceUse,
 } from "../shared/tasks.ts";
+import { agentMoveItems, useAgentMoves } from "./agentMoves.tsx";
 import { useFleet } from "./fleet.tsx";
 import { ChordHint } from "./keys/ChordHint.tsx";
 import { type Command, focusPane, focusPaneNamed, PANES, useCommands } from "./keys/keymap.tsx";
@@ -66,6 +67,7 @@ export function App() {
   const { state, info, connected, offline, error, send, toggleTheme } = useFleet();
   const moves = useTaskMoves();
   const terminals = useTerminals();
+  const agentMoves = useAgentMoves();
   const [view, setView] = useState<View>("board");
   const [selection, setSelection] = useState<Selection>();
   const [enlarged, setEnlarged] = useState<string>();
@@ -397,6 +399,16 @@ export function App() {
       selectAgent,
     ),
     ...agentCommands(agent?.name, task?.id),
+    ...agents.flatMap((a) =>
+      agentMoveItems(a, agentMoves).map(
+        (item): Command => ({
+          id: `agent.${item.id}.${a.name}`,
+          label: `${a.name}: ${item.label}`,
+          group: "Agents",
+          run: item.run,
+        }),
+      ),
+    ),
     ...(info?.workspaces ?? [])
       .filter(
         (ws) =>

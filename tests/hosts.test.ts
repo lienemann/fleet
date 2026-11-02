@@ -173,6 +173,10 @@ describe("routing", () => {
       host: "pod1",
       call: { type: "review_load", task: "t3" },
     });
+    // A workspace named along with the agent is one of the agent's daemon.
+    expect(
+      routeCall({ type: "make_worker", agent: "pod1/bravo", workspace: "pod1/ws2" }, remotes),
+    ).toEqual({ host: "pod1", call: { type: "make_worker", agent: "bravo", workspace: "ws2" } });
   });
 
   it("only treats known hosts as prefixes", () => {

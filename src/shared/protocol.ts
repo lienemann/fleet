@@ -290,6 +290,18 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("inspect_directory"), id, path: z.string().min(1).max(4096) }),
   /** Claude Code sessions recorded for a workspace's directory, newest first. */
   z.object({ type: z.literal("list_sessions"), id, workspace: z.string().min(1) }),
+  /**
+   * Makes a guest the worker of a free workspace of its project, or of a new one without
+   * `workspace`: a fork of its conversation continues there, and the workspace's worker leaves.
+   */
+  z.object({
+    type: z.literal("make_worker"),
+    id,
+    agent,
+    workspace: z.string().min(1).optional(),
+  }),
+  /** Takes a guest out of fleet; its session stays with Claude Code. */
+  z.object({ type: z.literal("remove_agent"), id, agent }),
   /** The end of a shell's or monitor's output; `all` reads more of a finished one. */
   z.object({
     type: z.literal("task_output"),
@@ -371,6 +383,8 @@ export interface CallResults {
   read_file: FileContent;
   list_files: string[];
   list_sessions: SessionSummary[];
+  make_worker: { workspace: string };
+  remove_agent: null;
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
   new_workspace: WorkspaceOffer;
   open_workspace: { name: string };
@@ -455,8 +469,8 @@ export interface SessionSummary {
   title: string;
   lastModified: number;
   branch?: string;
-  /** Already an agent in fleet. */
-  imported: boolean;
+  /** The agent that has it, when it is in fleet already. */
+  agent?: string;
 }
 
 interface WorkspaceInfo {

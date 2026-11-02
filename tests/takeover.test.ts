@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Project } from "../src/daemon/config.ts";
 import { EventLog } from "../src/daemon/eventLog.ts";
 import { FORK_TIMEOUT_MS } from "../src/daemon/forkHandover.ts";
 import type { HolderHost, ProcessInfo } from "../src/daemon/holders.ts";
@@ -18,6 +19,7 @@ import {
   settled,
   stopSession,
   testConfig,
+  testProject,
   until,
 } from "./helpers.ts";
 
@@ -83,7 +85,7 @@ function clients() {
 }
 
 /** A daemon; passing the log of an earlier one is a restart. */
-function setup(host?: HolderHost, log = new EventLog(":memory:")) {
+function setup(host?: HolderHost, log = new EventLog(":memory:"), ...others: Project[]) {
   const transcript: SessionMessage[] = [
     stored("u1", "user", "Why is the sweep slow?"),
     stored("a1", "assistant", "It re-uploads the waveform."),
@@ -100,7 +102,10 @@ function setup(host?: HolderHost, log = new EventLog(":memory:")) {
     queryFn: fake.queryFn,
     sessions: source,
     holders: host,
-    config: testConfig({ workspaces: [{ name: "ws1", path: "/work/ws1", allowedTools: [] }] }),
+    config: testConfig(
+      { workspaces: [{ name: "ws1", path: "/work/ws1", allowedTools: [] }] },
+      ...others,
+    ),
   });
   supervisor.init();
   // ws1's worker is alpha; a session imported into the project's checkout is a guest.
@@ -692,5 +697,88 @@ describe("review fixes", () => {
     await until(() => userLines().length === 1);
     expect(userLines()[0]).toMatch(/Hello there$/);
     expect(promptOrigins()).toEqual(["user"]);
+  });
+});
+
+describe("making a guest a worker", () => {
+  it("moves a fork of its conversation into a free workspace, whose worker leaves", async () => {
+    const { host } = clients();
+    const { log, agent, calls, importIt, supervisor } = setup(host);
+    await importIt();
+    await until(() => agent()?.activity === "idle");
+
+    await expect(
+      supervisor.call({ type: "make_worker", id: "1", agent: "bravo", workspace: "ws1" }),
+    ).resolves.toEqual({ workspace: "ws1" });
+    expect(log.state.agents.alpha).toBeUndefined();
+    expect(agent()).toMatchObject({ title: "ws1", workspace: "ws1", cwd: "/work/ws1" });
+    expect(agent()?.guest).toBeUndefined();
+    // The tile keeps the conversation it showed.
+    expect(agent()?.log.map((l) => l.text)).toContain("It re-uploads the waveform.");
+    await until(() => calls.length === 2);
+    expect(calls[1]?.options).toMatchObject({ resume: "forked", cwd: "/work/ws1" });
+    await until(() => agent()?.activity === "idle");
+    expect(
+      agent()
+        ?.log.map((l) => l.text)
+        .join("\n"),
+    ).toContain("You are now bravo, the fleet worker of workspace ws1");
+
+    // A worker now, it takes the next task.
+    supervisor.createTask("Fix it", "Do it.", undefined);
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    expect(log.state.tasks.t1?.agent).toBe("bravo");
+    expect(calls).toHaveLength(3);
+  });
+
+  it("ends the terminal that has the session open first, as Attach does", async () => {
+    const { host, hold, terminated } = clients();
+    hold(601);
+    const { agent, importIt, supervisor } = setup(host);
+    await importIt();
+    expect(agent()?.activity).toBe("detached");
+    await supervisor.call({ type: "make_worker", id: "1", agent: "bravo", workspace: "ws1" });
+    expect(terminated).toEqual([601]);
+    expect(agent()).toMatchObject({ workspace: "ws1", sessionId: "forked" });
+    expect(agent()?.holder).toBeUndefined();
+  });
+
+  it("refuses while the guest is mid-turn, the workspace is busy or of another project", async () => {
+    const { host, hold } = clients();
+    hold(602, { status: "busy" });
+    const other = testProject("other", {
+      workspaces: [{ name: "o1", path: "/work/o1", allowedTools: [] }],
+    });
+    const { log, importIt, supervisor } = setup(host, undefined, other);
+    // o1's worker is bravo here, so the guest is charlie.
+    await importIt();
+    await until(() => log.state.agents.charlie?.activity === "detached");
+    const guest = () => log.state.agents.charlie;
+    const make = (workspace?: string) =>
+      supervisor.call({ type: "make_worker", id: "1", agent: "charlie", workspace });
+    await expect(make("ws1")).rejects.toThrow("charlie is in the middle of a turn elsewhere");
+    await expect(make("o1")).rejects.toThrow("o1 belongs to other, not to test.");
+    supervisor.createTask("Fix it", "Do it.", "ws1");
+    await until(() => log.state.tasks.t1?.state === "in_progress");
+    await expect(make("ws1")).rejects.toThrow("alpha, the worker of ws1, holds t1.");
+    await expect(
+      supervisor.call({ type: "make_worker", id: "2", agent: "alpha", workspace: "ws1" }),
+    ).rejects.toThrow("alpha is not a guest.");
+    // Nothing moved.
+    expect(guest()).toMatchObject({ guest: true, workspace: "test" });
+  });
+});
+
+describe("removing an agent", () => {
+  it("takes a guest out of fleet, but no worker", async () => {
+    const { host } = clients();
+    const { log, agent, importIt, supervisor } = setup(host);
+    await importIt();
+    await expect(
+      supervisor.call({ type: "remove_agent", id: "1", agent: "alpha" }),
+    ).rejects.toThrow("only a guest or a free investigator");
+    await supervisor.call({ type: "remove_agent", id: "2", agent: "bravo" });
+    expect(agent()).toBeUndefined();
+    expect(log.state.agents.alpha).toBeDefined();
   });
 });

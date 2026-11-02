@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
+import { AgentMovesProvider } from "./agentMoves.tsx";
 import { FleetProvider } from "./fleet.tsx";
 import { KeymapProvider } from "./keys/keymap.tsx";
 import { ProjectFilterProvider } from "./projects.tsx";
@@ -24,7 +25,9 @@ createRoot(root).render(
       <ProjectFilterProvider>
         <KeymapProvider>
           <TerminalProvider>
-            <App />
+            <AgentMovesProvider>
+              <App />
+            </AgentMovesProvider>
           </TerminalProvider>
         </KeymapProvider>
       </ProjectFilterProvider>

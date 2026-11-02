@@ -122,7 +122,6 @@ describe("importing a session", () => {
         title: "Speed up the sweep",
         lastModified: 1000,
         branch: "main",
-        imported: false,
       },
     ]);
     await expect(
@@ -152,7 +151,7 @@ describe("importing a session", () => {
     expect(log.state.agents.alpha?.unseen).toBe(false);
 
     const listed = await supervisor.call({ type: "list_sessions", id: "1", workspace: "ws1" });
-    expect(listed[0]?.imported).toBe(true);
+    expect(listed[0]?.agent).toBe("alpha");
 
     supervisor.handle({ type: "attach", agent: "alpha" });
     await until(() => calls.length === 1);

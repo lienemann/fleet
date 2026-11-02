@@ -67,6 +67,7 @@ import {
   NO_WORKSPACES,
   needsYou,
   pickWorker,
+  removable,
   type TaskView,
   taskList,
   taskOf,
@@ -99,7 +100,7 @@ import {
   type Workspace,
   writeConfig,
 } from "./config.ts";
-import { continueTask, movedBriefing, withNote } from "./conversations.ts";
+import { continueTask, madeWorkerBriefing, movedBriefing, withNote } from "./conversations.ts";
 import type { EventLog } from "./eventLog.ts";
 import {
   agentNotes,
@@ -394,6 +395,8 @@ export class Supervisor implements ToolHost {
   private readonly misses = new Map<string, number>();
   /** Agents an Attach is taking over right now; the poll leaves them alone meanwhile. */
   private readonly attaching = new Set<string>();
+  /** Guests whose conversation moves into a workspace right now; the poll leaves them alone too. */
+  private readonly moving = new Set<string>();
   private watching = false;
   /** Agents back from another client; their next prompt says so. */
   private readonly returning = new Set<string>();
@@ -937,6 +940,11 @@ export class Supervisor implements ToolHost {
     const agent = this.agent(call.agent);
     if (!agent) throw new Error(`No agent "${call.agent}".`);
     switch (call.type) {
+      case "make_worker":
+        return { workspace: await this.makeWorker(agent.name, call.workspace) };
+      case "remove_agent":
+        await this.dismiss(agent.name);
+        return null;
       case "read_file":
         return this.viewFile(agent, call.path);
       case "list_files":
@@ -1049,12 +1057,13 @@ export class Supervisor implements ToolHost {
     return `Added the workspace ${name} to ${project.name}.`;
   }
 
-  /** Puts a workspace into a project and config.toml, and starts its worker. */
+  /** Puts a workspace into a project and config.toml, and starts its worker unless told not to. */
   private insertWorkspace(
     project: Project,
     name: string,
     path: string,
     explicit: boolean,
+    withWorker = true,
   ): Workspace {
     // The stand-in for a project without workspaces goes once it has one, unless a task uses it.
     const unused = (ws: Workspace) =>
@@ -1073,7 +1082,7 @@ export class Supervisor implements ToolHost {
     project.workspaces = [...project.workspaces.filter((ws) => !unused(ws)), added];
     this.configChanged([project]);
     for (const ws of gone) this.background(this.removeWorker(ws.name));
-    this.startWorker(added);
+    if (withWorker) this.startWorker(added);
     return added;
   }
 
@@ -1213,12 +1222,15 @@ export class Supervisor implements ToolHost {
     return project.workspaces.filter((ws) => !ws.fallback && !ws.explicit);
   }
 
-  /** Opens a new jj workspace next to the project's repo, with its worker, for good. */
-  private openWorkspace(project: Project): Promise<Workspace> {
+  /**
+   * Opens a new jj workspace next to the project's repo, for good; with its own worker unless
+   * the caller brings one.
+   */
+  private openWorkspace(project: Project, withWorker = true): Promise<Workspace> {
     const open = this.workspaceOps.then(async () => {
       const workspace = this.nextWorkspace(project);
       await this.workspaceHost.add(project.path, workspace);
-      return this.insertWorkspace(project, workspace.name, workspace.path, false);
+      return this.insertWorkspace(project, workspace.name, workspace.path, false, withWorker);
     });
     this.workspaceOps = open.catch(() => undefined);
     return open;
@@ -1421,7 +1433,7 @@ export class Supervisor implements ToolHost {
   private async listSessions(workspace: string): Promise<SessionSummary[]> {
     const dir = this.workspaceDir(workspace);
     if (!dir) throw new Error(`No workspace "${workspace}".`);
-    const known = new Set(this.agents.map((a) => a.sessionId));
+    const known = new Map(this.agents.map((a) => [a.sessionId, a.name]));
     const sessions = await this.sessionSource.list(dir);
     return sessions
       .map((info) => ({
@@ -1429,7 +1441,7 @@ export class Supervisor implements ToolHost {
         title: sessionTitle(info),
         lastModified: info.lastModified,
         branch: info.gitBranch,
-        imported: known.has(info.sessionId),
+        agent: known.get(info.sessionId),
       }))
       .sort((a, b) => b.lastModified - a.lastModified);
   }
@@ -1501,6 +1513,111 @@ export class Supervisor implements ToolHost {
     return name;
   }
 
+  /**
+   * Makes a guest the worker of a free workspace of its project, or of one fleet opens for it
+   * without `target`. The client that has the session open ends as on Attach, a fork of the
+   * conversation goes on in the workspace, and the workspace's free worker leaves fleet. The
+   * guest keeps its name, holds no task, and takes tasks from then on. Throws why not.
+   */
+  private async makeWorker(name: string, target?: string): Promise<string> {
+    const guest = this.agent(name);
+    if (!guest?.guest) throw new Error(`${name} is not a guest.`);
+    const project = this.projectOf(guest);
+    if (!project) throw new Error(`${name} belongs to no project in fleet.`);
+    if (this.moving.has(name)) throw new Error(`${name} is on its way already.`);
+    if (guest.activity === "working") {
+      throw new Error(`${name} is in the middle of a turn; interrupt it or wait until it rests.`);
+    }
+    const { sessionId, cwd: from } = guest;
+    if (!sessionId) throw new Error(`${name} has no conversation to move.`);
+    const worker = target === undefined ? undefined : this.vacantWorker(target, project);
+    this.moving.add(name);
+    if (worker) this.reserved.add(worker.name);
+    try {
+      await this.endClientOf(guest);
+      await this.closeSession(name);
+      const session = await this.sessionSource.fork(sessionId, from).catch((error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        throw new Error(`Forking ${name}'s conversation failed: ${why}`);
+      });
+      const workspace =
+        target === undefined ? await this.openWorkspace(project, false) : this.workspace(target);
+      if (!workspace) throw new Error(`${target} left fleet meanwhile.`);
+      // The user may have written to either of them meanwhile.
+      const busy = [name, ...(worker ? [worker.name] : [])].find(
+        (n) => this.agent(n)?.activity === "working",
+      );
+      if (busy) throw new Error(`${busy} started a turn meanwhile; try again once it rests.`);
+      await this.closeSession(name);
+      if (worker) await this.removeAgent(worker.name);
+      this.append(name, {
+        kind: "made_worker",
+        workspace: workspace.name,
+        cwd: workspace.path,
+        session,
+      });
+      const briefing = madeWorkerBriefing({
+        worker: name,
+        workspace: workspace.name,
+        from,
+        cwd: workspace.path,
+      });
+      this.prompt(name, briefing, "fleet");
+      return workspace.name;
+    } finally {
+      this.moving.delete(name);
+      if (worker) this.reserved.delete(worker.name);
+      this.schedule();
+    }
+  }
+
+  /** The worker of a workspace a guest of `project` may move into, if it has one; throws why not. */
+  private vacantWorker(name: string, project: Project): AgentView | undefined {
+    const workspace = this.workspace(name);
+    if (!workspace) throw new Error(`No workspace "${name}".`);
+    if (workspace.project !== project.name) {
+      throw new Error(`${name} belongs to ${workspace.project}, not to ${project.name}.`);
+    }
+    const worker = this.workerOf(name);
+    if (worker && !this.isFree(worker)) {
+      const why = worker.task === undefined ? "is not free" : `holds ${worker.task}`;
+      throw new Error(`${worker.name}, the worker of ${name}, ${why}.`);
+    }
+    const holder = workspaceHolder(this.state, name);
+    if (holder !== undefined) throw new Error(`${name} is held by ${holder}.`);
+    return worker;
+  }
+
+  /** Ends the client outside fleet that has a detached session open, as Attach does. */
+  private async endClientOf(agent: AgentView): Promise<void> {
+    const { name, sessionId } = agent;
+    if (agent.activity !== "detached" || !sessionId) return;
+    const holder = (await this.scan())?.get(sessionId);
+    if (!holder) return;
+    if (holder.busy) {
+      throw new Error(`${name} is in the middle of a turn elsewhere; wait until it rests there.`);
+    }
+    if (holder.background || !holder.verified) {
+      throw new Error(
+        `${name}'s session is open in a process fleet does not end; close it there first.`,
+      );
+    }
+    const refused = await this.endHolder(sessionId, holder.pid);
+    if (refused) throw new Error(`${name} stays a guest: ${refused}`);
+  }
+
+  /**
+   * Takes a guest or a free investigator out of fleet at the user's request; its session stays
+   * with Claude Code, to resume or import again.
+   */
+  private async dismiss(name: string): Promise<void> {
+    const agent = this.agent(name);
+    if (!agent || !removable(agent)) {
+      throw new Error(`${name} stays: only a guest or a free investigator can be removed.`);
+    }
+    await this.removeAgent(name);
+  }
+
   /** Releases the session to a terminal; fleet takes it back once a terminal had it and let go. */
   private async detach(name: string): Promise<void> {
     // Cleared first: a terminal that opens while the session stops is the one to wait for.
@@ -1553,7 +1670,7 @@ export class Supervisor implements ToolHost {
       const holders = await this.scan();
       if (!holders) return;
       for (const agent of this.agents) {
-        if (this.attaching.has(agent.name)) continue;
+        if (this.attaching.has(agent.name) || this.moving.has(agent.name)) continue;
         const holder = agent.sessionId ? holders.get(agent.sessionId) : undefined;
         if (agent.activity === "detached") await this.followDetached(agent, holder);
         else if (holder && this.sessions.get(agent.name)?.isRunning)

@@ -573,6 +573,26 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
         openPoints: keep(state.openPoints),
       };
     }
+    case "made_worker": {
+      // The same conversation goes on, so the log stays; what belonged to the old directory goes.
+      const { guest: _guest, ...worker } = agent;
+      return {
+        ...state,
+        agents: {
+          ...state.agents,
+          [event.agent]: {
+            ...worker,
+            title: event.workspace,
+            workspace: event.workspace,
+            cwd: event.cwd,
+            sessionId: event.session,
+            allowedEdits: [],
+            turnEdits: [],
+            transcriptMark: undefined,
+          },
+        },
+      };
+    }
     case "conversation_started":
       return startConversation(state, agent, event);
     case "activity": {
