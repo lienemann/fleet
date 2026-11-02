@@ -231,6 +231,7 @@ function addHere(config: Config): void {
     readOnly: [],
     wip: {},
     workspaces: [standIn(here)],
+    openWorkspaces: { mode: "ask", max: 8 },
   });
 }
 

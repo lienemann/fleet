@@ -127,22 +127,23 @@ it("removes only a workspace nobody uses, and never the last one", async () => {
     onWorkspacesChanged: changed,
   });
   supervisor.init();
-  const remove = (workspace: string) => supervisor.handle({ type: "remove_workspace", workspace });
+  const remove = (workspace: string) =>
+    supervisor.call({ type: "remove_workspace", id: "1", workspace, delete: false });
 
   supervisor.startTask({ title: "One", context: "x", workspace: "ws1" });
   await settled();
   supervisor.claimWorkspace("outside", "ws2");
-  expect(() => remove("ws1")).toThrow('ws1 stays: it holds the work of t1 "One".');
-  expect(() => remove("ws2")).toThrow("ws2 stays: outside has claimed it.");
+  await expect(remove("ws1")).rejects.toThrow('ws1 stays: it holds the work of t1 "One".');
+  await expect(remove("ws2")).rejects.toThrow("ws2 stays: outside has claimed it.");
 
-  remove("ws3");
+  await remove("ws3");
   expect(changed).toHaveBeenCalledOnce();
   expect(supervisor.workspaceList().map((ws) => ws.name)).toEqual(["ws1", "ws2"]);
   expect(allWorkspaces(loadConfig(home)).map((ws) => ws.name)).toEqual(["ws1", "ws2"]);
 
   supervisor.releaseWorkspace("outside", "ws2");
-  remove("ws2");
-  expect(() => remove("ws1")).toThrow("ws1 stays: it is the only one.");
+  await remove("ws2");
+  await expect(remove("ws1")).rejects.toThrow("ws1 stays: it is the only one.");
 });
 
 it("adding a workspace keeps the file's header, its other settings and allowed_tools", () => {

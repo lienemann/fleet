@@ -321,7 +321,7 @@ describe("workspaces and their workers", () => {
 
   it("removes a workspace's worker with the workspace", async () => {
     const { log, supervisor } = setup();
-    supervisor.handle({ type: "remove_workspace", workspace: "ws2" });
+    await supervisor.call({ type: "remove_workspace", id: "1", workspace: "ws2", delete: false });
     await until(() => log.state.agents.bravo === undefined);
     expect(Object.keys(log.state.agents)).toEqual(["alpha"]);
   });

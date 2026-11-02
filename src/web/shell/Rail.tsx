@@ -34,6 +34,8 @@ interface Props {
   onAddProject: () => void;
   /** Asks whether to remove a project. */
   onRemoveProject: (project: string) => void;
+  /** Asks whether to remove a workspace, and its directory with it. */
+  onRemoveWorkspace: (workspace: string) => void;
   /** Opens the color picker of a project. */
   onColor: (project: string) => void;
   collapsed: boolean;
@@ -125,6 +127,7 @@ export function Rail({
   onAddWorkspace,
   onAddProject,
   onRemoveProject,
+  onRemoveWorkspace,
   onColor,
   collapsed,
   onToggleCollapsed,
@@ -221,7 +224,12 @@ export function Rail({
             {open && (
               <div className="rail-body">
                 {tree(own)}
-                <WorkspaceList project={name} onSelect={onSelect} onAdd={onAddWorkspace} />
+                <WorkspaceList
+                  project={name}
+                  onSelect={onSelect}
+                  onAdd={onAddWorkspace}
+                  onRemove={onRemoveWorkspace}
+                />
               </div>
             )}
           </section>
@@ -232,6 +240,7 @@ export function Rail({
           title={`Workspaces · ${info.host}`}
           onSelect={onSelect}
           onAdd={onAddWorkspace}
+          onRemove={onRemoveWorkspace}
         />
       )}
       <button
@@ -345,11 +354,13 @@ function WorkspaceList({
   title = "Workspaces",
   onSelect,
   onAdd,
+  onRemove,
 }: {
   project?: string;
   title?: string;
   onSelect: (agent: string) => void;
   onAdd: (project?: string) => void;
+  onRemove: (workspace: string) => void;
 }) {
   const { info } = useFleet();
   if (!info) return null;
@@ -365,7 +376,7 @@ function WorkspaceList({
         <button
           type="button"
           className="link"
-          title={`Add an existing jj workspace${project ? ` to ${project}` : ""}`}
+          title={`Add a workspace${project ? ` to ${project}` : ""}: a new one, or an existing directory`}
           onClick={() => onAdd(project)}
         >
           + Add
@@ -379,6 +390,7 @@ function WorkspaceList({
             path={ws.path}
             only={lastWorkspace(info, ws.name)}
             onSelect={onSelect}
+            onRemove={onRemove}
           />
         ))}
       </ul>
@@ -425,12 +437,14 @@ function WorkspaceRow({
   path,
   only,
   onSelect,
+  onRemove,
 }: {
   name: string;
   path: string;
   /** The last workspace stays, so that tasks have somewhere to go. */
   only: boolean;
   onSelect: (agent: string) => void;
+  onRemove: (workspace: string) => void;
 }) {
   const { state, send } = useFleet();
   const terminals = useTerminals();
@@ -501,10 +515,10 @@ function WorkspaceRow({
             title={
               kept
                 ? `${name} stays in fleet: ${kept}`
-                : `Remove ${name} from fleet; jj and the directory stay`
+                : `Remove ${name} from fleet, and its directory if you like`
             }
             disabled={kept !== undefined}
-            onClick={() => send({ type: "remove_workspace", workspace: name })}
+            onClick={() => onRemove(name)}
           >
             ×
           </button>

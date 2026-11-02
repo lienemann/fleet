@@ -153,6 +153,7 @@ export const testProject = (
   wip: { running, review },
   allowedTools: [],
   workspaces: workspaces.map((ws) => ({ ...ws, project: name })),
+  openWorkspaces: { mode: "ask", max: 8 },
 });
 
 /** The director of the project "test" that `testConfig` starts with. */
@@ -170,6 +171,8 @@ export const testConfig = (
   allowedTools: [],
   finishedAfterMs: 15_000,
   readWhileWatching: false,
+  diskMinFree: 10 * 1024 ** 3,
+  openWorkspaces: { mode: "ask", max: 8 },
   projects: [testProject("test", first), ...others],
 });
 

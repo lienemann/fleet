@@ -263,6 +263,8 @@ export type EventBody =
       change?: string;
       /** Why a pinned task cannot start. */
       pinNote?: string;
+      /** The user would rather wait for a worker than open a workspace for it. */
+      workspaceDeclined?: true;
     }
   /** The task was changed after it was created; `pin: null` releases it to any worker. */
   | {

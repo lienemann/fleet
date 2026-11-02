@@ -47,6 +47,8 @@ export interface TaskView {
   pin?: string;
   /** Why the pinned task cannot start. */
   pinNote?: string;
+  /** The user would rather wait for a worker than open a workspace for it; fleet asks no more. */
+  workspaceDeclined?: true;
   /** The jj change that keeps a parked task's work. */
   change?: string;
   /** The handover note of a parked task. */
@@ -478,7 +480,7 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
     agents[holder as string] = { ...after, task: task.id, allowedEdits: [] };
   }
   const closed = CLOSED.has(event.state);
-  const { note, change, pinNote } = event;
+  const { note, change, pinNote, workspaceDeclined } = event;
   const moved: TaskView = {
     ...task,
     state: event.state,
@@ -487,6 +489,7 @@ function move(state: FleetState, event: FleetEvent & { kind: "task_state" }): Fl
     ...(note !== undefined && { note }),
     ...(change !== undefined && { change }),
     ...(pinNote !== undefined && { pinNote }),
+    ...(workspaceDeclined && { workspaceDeclined }),
   };
   const next = { ...state, agents, tasks: { ...state.tasks, [task.id]: moved } };
   if (!closed) return next;

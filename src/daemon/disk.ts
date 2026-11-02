@@ -15,7 +15,8 @@ export interface Space {
   total: number;
 }
 
-async function systemSpace(path: string): Promise<Space> {
+/** The free space on the volume that holds `path`. */
+export async function systemSpace(path: string): Promise<Space> {
   const [info, fs] = await Promise.all([stat(path), statfs(path)]);
   return { volume: String(info.dev), free: fs.bavail * fs.bsize, total: fs.blocks * fs.bsize };
 }

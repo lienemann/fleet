@@ -115,7 +115,7 @@ In the fleet checkout, `just install` builds the web UI and links the `fleet` co
 the jj repo you want to work on:
 
 ```
-fleet init        # creates the jj workspaces ws1 to ws4 next to the repo and writes ~/.fleet/config.toml
+fleet init        # creates the jj workspaces foo-ws1 to foo-ws4 next to the repo foo and writes ~/.fleet/config.toml
 fleet             # starts the daemon and prints the link that logs your browser in
 ```
 
@@ -137,14 +137,24 @@ session knows: a copy of it writes a handover, and the session itself stays as i
 
 Any agent takes a message from the prompt at the bottom of its tile (`p` focuses the selected one). A turn that
 edited files ends with a card of them, each with the lines it added and removed. `/btw <question>` asks about the
-session without adding to it, as in the CLI; the answer shows above the prompt. To work in a
-jj workspace that exists already, press "+ Add" next to a project's workspaces: fleet lists the jj workspaces of
-its repo that it does not use yet, and the one you pick is saved to the config. The same dialog takes any other
-directory, for example one whose Claude Code sessions you want to import with `i`. Tasks go into such a directory
-only when they name it, so a director never puts work there by itself. The list shows who is in
-each workspace and what they are doing; the × on a free one takes it out of fleet and the config again, and leaves
-jj and the directory alone. The × on an agent removes it the same way; its transcript stays, so `i` can bring it
-back.
+session without adding to it, as in the CLI; the answer shows above the prompt.
+
+Each workspace has one worker. When a task could start but every worker of its project is busy, for example with
+tasks in review, fleet asks in the inbox whether to open a new workspace or let the task wait. The question shows
+the free disk space, what a workspace will take (the size of the project's largest one), free memory, CPU load and
+how many tasks run against the limits. Open runs `jj workspace add` next to the repo, as `foo-ws5` for the repo
+`foo` with the lowest number not in use, saves it to the config and starts the task there; Wait keeps the task
+queued, and fleet does not ask about it again. With `open_workspaces = "auto"`, fleet opens one without asking
+while the project has fewer than `max_workspaces` and the disk keeps `disk.min_free_gb` free afterwards.
+
+"+ Add" next to a project's workspaces opens a new one the same way, after showing the free space and the
+estimate, and lists the jj workspaces of the repo that fleet does not use yet; the one you pick is saved to the
+config. The same dialog takes any other directory, for example one whose Claude Code sessions you want to import
+with `i`. Tasks go into such a directory only when they name it, so a director never puts work there by itself.
+The list shows who is in each workspace and what they are doing; the × on a free one takes it out of fleet and the
+config again and asks whether to delete its directory too. Yes snapshots the workspace, so its last edits stay in
+the repo, runs `jj workspace forget` and deletes the directory; no leaves jj and the directory alone. The × on an
+agent takes it out of fleet; its transcript stays, so `i` can bring it back.
 
 To update fleet without losing sessions, pull and rebuild, then run `fleet restart` or pick "Restart fleet" in the command palette.
 The daemon waits until no agent is in the middle of a turn, exits, and the `fleet` command starts the new version,
@@ -171,6 +181,8 @@ model = "opus"                          # what new agents start with (the defaul
 effort = "high"                         # low, medium, high, xhigh or max (the default is high)
 wip = { running = 6, review = 3 }       # for all projects together; leave it out for no limit
 disk = { min_free_gb = 10 }             # warn below this much free space (the default)
+open_workspaces = "ask"                 # ask before opening a workspace for a task (the default), or "auto"
+max_workspaces = 8                      # "auto" opens none past this many per project (the default)
 allowed_tools = ["Bash(uv run pytest:*)"]  # also run without asking; none by default
 
 [[projects]]
@@ -180,10 +192,11 @@ color = "#4fd1c5"                       # what its tickets wear; fleet picks one
 wip = { running = 4, review = 2 }
 read_only = ["~/Projects/bar"]          # repos its agents read without asking
 # director = false turns its director off; allowed_tools = [...] replaces the list for the project
+# open_workspaces and max_workspaces replace the top-level ones for the project
 
 [[projects.workspaces]]
-name = "ws1"
-path = "~/Projects/foo/workspaces/ws1"  # a jj workspace of the same repo
+name = "foo-ws1"
+path = "~/Projects/foo-ws1"             # a jj workspace of the same repo
 # allowed_tools = [...] replaces the list for this workspace
 # explicit = true: only tasks that name it go there (set for directories added from elsewhere)
 

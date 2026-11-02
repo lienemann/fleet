@@ -42,6 +42,7 @@ import type {
   SessionSummary,
   TaskOutput,
   TerminalReply,
+  WorkspaceOffer,
 } from "../shared/protocol.ts";
 import {
   type AgentView,
@@ -148,6 +149,16 @@ import {
   ToolError,
   type ToolHost,
 } from "./tools.ts";
+import {
+  autoRefusal,
+  jjWorkspaces,
+  measureRoom,
+  type NewWorkspace,
+  nextWorkspace,
+  roomLines,
+  type Workload,
+  type WorkspaceHost,
+} from "./workspaceOpening.ts";
 import { jjRoot, listJjWorkspaces } from "./workspaces.ts";
 
 const NAMES = [
@@ -307,6 +318,8 @@ export interface SupervisorOptions {
     | "allowedTools"
     | "finishedAfterMs"
     | "readWhileWatching"
+    | "openWorkspaces"
+    | "diskMinFree"
   >;
   power?: Pick<Power, "setLidMode">;
   /** Opens terminals for the user; without it, the daemon opens none. */
@@ -315,6 +328,8 @@ export interface SupervisorOptions {
   sessions?: SessionSource;
   /** Starts each ticket on a change of its own; jj unless replaced. */
   changes?: Changes;
+  /** Opens, measures and deletes workspaces; jj and the file system unless replaced. */
+  workspaceHost?: WorkspaceHost;
   /** Which Claude Code processes hold sessions; without it fleet cannot tell. */
   holders?: HolderHost;
   /** Where added workspaces are written; without it they last until the daemon stops. */
@@ -351,6 +366,14 @@ export class Supervisor implements ToolHost {
   private readonly parking = new Set<string>();
   /** Tasks whose drop waits for the user's answer. */
   private readonly asking = new Set<string>();
+  /**
+   * Queued tasks fleet opens a workspace for or asks about, by task: what calls the question
+   * off once the task starts or leaves the queue.
+   */
+  private readonly opening = new Map<string, AbortController>();
+  /** Workspaces open one after another, so that two never pick the same name. */
+  private workspaceOps: Promise<unknown> = Promise.resolve();
+  private readonly workspaceHost: WorkspaceHost;
   /**
    * Workers being readied outside the pool: their workspace moves on to a new change, or an
    * imported session moves in. Nothing takes them meanwhile.
@@ -390,6 +413,7 @@ export class Supervisor implements ToolHost {
     terminal,
     sessions,
     changes,
+    workspaceHost,
     holders,
     restart,
     configFile,
@@ -397,6 +421,7 @@ export class Supervisor implements ToolHost {
     onWorkspacesChanged,
   }: SupervisorOptions) {
     this.changes = changes ?? jjChanges;
+    this.workspaceHost = workspaceHost ?? jjWorkspaces;
     this.fleetDir = fleetDir;
     this.holders = holders;
     this.configFile = configFile;
@@ -847,9 +872,6 @@ export class Supervisor implements ToolHost {
       case "add_workspace":
         this.addWorkspace(message.name, message.path, message.explicit ?? false, message.project);
         return;
-      case "remove_workspace":
-        this.removeWorkspace(message.workspace);
-        return;
       case "release_workspace":
         if (this.state.claims[message.workspace]) this.release(message.workspace);
         return;
@@ -880,6 +902,16 @@ export class Supervisor implements ToolHost {
       return null;
     }
     if (call.type === "inspect_directory") return this.inspectDirectory(call.path);
+    if (call.type === "new_workspace") return this.workspaceOffer(call.project);
+    if (call.type === "open_workspace") {
+      const opened = await this.openWorkspace(this.projectNamed(call.project));
+      this.schedule();
+      return { name: opened.name };
+    }
+    if (call.type === "remove_workspace") {
+      await this.removeWorkspace(call.workspace, call.delete);
+      return null;
+    }
     if (call.type === "open_terminal") return this.openTerminal(call);
     if (call.type === "done_tasks") {
       const events = this.log.ofKinds(CLOSED_TASK_KINDS);
@@ -1003,6 +1035,18 @@ export class Supervisor implements ToolHost {
     if (!statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
       throw new ToolError(`${path} is not a directory.`);
     }
+    this.insertWorkspace(project, name, path, explicit);
+    this.schedule();
+    return `Added the workspace ${name} to ${project.name}.`;
+  }
+
+  /** Puts a workspace into a project and config.toml, and starts its worker. */
+  private insertWorkspace(
+    project: Project,
+    name: string,
+    path: string,
+    explicit: boolean,
+  ): Workspace {
     // The stand-in for a project without workspaces goes once it has one, unless a task uses it.
     const unused = (ws: Workspace) =>
       ws.fallback && !workspaceInUse(workspaceUse(this.state, ws.name));
@@ -1021,8 +1065,7 @@ export class Supervisor implements ToolHost {
     this.configChanged([project]);
     for (const ws of gone) this.background(this.removeWorker(ws.name));
     this.startWorker(added);
-    this.schedule();
-    return `Added the workspace ${name} to ${project.name}.`;
+    return added;
   }
 
   /**
@@ -1064,6 +1107,7 @@ export class Supervisor implements ToolHost {
       wip: {},
       allowedTools: this.config.allowedTools,
       workspaces: [],
+      openWorkspaces: this.config.openWorkspaces,
     };
     const taken = new Set([
       ...this.config.projects.map((p) => p.name),
@@ -1113,18 +1157,172 @@ export class Supervisor implements ToolHost {
     await Promise.all(agents.map((a) => this.removeAgent(a.name)));
   }
 
-  /** Takes a workspace out of fleet and config.toml; jj and the directory stay as they are. */
-  private removeWorkspace(name: string): void {
+  /**
+   * Takes a workspace out of fleet and config.toml. With `deleteDirectory`, its worker ends and
+   * the workspace is snapshotted, forgotten in jj and deleted; without, jj and the directory stay.
+   */
+  private async removeWorkspace(name: string, deleteDirectory: boolean): Promise<void> {
     const project = this.config.projects.find((p) => p.workspaces.some((ws) => ws.name === name));
-    if (!project) return;
+    const workspace = project?.workspaces.find((ws) => ws.name === name);
+    if (!project || !workspace) throw new Error(`No workspace "${name}".`);
     const reason =
       project.workspaces.length === 1
         ? "it is the only one"
         : workspaceInUse(workspaceUse(this.state, name));
     if (reason) throw new Error(`${name} stays: ${reason}.`);
-    project.workspaces = project.workspaces.filter((ws) => ws.name !== name);
+    project.workspaces = project.workspaces.filter((ws) => ws !== workspace);
     this.configChanged([project]);
-    this.background(this.removeWorker(name));
+    const ended = this.removeWorker(name);
+    if (!deleteDirectory) return this.background(ended);
+    await ended;
+    await this.workspaceHost.remove(project.path, workspace.path).catch((error: unknown) => {
+      const why = error instanceof Error ? error.message : String(error);
+      throw new Error(`${name} left fleet, but its directory stays: ${why}`);
+    });
+  }
+
+  /** The workspace New workspace would open for a project, with the disk it has and needs. */
+  private async workspaceOffer(projectName: string): Promise<WorkspaceOffer> {
+    const project = this.projectNamed(projectName);
+    const room = await measureRoom(this.workspaceHost, project.path, this.workerSpaces(project));
+    const { free, estimate, estimateFrom } = room;
+    return { ...this.nextWorkspace(project), free, estimate, estimateFrom };
+  }
+
+  /** The next free `<repo>-ws<N>` of a project; see `nextWorkspace`. */
+  private nextWorkspace(project: Project): NewWorkspace {
+    const taken = new Set([
+      ...this.config.projects.map(defaultWorkspace),
+      ...this.workspaces.map((ws) => ws.name),
+      ...listJjWorkspaces(project.path).map((ws) => ws.name),
+    ]);
+    return nextWorkspace(project.path, taken);
+  }
+
+  /** The project's workspaces that measure what a new one takes: those of its own workers. */
+  private workerSpaces(project: Project): Workspace[] {
+    return project.workspaces.filter((ws) => !ws.fallback && !ws.explicit);
+  }
+
+  /** Opens a new jj workspace next to the project's repo, with its worker, for good. */
+  private openWorkspace(project: Project): Promise<Workspace> {
+    const open = this.workspaceOps.then(async () => {
+      const workspace = this.nextWorkspace(project);
+      await this.workspaceHost.add(project.path, workspace);
+      return this.insertWorkspace(project, workspace.name, workspace.path, false);
+    });
+    this.workspaceOps = open.catch(() => undefined);
+    return open;
+  }
+
+  /** How many workspaces a project has, and how many of its tasks run and wait in review. */
+  private workload(project: Project): Workload {
+    const tasks = taskList(this.state).filter((t) => t.project === project.name);
+    return {
+      workspaces: project.workspaces.filter((ws) => !ws.fallback).length,
+      inProgress: tasks.filter((t) => ACTIVE.has(t.state)).length,
+      inReview: tasks.filter((t) => t.state === "review").length,
+      limits: project.wip,
+    };
+  }
+
+  /**
+   * A queued task for any worker of its project that only lacks a free one gets a workspace:
+   * fleet asks in the inbox first, unless the project says "auto" and its disk and
+   * `max_workspaces` allow it. A task the user lets wait is not asked about again.
+   */
+  private offerWorkspace(task: TaskView): void {
+    if (task.role !== "worker" || task.pin !== undefined || task.workspace !== undefined) return;
+    if (task.workspaceDeclined || this.opening.has(task.id)) return;
+    const project = this.config.projects.find((p) => p.name === task.project);
+    if (!project) return;
+    const asker = this.directorOfProject(project.name);
+    if (project.openWorkspaces.mode === "ask" && asker === undefined) return;
+    const call = new AbortController();
+    this.opening.set(task.id, call);
+    this.background(
+      this.openFor(task.id, project, asker, call.signal).then((retry) => {
+        if (retry && this.opening.get(task.id) === call) this.opening.delete(task.id);
+      }),
+    );
+  }
+
+  /** A task that starts or leaves the queue needs no workspace opened; its question goes. */
+  private callOffOpening(id: string): void {
+    this.opening.get(id)?.abort();
+    this.opening.delete(id);
+  }
+
+  /**
+   * Opens a workspace for a queued task, or asks first, and starts the task there. True when
+   * the question went stale before the user answered, so that it may come again.
+   */
+  private async openFor(
+    id: string,
+    project: Project,
+    asker: string | undefined,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const room = await measureRoom(this.workspaceHost, project.path, this.workerSpaces(project));
+    const load = this.workload(project);
+    const settings = project.openWorkspaces;
+    const refusal =
+      settings.mode === "auto"
+        ? autoRefusal(room, load, settings, this.config.diskMinFree)
+        : undefined;
+    const task = this.task(id);
+    if (signal.aborted || !task) return false;
+    if (settings.mode === "ask" || refusal !== undefined) {
+      if (asker === undefined) return false;
+      const question = `Open a workspace for ${id} "${task.title}"?`;
+      const why = `No worker of ${project.name} is free for it${refusal ? `, and fleet opens none on its own: ${refusal}` : ""}.`;
+      this.session(asker);
+      const answer = await this.ask(
+        asker,
+        {
+          decision: "question",
+          toolName: "open_workspace",
+          input: { task: id },
+          explanation: [why, "", ...roomLines(room, load, settings).map((l) => `- ${l}`)].join(
+            "\n",
+          ),
+          risk: [],
+          questions: [
+            {
+              question,
+              options: [
+                {
+                  label: "Open",
+                  description: `Opens ${this.nextWorkspace(project).name} next to the repo, with a worker, and starts ${id} there`,
+                },
+                { label: "Wait", description: `${id} waits until a worker is free` },
+              ],
+            },
+          ],
+        },
+        signal,
+      ).catch(() => undefined);
+      if (!answer) return true;
+      if (answer.behavior !== "answers" || answer.answers[question] !== "Open") {
+        this.append(DAEMON, {
+          kind: "task_state",
+          task: id,
+          state: "queued",
+          workspaceDeclined: true,
+        });
+        return false;
+      }
+    }
+    if (signal.aborted) return false;
+    const opened = await this.openWorkspace(project);
+    const worker = this.workerOf(opened.name);
+    const now = this.task(id);
+    if (worker && now?.state === "queued" && this.noRoom(project.name) === undefined) {
+      const placement = this.placement(now, [worker]);
+      if (typeof placement === "object") this.begin(now, placement);
+    }
+    this.schedule();
+    return false;
   }
 
   /** Writes the config, and tells the pages and the directors of `projects` what changed. */
@@ -2944,6 +3142,9 @@ export class Supervisor implements ToolHost {
    * that its worker can never take gets a note saying why, and waits for Unpin.
    */
   private schedule(): void {
+    for (const id of this.opening.keys()) {
+      if (this.task(id)?.state !== "queued") this.callOffOpening(id);
+    }
     for (const task of taskList(this.state)) {
       if (task.state !== "queued" || this.starting.has(task.id)) continue;
       const refusal = this.pinRefusal(task);
@@ -2955,6 +3156,7 @@ export class Supervisor implements ToolHost {
       if (task.role === "investigator") this.investigatorFor(task);
       const placement = this.placement(task);
       if (typeof placement === "object") this.begin(task, placement);
+      else this.offerWorkspace(task);
     }
     this.trimInvestigators();
   }
@@ -3050,13 +3252,14 @@ export class Supervisor implements ToolHost {
    * Which free worker takes a queued task, past the limits, and how its conversation begins; else
    * what keeps the task waiting. A pinned task waits for its worker and continues its
    * conversation there; one for a workspace waits for that workspace's worker; any other goes to
-   * a worker of its project outside the explicit workspaces. The worker that had the task's last
-   * conversation resumes it in place; another one forks it.
+   * a worker of its project outside the explicit workspaces, or to one of `only`, such as the
+   * worker of a workspace opened for it. The worker that had the task's last conversation resumes
+   * it in place; another one forks it.
    */
-  private placement(task: TaskView): Placement | string {
+  private placement(task: TaskView, only?: AgentView[]): Placement | string {
     const refusal = this.pinRefusal(task);
     if (refusal !== undefined) return refusal;
-    const candidates = this.candidates(task);
+    const candidates = only ?? this.candidates(task);
     if (typeof candidates === "string") return candidates;
     const free = candidates.filter((w) => this.takes(w, task));
     const [first] = free;
@@ -3114,6 +3317,7 @@ export class Supervisor implements ToolHost {
   /** Reserves the worker for the task, readies it, and then hands the task over. */
   private begin(task: TaskView, { worker, opening }: Placement): void {
     this.starting.set(task.id, worker.name);
+    this.callOffOpening(task.id);
     this.background(this.ready(task, worker, opening));
   }
 

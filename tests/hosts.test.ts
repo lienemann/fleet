@@ -130,8 +130,14 @@ describe("routing", () => {
       remotes,
     );
     expect(task[0]).toMatchObject({ host: "pod1", message: { workspace: "ws3" } });
-    const removal = routeCommand({ type: "remove_workspace", workspace: "pod1/ws3" }, remotes);
-    expect(removal[0]).toMatchObject({ host: "pod1", message: { workspace: "ws3" } });
+    const removal = routeCall(
+      { type: "remove_workspace", workspace: "pod1/ws3", delete: true },
+      remotes,
+    );
+    expect(removal).toEqual({
+      host: "pod1",
+      call: { type: "remove_workspace", workspace: "ws3", delete: true },
+    });
   });
 
   it("marks everything seen everywhere, but switches only the local Mac's sleep", () => {

@@ -22,24 +22,24 @@ it("creates a workspace per worker next to the repo and writes a config fleet ca
   const home = join(root, "home");
   const result = init({ cwd: path, home, workspaces: 2, jj });
 
-  expect(result.created).toEqual(["ws1", "ws2"]);
+  expect(result.created).toEqual(["foo-ws1", "foo-ws2"]);
   expect(result.workspaces.map((w) => w.path)).toEqual([
     join(root, "foo-ws1"),
     join(root, "foo-ws2"),
   ]);
-  expect(jj(["workspace", "list"], path)).toContain("ws2");
+  expect(jj(["workspace", "list"], path)).toContain("foo-ws2");
   const config = loadConfig(home);
   expect(config.projects).toMatchObject([
     { name: "foo", path, director: true, wip: { running: 2, review: 2 } },
   ]);
-  expect(allWorkspaces(config).map((w) => w.name)).toEqual(["ws1", "ws2"]);
+  expect(allWorkspaces(config).map((w) => w.name)).toEqual(["foo-ws1", "foo-ws2"]);
 });
 
 it("keeps workspaces that exist, and never overwrites a config", () => {
   const { root, path, jj } = repo();
-  jj(["workspace", "add", "--name", "ws1", join(root, "foo-ws1")], path);
+  jj(["workspace", "add", "--name", "foo-ws1", join(root, "foo-ws1")], path);
   const home = join(root, "home");
-  expect(init({ cwd: path, home, workspaces: 2, jj }).created).toEqual(["ws2"]);
+  expect(init({ cwd: path, home, workspaces: 2, jj }).created).toEqual(["foo-ws2"]);
   const written = readFileSync(join(home, "config.toml"), "utf8");
   expect(() => init({ cwd: path, home, workspaces: 2, jj })).toThrow(/exists already/);
   expect(readFileSync(join(home, "config.toml"), "utf8")).toBe(written);

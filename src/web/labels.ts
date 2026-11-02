@@ -11,6 +11,7 @@ import {
 } from "../shared/events.ts";
 import type { DaemonInfo } from "../shared/protocol.ts";
 import type { AgentView, FleetState } from "../shared/reducer.ts";
+import { sizeText } from "../shared/size.ts";
 import { agentState, NO_WORKSPACES, needsYou, type TaskView, taskOf } from "../shared/tasks.ts";
 
 /**
@@ -27,6 +28,7 @@ export function waitsFor(
   if (task.pin !== undefined) return `Waits on ${task.pin}`;
   if (heldWorkspace !== undefined) return `Waits for ${heldWorkspace}`;
   if (task.role === "worker" && task.workspace === undefined && !pooled) return NO_WORKSPACES;
+  if (task.workspaceDeclined) return "Waits for a worker to free up";
   return "Waits for its worker or a running slot";
 }
 
@@ -108,13 +110,11 @@ export function agentStatus(
 
 /** "4.2 GB free for ws1, ws2 and event log on pod1": what is short of space where. */
 export function lowDiskText(volume: LowDisk): string {
-  const gb = volume.free / 1024 ** 3;
-  const free = gb < 10 ? gb.toFixed(1) : String(Math.round(gb));
   const names =
     volume.names.length > 1
       ? `${volume.names.slice(0, -1).join(", ")} and ${volume.names.at(-1)}`
       : (volume.names[0] ?? "");
-  return `${free} GB free for ${names}${volume.host ? ` on ${volume.host}` : ""}`;
+  return `${sizeText(volume.free)} free for ${names}${volume.host ? ` on ${volume.host}` : ""}`;
 }
 
 /** How full the agent's context window is, in percent, once the session has reported it. */

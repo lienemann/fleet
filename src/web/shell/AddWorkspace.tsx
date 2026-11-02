@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { DirectoryInfo } from "../../shared/protocol.ts";
+import type { DirectoryInfo, WorkspaceOffer } from "../../shared/protocol.ts";
+import { sizeText } from "../../shared/size.ts";
 import { useFleet } from "../fleet.tsx";
 import { useLocalProjects } from "../projects.tsx";
 import { Dialog } from "../ui/Dialog.tsx";
@@ -8,8 +9,9 @@ import { useSubmit } from "../useSubmit.ts";
 type Offer = { name: string; path: string; added: boolean };
 
 /**
- * Adds existing directories as workspaces of a project: its repo's jj workspaces, or any other
- * directory. Only this daemon's projects: a pod's workspaces are configured on the pod.
+ * Adds workspaces to a project: a new jj workspace next to its repo, one of its repo's existing
+ * jj workspaces, or any other directory. Only this daemon's projects: a pod's workspaces are
+ * configured on the pod.
  */
 export function AddWorkspace({ project, onClose }: { project?: string; onClose: () => void }) {
   const projects = useLocalProjects();
@@ -17,7 +19,7 @@ export function AddWorkspace({ project, onClose }: { project?: string; onClose: 
   const target = (projects.find((p) => p.name === chosen) ?? projects[0])?.name;
 
   return (
-    <Dialog title="Add an existing workspace" label="Add a workspace" onClose={onClose}>
+    <Dialog title="Add a workspace" onClose={onClose}>
       {projects.length > 1 && (
         <label>
           Project
@@ -32,11 +34,61 @@ export function AddWorkspace({ project, onClose }: { project?: string; onClose: 
       )}
       {target && (
         <>
+          <NewWorkspace key={`new-${target}`} project={target} />
           <WorkspaceOffers key={target} project={target} />
           <OtherDirectory project={target} />
         </>
       )}
     </Dialog>
+  );
+}
+
+/**
+ * A new jj workspace next to the repo, with a worker, named like the others: the free space on
+ * the repo's volume and what the workspace will probably take come first.
+ */
+function NewWorkspace({ project }: { project: string }) {
+  const { call } = useFleet();
+  const [offer, setOffer] = useState<WorkspaceOffer>();
+  const [opened, setOpened] = useState<string>();
+  const [failed, setFailed] = useState<string>();
+  const { submit, pending, error } = useSubmit(
+    () => call({ type: "open_workspace", project }),
+    ({ name }) => setOpened(name),
+  );
+
+  useEffect(() => {
+    call({ type: "new_workspace", project }).then(setOffer, (e: Error) => setFailed(e.message));
+  }, [call, project]);
+
+  return (
+    <form className="new-workspace" onSubmit={submit}>
+      <h3>New workspace</h3>
+      {failed && <p className="banner">{failed}</p>}
+      {!offer && !failed && <p className="empty">Measuring the disk…</p>}
+      {offer && (
+        <div className="dir-row">
+          <span>
+            <strong className="name">{offer.name}</strong> <code className="dim">{offer.path}</code>
+            <span className="dim">
+              {" "}
+              · {offer.free === undefined ? "free space unknown" : `${sizeText(offer.free)} free`} ·
+              takes about{" "}
+              {offer.estimate === undefined ? "an unknown size" : sizeText(offer.estimate)}, the
+              size of {offer.estimateFrom}
+            </span>
+          </span>
+          {opened ? (
+            <span className="dim">opened {opened}</span>
+          ) : (
+            <button type="submit" className="small primary" disabled={pending}>
+              {pending ? "Opening…" : "Open"}
+            </button>
+          )}
+        </div>
+      )}
+      {error && <p className="banner">{error}</p>}
+    </form>
   );
 }
 
@@ -61,9 +113,8 @@ export function WorkspaceOffers({ project }: { project: string }) {
 
   return (
     <>
-      <p className="dim">
-        The jj workspaces of the repo. Added ones go into config.toml and take tasks right away.
-      </p>
+      <h3 className="offers-head">Existing jj workspaces</h3>
+      <p className="dim">Added ones go into config.toml and take tasks right away.</p>
       {error && <p className="banner">{error}</p>}
       {!offers && !error && <p className="empty">Asking jj…</p>}
       {offers?.length === 0 && (

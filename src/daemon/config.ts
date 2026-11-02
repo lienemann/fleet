@@ -19,6 +19,9 @@ const LimitsConfig = z.object({
   review: z.number().int().positive().optional(),
 });
 
+/** Whether fleet asks before it opens a workspace for a task that only lacks a free worker. */
+const OPEN_WORKSPACES = ["ask", "auto"] as const;
+
 const WorkspaceConfig = z.object({
   name: z.string().regex(NAME),
   path: z.string().min(1),
@@ -38,6 +41,9 @@ const ProjectConfig = z.object({
   wip: LimitsConfig.default({}),
   allowed_tools: z.array(z.string()).optional(),
   workspaces: z.array(WorkspaceConfig).default([]),
+  /** Each overrides the top-level setting of the same name. */
+  open_workspaces: z.enum(OPEN_WORKSPACES).optional(),
+  max_workspaces: z.number().int().positive().optional(),
 });
 
 const ConfigFile = z.object({
@@ -62,6 +68,10 @@ const ConfigFile = z.object({
   model: z.string().default("opus"),
   effort: z.enum(EFFORT_LEVELS).default("high"),
   projects: z.array(ProjectConfig).default([]),
+  /** "auto" opens a workspace without asking while the limits below and `disk` allow it. */
+  open_workspaces: z.enum(OPEN_WORKSPACES).default("ask"),
+  /** How many workspaces a project may have, configured ones included. */
+  max_workspaces: z.number().int().positive().default(8),
   /** Daemons on other hosts (Coder pods), reached through a tunnel to their loopback port. */
   remotes: z
     .array(
@@ -100,6 +110,12 @@ const ConfigFile = z.object({
     .default({ enabled: true, python: "python3" }),
 });
 
+/** When fleet opens a workspace on its own: "auto" while `max` and the free disk allow it. */
+export interface OpenWorkspaces {
+  mode: (typeof OPEN_WORKSPACES)[number];
+  max: number;
+}
+
 export interface Workspace {
   name: string;
   path: string;
@@ -126,6 +142,7 @@ export interface Project {
   /** What its workspaces allow unless they say otherwise. */
   allowedTools: string[];
   workspaces: Workspace[];
+  openWorkspaces: OpenWorkspaces;
 }
 
 export interface Config {
@@ -149,6 +166,8 @@ export interface Config {
   history?: { python: string };
   /** Free space in bytes below which a volume counts as low. */
   diskMinFree: number;
+  /** What projects use unless they set their own. */
+  openWorkspaces: OpenWorkspaces;
   /** Working time after which a run the user started ends up in the inbox. */
   finishedAfterMs: number;
   /** Whether a Finished item for an agent the user has open counts as read at once. */
@@ -229,6 +248,10 @@ export function loadConfig(home = fleetHome()): Config {
   const file = join(home, "config.toml");
   const raw = existsSync(file) ? parse(readFileSync(file, "utf8")) : {};
   const parsed = ConfigFile.parse(raw);
+  const openWorkspaces: OpenWorkspaces = {
+    mode: parsed.open_workspaces,
+    max: parsed.max_workspaces,
+  };
   const configured = parsed.projects.map((p) => {
     const allowedTools = p.allowed_tools ?? parsed.allowed_tools;
     const path = expandHome(p.path);
@@ -250,6 +273,10 @@ export function loadConfig(home = fleetHome()): Config {
       wip: p.wip,
       allowedTools,
       workspaces,
+      openWorkspaces: {
+        mode: p.open_workspaces ?? openWorkspaces.mode,
+        max: p.max_workspaces ?? openWorkspaces.max,
+      },
     };
   });
   const projects = withColors(configured);
@@ -268,6 +295,7 @@ export function loadConfig(home = fleetHome()): Config {
     remotes: parsed.remotes,
     terminal: parsed.terminal,
     diskMinFree: parsed.disk.min_free_gb * 1024 ** 3,
+    openWorkspaces,
     finishedAfterMs: parsed.inbox.finished_after_seconds * 1000,
     readWhileWatching: parsed.inbox.read_while_watching,
     auth: parsed.auth,

@@ -1651,7 +1651,10 @@ test("a workspace in use stays, and a free one can be removed", async ({ page })
   await row("ws2").hover();
   await expect(row("ws2").getByRole("button", { name: "Remove ws2" })).toBeDisabled();
 
-  await page.locator(".rail").getByTitle("Add an existing jj workspace to daemon").click();
+  await page
+    .locator(".rail")
+    .getByTitle(/^Add a workspace to daemon/)
+    .click();
   const other = page.locator(".other-directory");
   await other.getByLabel("Directory").fill(join(process.cwd(), "docs"));
   await other.getByRole("button", { name: "Check" }).click();
@@ -1661,6 +1664,10 @@ test("a workspace in use stays, and a free one can be removed", async ({ page })
   await expect(row("docs")).toContainText("free");
   await row("docs").hover();
   await row("docs").getByRole("button", { name: "Remove docs" }).click();
+  // The directory stays unless the box is ticked.
+  const removal = page.getByRole("dialog", { name: "Remove docs" });
+  await expect(removal.getByLabel("Delete the directory as well")).not.toBeChecked();
+  await removal.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(row("docs")).toBeHidden();
 });
 

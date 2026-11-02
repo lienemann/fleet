@@ -86,8 +86,6 @@ export const CommandSchema = z.discriminatedUnion("type", [
   }),
   /** Ends a claim a session outside fleet holds on a workspace, e.g. one it forgot to release. */
   z.object({ type: z.literal("release_workspace"), workspace: z.string().min(1) }),
-  /** Takes a free workspace out of fleet and its config; jj and the directory stay. */
-  z.object({ type: z.literal("remove_workspace"), workspace: z.string().min(1) }),
   /** Restarts the daemon once no agent is mid-turn, e.g. after an update; `cancel` takes it back. */
   z.object({ type: z.literal("restart"), cancel: z.boolean().optional() }),
   /**
@@ -256,6 +254,20 @@ export const CallSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list_files"), id, agent }),
   /** The jj workspaces of a project's repo, for adding existing ones. */
   z.object({ type: z.literal("list_jj_workspaces"), id, project: z.string().min(1) }),
+  /** The workspace New workspace would open for a project, with the disk it has and needs. */
+  z.object({ type: z.literal("new_workspace"), id, project: z.string().min(1) }),
+  /** Opens a new jj workspace next to the project's repo, with a worker, for good. */
+  z.object({ type: z.literal("open_workspace"), id, project: z.string().min(1) }),
+  /**
+   * Takes a free workspace out of fleet and its config. `delete` also snapshots it, forgets it in
+   * jj and deletes its directory; without it, jj and the directory stay.
+   */
+  z.object({
+    type: z.literal("remove_workspace"),
+    id,
+    workspace: z.string().min(1),
+    delete: z.boolean(),
+  }),
   /** Adds the jj repo containing a directory as a project; its director starts at once. */
   z.object({
     type: z.literal("add_project"),
@@ -357,6 +369,9 @@ export interface CallResults {
   list_files: string[];
   list_sessions: SessionSummary[];
   list_jj_workspaces: Array<{ name: string; path: string; added: boolean }>;
+  new_workspace: WorkspaceOffer;
+  open_workspace: { name: string };
+  remove_workspace: null;
   add_project: { name: string };
   remove_project: null;
   inspect_directory: DirectoryInfo;
@@ -405,6 +420,17 @@ export interface TaskOutput {
    * A duration, since the browser's clock may differ from the daemon's.
    */
   quietMs?: number;
+}
+
+/** The workspace New workspace opens, with what the user weighs first. */
+export interface WorkspaceOffer {
+  name: string;
+  path: string;
+  /** Bytes free on the repo's volume, if known. */
+  free?: number;
+  /** Bytes the workspace probably takes, if known: the size of `estimateFrom`. */
+  estimate?: number;
+  estimateFrom: string;
 }
 
 /** A directory that could become a workspace. */

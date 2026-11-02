@@ -175,8 +175,7 @@ export function routeCommand(message: Command, remotes: readonly string[]): Rout
     }
     case "import_session":
     case "adopt_director":
-    case "release_workspace":
-    case "remove_workspace": {
+    case "release_workspace": {
       const { host, name } = locate(message.workspace, remotes);
       return [{ host, message: { ...message, workspace: name } }];
     }

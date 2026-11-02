@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test as base, expect } from "@playwright/test";
+import { dirname, join } from "node:path";
+import { test as base, expect, type Page } from "@playwright/test";
 import { EMPTY_OFFSET } from "./ports.ts";
 
 // These tests run against the browser's second demo daemon, which starts without any project.
@@ -14,9 +14,9 @@ const test = base.extend({
   },
 });
 
-/** A new jj repo named `docs`, next to nothing fleet knows. */
-function newRepo(): string {
-  const repo = join(realpathSync(mkdtempSync(join(tmpdir(), "fleet-e2e-project-"))), "docs");
+/** A new jj repo named `name`, next to nothing fleet knows. */
+function newRepo(name = "docs"): string {
+  const repo = join(realpathSync(mkdtempSync(join(tmpdir(), "fleet-e2e-project-"))), name);
   const env = { ...process.env, JJ_USER: "Demo", JJ_EMAIL: "demo@example.com" };
   execFileSync("jj", ["git", "init", repo], { env, stdio: "ignore" });
   return repo;
@@ -60,4 +60,81 @@ test("fleet starts without a project; one is added from the empty board and remo
   await expect(empty).toBeVisible();
   await expect(rail).not.toContainText("director-docs");
   expect(existsSync(repo)).toBe(true);
+});
+
+/** Starts a task for any worker of the only project. */
+async function newTask(page: Page, title: string) {
+  await page.keyboard.press("Alt+n");
+  const dialog = page.getByRole("dialog", { name: "New task" });
+  await dialog.getByLabel("Title").fill(title);
+  await dialog.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
+/** The inbox's question whether to open a workspace for `title`, answered with `choice`. */
+async function answerOpening(page: Page, title: string, choice: "Open" | "Wait") {
+  await page.keyboard.press("Alt+2");
+  const question = page.locator(".inbox .decision", { hasText: `"${title}"?` });
+  await expect(question).toContainText("Free disk:");
+  await expect(question).toContainText("A new workspace takes about");
+  // Each option button reads its label, then its description.
+  await question.getByRole("button", { name: new RegExp(`^${choice} `) }).click();
+  await expect(question).toBeHidden();
+  await page.keyboard.press("Alt+1");
+}
+
+test("workspaces open from New workspace or the inbox's question, and leave with their directory", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const repo = newRepo("guide");
+  const ws = (n: number) => join(dirname(repo), `guide-ws${n}`);
+  await page.goto("/");
+  const rail = page.getByRole("complementary", { name: "Agents" });
+  await page.locator(".board-empty").getByRole("button", { name: "+ Add project" }).click();
+  const adding = page.getByRole("dialog", { name: "Add a project" });
+  await adding.getByLabel("Directory").fill(repo);
+  await adding.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(adding).toContainText("Added guide.");
+  await adding.getByRole("button", { name: "Close" }).click();
+
+  // New workspace shows the name, the free space and the estimate before it opens one.
+  const openNew = async (name: string) => {
+    await rail.getByTitle(/^Add a workspace/).click();
+    const dialog = page.getByRole("dialog", { name: "Add a workspace" });
+    const offer = dialog.locator(".new-workspace");
+    await expect(offer).toContainText(name);
+    await expect(offer).toContainText("free");
+    await expect(offer).toContainText("the size of");
+    await offer.getByRole("button", { name: "Open", exact: true }).click();
+    await expect(offer).toContainText(`opened ${name}`);
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(rail.locator(".workspaces")).toContainText(name);
+  };
+  await openNew("guide-ws1");
+  await openNew("guide-ws2");
+  expect(existsSync(ws(2))).toBe(true);
+
+  // Removing asks whether the directory goes too.
+  await rail.getByRole("button", { name: "Remove guide-ws2" }).click();
+  const removal = page.getByRole("dialog", { name: "Remove guide-ws2" });
+  await removal.getByLabel("Delete the directory as well").check();
+  await removal.getByRole("button", { name: "Remove and delete" }).click();
+  await expect(removal).toBeHidden();
+  await expect(rail.locator(".workspaces")).not.toContainText("guide-ws2");
+  await expect.poll(() => existsSync(ws(2))).toBe(false);
+
+  // With its one worker busy, the next task asks; Wait keeps it queued.
+  await newTask(page, "Write the intro");
+  await newTask(page, "Write the outline");
+  await answerOpening(page, "Write the outline", "Wait");
+  const queued = page.locator(".column", { has: page.getByRole("heading", { name: "Queued" }) });
+  await expect(queued).toContainText("Write the outline");
+
+  // Open names the new workspace with the lowest free number again and starts the task there.
+  await newTask(page, "Write the summary");
+  await answerOpening(page, "Write the summary", "Open");
+  await expect(rail.locator(".workspaces")).toContainText("guide-ws2");
+  await expect.poll(() => existsSync(ws(2))).toBe(true);
+  await expect(rail).toContainText("Write the summary");
 });

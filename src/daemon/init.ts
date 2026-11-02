@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { stringify } from "smol-toml";
 import { fleetHomeMessage, isFleetHome, projectName } from "./config.ts";
+import { workspaceName } from "./workspaceOpening.ts";
 
 interface InitOptions {
   /** Any directory inside the jj repo. */
@@ -27,9 +28,9 @@ const runJj = (args: string[], cwd: string): string =>
   execFileSync("jj", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
 /**
- * Sets fleet up for a jj repo: one jj workspace per worker (`ws1`, `ws2`, … next to the repo,
- * as `<repo>-ws1` and so on) and a config with the repo as its one project. An existing config
- * is left alone.
+ * Sets fleet up for a jj repo: one jj workspace per worker (`<repo>-ws1`, `<repo>-ws2`, … in
+ * directories of the same names next to the repo) and a config with the repo as its one project.
+ * An existing config is left alone.
  */
 export function init({ cwd, home, workspaces, into, jj = runJj }: InitOptions): InitResult {
   const repo = jj(["root"], cwd).trim();
@@ -48,8 +49,8 @@ export function init({ cwd, home, workspaces, into, jj = runJj }: InitOptions): 
   );
   const created: string[] = [];
   const list = Array.from({ length: workspaces }, (_, i) => {
-    const name = `ws${i + 1}`;
-    const path = join(folder, `${basename(repo)}-${name}`);
+    const name = workspaceName(repo, i + 1);
+    const path = join(folder, name);
     if (!known.has(name)) {
       jj(["workspace", "add", "--name", name, path], repo);
       created.push(name);

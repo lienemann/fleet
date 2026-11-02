@@ -3086,9 +3086,14 @@ button.ln:hover {
   padding: 6px 0;
   border-bottom: 1px solid var(--line2);
 }
+.new-workspace {
+  margin-bottom: 16px;
+}
 .other-directory {
   margin-top: 16px;
 }
+.new-workspace h3,
+.offers-head,
 .other-directory h3 {
   margin: 0 0 4px;
   font-size: 13px;

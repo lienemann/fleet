@@ -28,6 +28,7 @@ import { NewTask } from "./shell/NewTask.tsx";
 import { ProjectColor } from "./shell/ProjectColor.tsx";
 import { Rail, railSequence } from "./shell/Rail.tsx";
 import { RemoveProject } from "./shell/RemoveProject.tsx";
+import { RemoveWorkspace } from "./shell/RemoveWorkspace.tsx";
 import { Ticker } from "./shell/Ticker.tsx";
 import { CONTINUE_KEYS, MOVE_ORDER, TASK_MOVES, useTaskMoves } from "./taskMoves.ts";
 import { UnopenedTerminal, useTerminals } from "./terminal.tsx";
@@ -54,6 +55,7 @@ type Overlay =
   | "workspaces"
   | "project"
   | "remove-project"
+  | "remove-workspace"
   | "color"
   | "shortcuts"
   | "palette";
@@ -74,9 +76,14 @@ export function App() {
   const [file, setFile] = useState<{ path: string }>();
   const [diffFile, setDiffFile] = useState<{ path: string }>();
   // Each opening is a new object, so "closed, then opened again" in one batch still opens it.
-  const [overlay, setOverlay] = useState<{ kind: Overlay; id: number; project?: string }>();
-  const show = (kind: Overlay, project?: string): void =>
-    setOverlay({ kind, id: Date.now() + Math.random(), project });
+  const [overlay, setOverlay] = useState<{
+    kind: Overlay;
+    id: number;
+    project?: string;
+    workspace?: string;
+  }>();
+  const show = (kind: Overlay, project?: string, workspace?: string): void =>
+    setOverlay({ kind, id: Date.now() + Math.random(), project, workspace });
   const projects = useProjects();
   const localProjects = useLocalProjects();
   const filter = useProjectFilter();
@@ -400,7 +407,7 @@ export function App() {
           id: `workspace.remove.${ws.name}`,
           label: `Remove workspace ${ws.name}`,
           group: "Fleet",
-          run: () => send({ type: "remove_workspace", workspace: ws.name }),
+          run: () => show("remove-workspace", undefined, ws.name),
         }),
       ),
     ...(info?.workspaces ?? []).map(
@@ -650,6 +657,7 @@ export function App() {
           onAddWorkspace={(project) => show("workspaces", project)}
           onAddProject={() => show("project")}
           onRemoveProject={(project) => show("remove-project", project)}
+          onRemoveWorkspace={(workspace) => show("remove-workspace", undefined, workspace)}
           onColor={(project) => show("color", project)}
           collapsed={rail.collapsed}
           onToggleCollapsed={rail.toggle}
@@ -744,6 +752,13 @@ export function App() {
         <RemoveProject
           key={overlay.id}
           project={overlay.project}
+          onClose={() => setOverlay(undefined)}
+        />
+      )}
+      {overlay?.kind === "remove-workspace" && overlay.workspace && (
+        <RemoveWorkspace
+          key={overlay.id}
+          workspace={overlay.workspace}
           onClose={() => setOverlay(undefined)}
         />
       )}
