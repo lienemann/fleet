@@ -59,14 +59,18 @@ const BY_STATE: Record<TaskState, TaskMove[]> = {
   dropped: [],
 };
 
+/** What `movesOf` and `moveInto` read of a task. */
+type Movable = Pick<TaskView, "state" | "pin" | "workspace" | "changesRequested">;
+
 /**
  * The moves a task offers in its state, the same on the board, in the inbox and in the palette.
  * A task back in progress with changes requested still waits for the verdict, so it offers the
- * moves of Review; Unpin only while the task waits for one worker.
+ * moves of Review; Unpin only while the task waits for one worker or one workspace.
  */
-export function movesOf(task: Pick<TaskView, "state" | "pin" | "changesRequested">): TaskMove[] {
+export function movesOf(task: Movable): TaskMove[] {
   const state = task.changesRequested && task.state === "in_progress" ? "review" : task.state;
-  return BY_STATE[state].filter((move) => move !== "unpin" || task.pin !== undefined);
+  const bound = task.pin !== undefined || task.workspace !== undefined;
+  return BY_STATE[state].filter((move) => move !== "unpin" || bound);
 }
 
 /**
@@ -82,10 +86,7 @@ const INTO: Partial<Record<TaskState, TaskMove>> = {
 };
 
 /** The move a card dropped into `column` makes, if the task offers it in its state. */
-export function moveInto(
-  task: Pick<TaskView, "state" | "pin" | "changesRequested">,
-  column: TaskState,
-): TaskMove | undefined {
+export function moveInto(task: Movable, column: TaskState): TaskMove | undefined {
   const move = INTO[column];
   return move && movesOf(task).includes(move) ? move : undefined;
 }

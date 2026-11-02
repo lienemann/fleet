@@ -2840,14 +2840,20 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Releases a queued task that waits for one worker to the pool, which places it as any other.
-   * `by` is who unpins it.
+   * Releases a queued task that waits for one worker, or for the worker of the workspace it was
+   * created for, to the pool, which places it as any other. `by` is who unpins it.
    */
   private unpin(id: string, by: string): void {
     const task = this.task(id);
-    if (task?.state !== "queued" || task.pin === undefined) return;
-    this.append(DAEMON, { kind: "task_updated", task: id, pin: null });
-    this.tellMove(id, `released from ${task.pin} to any worker`, by);
+    const bound = task?.pin ?? task?.workspace;
+    if (task?.state !== "queued" || bound === undefined) return;
+    this.append(DAEMON, {
+      kind: "task_updated",
+      task: id,
+      ...(task.pin !== undefined && { pin: null }),
+      ...(task.workspace !== undefined && { workspace: null }),
+    });
+    this.tellMove(id, `released from ${bound} to any worker`, by);
     this.schedule();
   }
 

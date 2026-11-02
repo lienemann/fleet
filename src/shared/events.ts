@@ -270,13 +270,16 @@ export type EventBody =
       /** The user sent a task in review back to work; kept until it leaves In progress. */
       changes?: ChangeRequest;
     }
-  /** The task was changed after it was created; `pin: null` releases it to any worker. */
+  /**
+   * The task was changed after it was created; `pin: null` and `workspace: null` release it to
+   * any worker.
+   */
   | {
       kind: "task_updated";
       task: string;
       title?: string;
       brief?: string;
-      workspace?: string;
+      workspace?: string | null;
       pin?: string | null;
     }
   /**

@@ -391,7 +391,7 @@ export function applyTask(state: FleetState, event: FleetEvent): FleetState | un
       return patch(state, event.task, () => ({
         ...(title !== undefined && { title }),
         ...(brief !== undefined && { brief }),
-        ...(workspace !== undefined && { workspace }),
+        ...(workspace !== undefined && { workspace: workspace ?? undefined }),
         ...(pin !== undefined && { pin: pin ?? undefined, pinNote: undefined }),
       }));
     }

@@ -356,6 +356,25 @@ describe("a task pinned to its worker", () => {
     expect(task("t1")).toMatchObject({ agent: "bravo", pin: undefined, pinNote: undefined });
   });
 
+  it("lets any worker take a task created for a busy workspace once the user unpins it", async () => {
+    const { supervisor, task } = setup({
+      before: [
+        worker("alpha", { title: "ws1", cwd: "/work/ws1" }),
+        taskCreated("t1", { workspace: "ws1" }),
+        { kind: "conversation_started", agent: "alpha", task: "t1" },
+        taskState("t1", "in_progress", { holder: "alpha" }),
+        taskState("t1", "review"),
+        taskCreated("t2", { workspace: "ws1" }),
+      ],
+    });
+    await settled();
+    expect(task("t2")).toMatchObject({ state: "queued", workspace: "ws1" });
+
+    supervisor.handle({ type: "unpin", task: "t2" });
+    await until(() => task("t2")?.state === "in_progress");
+    expect(task("t2")).toMatchObject({ agent: "bravo", workspace: undefined });
+  });
+
   it("says why when its worker was removed or has no conversation yet", async () => {
     const { supervisor, task } = setup({
       before: [taskCreated("t1", { workspace: undefined, pin: "zulu" })],
