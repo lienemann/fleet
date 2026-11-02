@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 
-/** The work above trunk in a workspace: the change that keeps it, and jj's diff stat of it. */
+/** Loose work in a workspace: the change that keeps it, and jj's diff stat of it. */
 export interface Work {
   change: string;
   stat: string;
@@ -22,8 +22,13 @@ export interface Changes {
   currentChange(dir: string): Promise<string | undefined>;
   /** Whether the workspace holds edits above trunk, as of now. */
   holdsWork(dir: string): Promise<boolean>;
-  /** The workspace's work above trunk, as of now; undefined without work or without a trunk. */
-  describeWork(dir: string): Promise<Work | undefined>;
+  /** The commit id of the workspace's working copy, as of now. */
+  workingCopy(dir: string): Promise<string>;
+  /**
+   * The workspace's loose work, as of now: its changes above trunk that are not pushed and, with
+   * `since`, not under that commit. Undefined without such work or without a trunk.
+   */
+  describeWork(dir: string, since?: string): Promise<Work | undefined>;
   /**
    * Moves the workspace to a new change from trunk and leaves its work in the history, with
    * `description` on the change that keeps it unless that change has a description already.
@@ -49,12 +54,22 @@ export const jjChanges: Changes = {
   async holdsWork(dir) {
     return (await show(dir, "trunk()..@ ~ empty()", "change_id", { snapshot: true })) !== "";
   },
-  async describeWork(dir) {
+  async workingCopy(dir) {
+    return show(dir, "@", "commit_id", { snapshot: true });
+  },
+  async describeWork(dir, since) {
     // Without a trunk, everything is above it; that is the repo, not work of the workspace.
-    if (!(await hasTrunk(dir)) || !(await this.holdsWork(dir))) return undefined;
+    if (!(await hasTrunk(dir))) return undefined;
+    // Should jj no longer know the `since` commit, trunk alone bounds the work.
+    const bound = since ? `present(${since})` : "none()";
+    const loose = `(trunk() | ${bound})..@ ~ ::remote_bookmarks()`;
+    if ((await show(dir, `${loose} ~ empty()`, "change_id", { snapshot: true })) === "") {
+      return undefined;
+    }
     const change = await this.currentChange(dir);
     if (change === undefined) return undefined;
-    const lines = (await jj(dir, "diff", "--ignore-working-copy", "--stat", "--from", "trunk()"))
+    // The diff of the loose changes alone: trunk may have moved on since they were based.
+    const lines = (await jj(dir, "diff", "--ignore-working-copy", "--stat", "-r", loose))
       .trimEnd()
       .split("\n");
     const more = lines.length - STAT_LINES;

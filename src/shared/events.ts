@@ -318,6 +318,11 @@ export type EventBody =
    */
   | { kind: "work_kept"; change?: string }
   /**
+   * The worker became free with its working copy at `commit`: what the workspace held then is
+   * none of its loose work.
+   */
+  | { kind: "work_baseline"; commit: string }
+  /**
    * The user keeps the worker's workspace, which fleet offered to remove since the worker stayed
    * free so long; the offer comes again only after as long once more.
    */

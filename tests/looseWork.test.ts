@@ -38,6 +38,7 @@ function setup(workspaces = ["ws1"]) {
     }),
     currentChange: vi.fn<Changes["currentChange"]>(async (dir) => work.get(dir)?.change),
     holdsWork: vi.fn<Changes["holdsWork"]>(async (dir) => work.has(dir)),
+    workingCopy: vi.fn<Changes["workingCopy"]>(async () => "c0ffee"),
     describeWork: vi.fn<Changes["describeWork"]>(async (dir) => work.get(dir)),
     setAside: vi.fn<Changes["setAside"]>(async (dir) => {
       work.delete(dir);
@@ -211,6 +212,21 @@ describe("work in a free worker's workspace that no task owns", () => {
     expect(env.task("t2")?.agent).toBe("bravo");
     expect(env.task("t1")?.state).toBe("queued");
     expect(pendingDecisions(env.log.state)).toHaveLength(1);
+  });
+
+  it("is looked for above where the workspace was when the worker became free, also after a restart", async () => {
+    const env = setup();
+    env.supervisor.createTask("One", "x", undefined);
+    await until(() => env.log.state.agents.alpha?.activity === "idle");
+    env.supervisor.handle({ type: "move", task: "t1", to: "done" });
+    await until(() => env.log.state.agents.alpha?.workBaseline === "c0ffee");
+
+    await env.supervisor.shutdown();
+    env.restart().createTask("Two", "x", undefined);
+    await until(() => env.task("t2")?.state === "in_progress");
+    expect(env.changes.describeWork).toHaveBeenLastCalledWith("/work/ws1", "c0ffee");
+    // While the worker holds a task, it has no baseline.
+    expect(env.log.state.agents.alpha?.workBaseline).toBeUndefined();
   });
 
   it("goes along, unasked, with a task that continues the worker's conversation", async () => {

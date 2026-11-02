@@ -188,6 +188,7 @@ export const noChanges: Changes = {
   startChange: async () => undefined,
   currentChange: async () => undefined,
   holdsWork: async () => false,
+  workingCopy: async () => "",
   describeWork: async () => undefined,
   setAside: async () => undefined,
 };

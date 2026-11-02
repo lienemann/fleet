@@ -113,6 +113,42 @@ describe("jjChanges", () => {
     expect(await jjChanges.describeWork(repo)).toBeUndefined();
   });
 
+  it("sees as loose work only what came on top of a chain since the baseline", async () => {
+    makeRepo(true);
+    jj("new");
+    const since = await jjChanges.workingCopy(repo);
+    expect(await jjChanges.describeWork(repo, since)).toBeUndefined();
+
+    writeFileSync(join(repo, "new.py"), "b = 1\n");
+    expect(await jjChanges.describeWork(repo, since)).toEqual({
+      change: changeOf("@"),
+      stat: "new.py | 1 +\n1 file changed, 1 insertion(+), 0 deletions(-)",
+    });
+  });
+
+  it("sees no loose work in pushed changes", async () => {
+    makeRepo(true);
+    const remote = mkdtempSync(join(tmpdir(), "fleet-remote-"));
+    execFileSync("jj", ["git", "init", remote]);
+    jj("git", "remote", "add", "origin", remote);
+    jj("bookmark", "create", "feature", "-r", "@");
+    jj("git", "push", "-b", "feature");
+    jj("new");
+    expect(await jjChanges.describeWork(repo)).toBeUndefined();
+  });
+
+  it("leaves out of the stat what trunk gained after the work was based", async () => {
+    makeRepo(true);
+    const work = changeOf("@");
+    jj("new", "main");
+    writeFileSync(join(repo, "upstream.py"), "u = 1\n");
+    jj("bookmark", "set", "main", "-r", "@");
+    jj("new", work);
+    expect((await jjChanges.describeWork(repo))?.stat).toBe(
+      "lib.py | 2 +-\n1 file changed, 1 insertion(+), 1 deletion(-)",
+    );
+  });
+
   it("sees no work in a repo without a trunk", async () => {
     makeRepo(false);
     expect(await jjChanges.describeWork(repo)).toBeUndefined();

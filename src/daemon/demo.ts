@@ -859,6 +859,7 @@ export const demoChanges: Changes = {
   startChange: async () => undefined,
   currentChange: async () => undefined,
   holdsWork: async () => true,
+  workingCopy: async () => "",
   describeWork: async () => undefined,
   setAside: async () => undefined,
 };

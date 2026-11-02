@@ -1769,6 +1769,8 @@ export class Supervisor implements ToolHost {
   private async moveIn(worker: string, sessionId: string): Promise<string> {
     await this.closeSession(worker);
     this.append(worker, { kind: "conversation_started", resume: sessionId, imported: true });
+    const agent = this.agent(worker);
+    if (agent) await this.markFree(agent);
     return worker;
   }
 
@@ -1833,6 +1835,8 @@ export class Supervisor implements ToolHost {
         cwd: workspace.path,
         session,
       });
+      const made = this.agent(name);
+      if (made) await this.markFree(made);
       const briefing = madeWorkerBriefing({
         worker: name,
         workspace: workspace.name,
@@ -3191,6 +3195,20 @@ export class Supervisor implements ToolHost {
     }
   }
 
+  /**
+   * Notes where a worker's working copy is as the worker becomes free: what its workspace holds
+   * now is none of its loose work. Not in an explicit workspace, the user's checkout.
+   */
+  private async markFree(worker: AgentView): Promise<void> {
+    if (worker.role !== "worker" || this.workspace(worker.workspace)?.explicit) return;
+    try {
+      const commit = await this.changes.workingCopy(worker.cwd);
+      this.append(worker.name, { kind: "work_baseline", commit });
+    } catch (error) {
+      console.error(`fleet: reading the working copy in ${worker.workspace} failed:`, error);
+    }
+  }
+
   /** The change that keeps an agent's work; undefined when jj cannot tell. */
   private async changeOf(agent: AgentView): Promise<string | undefined> {
     try {
@@ -3221,6 +3239,7 @@ export class Supervisor implements ToolHost {
     if (worker) {
       try {
         await this.changes.startChange(worker.cwd, "trunk");
+        await this.markFree(worker);
       } catch (error) {
         console.error(`fleet: starting a change from trunk in ${worker.workspace} failed:`, error);
       } finally {
@@ -3578,6 +3597,16 @@ export class Supervisor implements ToolHost {
     }
     // Told before the pool runs, so the note lands in the conversation it answers.
     if (to === "done" && holder && note) this.tell(holder.name, `${id} is accepted.\n\n${note}`);
+    // The accepted change stays in the workspace, so the pool waits until fleet has noted it there.
+    if (to === "done" && holder) {
+      this.reserved.add(holder.name);
+      this.background(
+        this.markFree(holder).finally(() => {
+          this.reserved.delete(holder.name);
+          this.schedule();
+        }),
+      );
+    }
     this.schedule();
   }
 
@@ -3740,6 +3769,7 @@ export class Supervisor implements ToolHost {
       });
       this.tellMove(task.id, `stepped aside for ${queued} (${reason})`, "fleet", name);
       await this.changes.startChange(worker.cwd, "trunk");
+      await this.markFree(worker);
     } catch (error) {
       console.error(`fleet: starting a change from trunk in ${worker.workspace} failed:`, error);
     } finally {
@@ -3966,7 +3996,7 @@ export class Supervisor implements ToolHost {
     if (this.workspace(worker.workspace)?.explicit) return false;
     let work: Work | undefined;
     try {
-      work = await this.changes.describeWork(worker.cwd);
+      work = await this.changes.describeWork(worker.cwd, this.agent(worker.name)?.workBaseline);
     } catch (error) {
       console.error(`fleet: looking for work in ${worker.workspace} failed:`, error);
     }
@@ -4025,6 +4055,7 @@ export class Supervisor implements ToolHost {
       } else {
         // Keep, or no choice at all: nothing moves.
         this.append(name, { kind: "work_kept", change: work.change });
+        await this.markFree(worker);
       }
     } finally {
       this.reserved.delete(name);
