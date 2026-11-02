@@ -10,7 +10,7 @@ import {
   type Usage,
 } from "../shared/events.ts";
 import type { DaemonInfo } from "../shared/protocol.ts";
-import type { AgentView, FleetState } from "../shared/reducer.ts";
+import { type AgentView, type FleetState, heldText } from "../shared/reducer.ts";
 import { sizeText } from "../shared/size.ts";
 import { agentState, NO_WORKSPACES, needsYou, type TaskView, taskOf } from "../shared/tasks.ts";
 
@@ -104,7 +104,7 @@ export function agentStatus(
             : ACTIVITY_LABELS[agent.activity];
   const dot = marked
     ? "needs_you"
-    : (task?.state ?? (agent.activity === "working" ? "in_progress" : "idle"));
+    : (task?.state ?? (agentState(agent) === "working" ? "in_progress" : "idle"));
   return { label, dot };
 }
 
@@ -122,8 +122,13 @@ export function contextPercent(agent: AgentView): number | undefined {
   return agent.context && Math.round((100 * agent.context.tokens) / agent.context.window);
 }
 
-/** What the agent works on now, for the "▸" lines: its task's status, else its current to-do. */
+/**
+ * What the agent works on now, for the "▸" lines: while it waits for its background work, the
+ * first line of what it wrote before; else its task's status, else its current to-do.
+ */
 export function currentWork(state: FleetState, agent: AgentView): string | undefined {
+  const held = heldText(agent);
+  if (held?.trim()) return firstLine(held);
   const todo = agent.todos.find((t) => t.status === "in_progress");
   return taskOf(state, agent)?.status ?? todo?.activeForm ?? todo?.content;
 }

@@ -47,6 +47,7 @@ import type {
 import {
   type AgentView,
   agentList,
+  awaitsBackground,
   type Claim,
   type FleetState,
   stretchEnded,
@@ -203,6 +204,12 @@ const NO_NOTE = "no note: the agent wrote none";
 
 /** How long a director's notice of moves waits for the rest of the burst. */
 export const MOVE_NOTICE_MS = 10_000;
+
+/**
+ * How long a resting agent has, after the last shell or subagent it waited for ended, to wake
+ * up to the result before its stretch of work counts as ended.
+ */
+export const WAKE_GRACE_MS = 5000;
 
 /** Moves one notice lists; it counts the rest of a longer burst. */
 export const MOVE_NOTICE_LINES = 10;
@@ -395,6 +402,8 @@ export class Supervisor implements ToolHost {
   private readonly returning = new Set<string>();
   /** Moves of their tasks that directors have yet to hear of, by director. */
   private readonly moveNotices = new Map<string, MoveNotice>();
+  /** Agents whose background work ended, waiting `WAKE_GRACE_MS` for them to wake up. */
+  private readonly wakeGraces = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly restart: (() => void) | undefined;
   private readonly configFile: string | undefined;
   private readonly fleetDir: string | undefined;
@@ -1935,6 +1944,8 @@ export class Supervisor implements ToolHost {
   async shutdown(): Promise<void> {
     for (const { timer } of this.moveNotices.values()) clearTimeout(timer);
     this.moveNotices.clear();
+    for (const timer of this.wakeGraces.values()) clearTimeout(timer);
+    this.wakeGraces.clear();
     await Promise.all([...this.sessions.values()].map((session) => session.close()));
   }
 
@@ -3618,6 +3629,7 @@ export class Supervisor implements ToolHost {
     this.log.append({ ...event, agent });
     const after = this.log.state.agents[agent];
     if (after && stretchEnded(before, after)) this.finishRun(after);
+    else if (before && after) this.followHold(before, after, event);
     // A worker that comes free takes the next task for its workspace, once this event is done.
     if (before && after && isWorker(after) && !this.isFree(before) && this.isFree(after)) {
       queueMicrotask(() => this.schedule());
@@ -3638,11 +3650,43 @@ export class Supervisor implements ToolHost {
   }
 
   /**
+   * Ends the stretch a resting agent held open for its background work once that work is over:
+   * at once when it ran overdue or the session stopped, otherwise after `WAKE_GRACE_MS` unless
+   * the agent wakes up to the result. The CLI may report the end before or after it wakes the
+   * agent; either way the stretch goes on in the woken turn.
+   */
+  private followHold(before: AgentView, after: AgentView, event: AgentEvent): void {
+    const { name } = after;
+    const grace = this.wakeGraces.get(name);
+    if (after.activity === "working" || (grace && after.activity === "stopped")) {
+      clearTimeout(grace);
+      this.wakeGraces.delete(name);
+      if (after.activity === "stopped") this.finishRun(after);
+      return;
+    }
+    if (after.activity !== "idle" || !awaitsBackground(before) || awaitsBackground(after)) return;
+    if (event.kind !== "background_ended") {
+      this.finishRun(after);
+      return;
+    }
+    clearTimeout(grace);
+    const timer = setTimeout(() => {
+      this.wakeGraces.delete(name);
+      const agent = this.agent(name);
+      if (agent?.activity === "idle" && !awaitsBackground(agent)) this.finishRun(agent);
+    }, WAKE_GRACE_MS).unref();
+    this.wakeGraces.set(name, timer);
+  }
+
+  /**
    * Turns a stretch of work that just ended into a Finished item: one that stopped without
    * the user or put the task up for review always, one the user started only when it took
-   * long enough.
+   * long enough. While the agent waits for a shell or subagent in the background, the item
+   * waits too, since the agent goes on when that ends; unless the stretch stopped, put the task
+   * up for review or asked the user something.
    */
-  private finishRun({ name, activity, stretch, finished, task }: AgentView): void {
+  private finishRun(agent: AgentView): void {
+    const { name, activity, stretch, finished, task } = agent;
     // A failed turn with more queued behind it is no end; the idle that follows decides.
     if (!stretch || stretch.endedByUser || activity === "working") return;
     const stopped = stretch.failed ?? (activity === "stopped" ? "crashed" : undefined);
@@ -3653,6 +3697,7 @@ export class Supervisor implements ToolHost {
       stretch.reported === true && task !== undefined && this.state.tasks[task]?.state === "review";
     // An item this stretch continues is kept current, not doubled, whatever the stretch is.
     if (stopped === undefined && !long && !forReview && !stretch.continues) return;
+    if (stopped === undefined && !forReview && !stretch.asked && awaitsBackground(agent)) return;
     // A retry that stops for the same reason again is the same news, so it keeps the id and
     // raises no new notification.
     const continued = finished.find((r) => r.id === stretch.continues);

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
-import { OUTPUT_SAMPLE_MS, SHELL_BUSY_MS } from "../src/daemon/session.ts";
+import { BACKGROUND_OVERDUE_MS, OUTPUT_SAMPLE_MS } from "../src/daemon/session.ts";
 import { Supervisor } from "../src/daemon/supervisor.ts";
 import { BACKGROUND_LIMIT } from "../src/shared/reducer.ts";
 import {
@@ -137,18 +137,27 @@ describe("Background tasks", () => {
     await session.stop();
   });
 
-  it("marks a shell that runs past the busy threshold as overdue", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    const { queryFn } = fakeQuery(echoing(...devServer, result()));
+  it("marks shells and subagents that run past the limit as overdue, monitors never", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const { queryFn } = fakeQuery(
+      echoing(
+        ...devServer,
+        task("task_started", "t2", { task_type: "local_agent", description: "Review the diff" }),
+        task("task_started", "t3", { task_type: "monitor", description: "Watch the log" }),
+        result(),
+      ),
+    );
     const { session, agent, log } = newSession(queryFn);
     for (const event of heldTask("t1", "a1")) log.append(event);
     session.start();
     session.prompt("go", [], { by: "user" });
     await until(() => agent()?.activity === "idle");
-    expect(agent()?.backgroundTasks[0]?.overdue).toBeUndefined();
+    const overdue = () => agent()?.backgroundTasks.map((t) => t.overdue === true);
 
-    await vi.advanceTimersByTimeAsync(SHELL_BUSY_MS);
-    expect(agent()?.backgroundTasks[0]?.overdue).toBe(true);
+    await vi.advanceTimersByTimeAsync(BACKGROUND_OVERDUE_MS / 2);
+    expect(overdue()).toEqual([false, false, false]);
+    await vi.advanceTimersByTimeAsync(BACKGROUND_OVERDUE_MS / 2);
+    expect(overdue()).toEqual([true, true, false]);
     await session.stop();
   });
 

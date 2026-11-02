@@ -11,6 +11,7 @@ import {
   type AgentView,
   ATTACHED_LIMIT,
   type AttachedEntry,
+  awaitsBackground,
   type Claim,
   DONE_LIMIT,
   type FleetState,
@@ -119,9 +120,16 @@ export const conversationsOf = (state: FleetState, task: TaskView): Conversation
 export const taskList = (state: FleetState): TaskView[] =>
   Object.values(state.tasks).sort((a, b) => a.createdSeq - b.createdSeq);
 
-/** Working while its process works; otherwise waiting while it holds a task, else free. */
+/**
+ * Working while its process works, or rests waiting for a shell or subagent in the background;
+ * otherwise waiting while it holds a task, else free.
+ */
 export const agentState = (agent: AgentView): "working" | "waiting" | "free" =>
-  agent.activity === "working" ? "working" : agent.task !== undefined ? "waiting" : "free";
+  agent.activity === "working" || (agent.activity === "idle" && awaitsBackground(agent))
+    ? "working"
+    : agent.task !== undefined
+      ? "waiting"
+      : "free";
 
 /**
  * Whether the agent has something in the inbox for the user: a decision or permission prompt,
@@ -152,7 +160,7 @@ export function needsYouCount(state: FleetState, agent: AgentView): number {
  */
 export function laneOf(state: FleetState, agent: AgentView): Lane {
   if (agent.pending > 0) return "needs_you";
-  if (agent.activity === "working") return "working";
+  if (agentState(agent) === "working") return "working";
   if (needsYou(state, agent)) return "needs_you";
   if (agent.task === undefined) return "free";
   return agent.activity === "stopped" ? "stopped" : "waiting";

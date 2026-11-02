@@ -20,7 +20,7 @@ import {
   type Question,
 } from "../shared/events.ts";
 import type { Answer, TaskOutput } from "../shared/protocol.ts";
-import { writesOutput } from "../shared/reducer.ts";
+import { isAwaited, writesOutput } from "../shared/reducer.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { deriveRisk } from "./risk.ts";
 import { translate } from "./translate.ts";
@@ -65,6 +65,8 @@ type DecisionRequest = Omit<
   "kind" | "requestId"
 >;
 
+type BackgroundStarted = Extract<EventBody, { kind: "background_started" }>;
+
 /** Resolves with the user's answer, or undefined when the request went stale. */
 type Settle = (answer: Answer | undefined) => void;
 
@@ -79,10 +81,11 @@ const INTERRUPT_TIMEOUT_MS = 5000;
 export const OUTPUT_SAMPLE_MS = 5000;
 
 /**
- * How long a background shell keeps its idle agent counted as working. A dev server or a hung
- * job runs for longer; the agent then waits for the user again.
+ * How long a background shell or subagent keeps its resting agent counted as working, its
+ * stretch of work open. A dev server or a hung job runs for longer; the agent then waits for
+ * the user again.
  */
-export const SHELL_BUSY_MS = 60 * 60_000;
+export const BACKGROUND_OVERDUE_MS = 15 * 60_000;
 
 /** Asks the CLI to send `session_state_changed` to the host, not only to the SDK. */
 export const TURN_SIGNALS = "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS";
@@ -103,9 +106,8 @@ type SideQuery = Query & {
 interface LiveTask {
   type: string;
   toolUseId?: string;
-  startedAt: number;
-  /** A shell that ran longer than `SHELL_BUSY_MS`, reported as such. */
-  overdue?: boolean;
+  /** Reports a shell or subagent as overdue once it ran for `BACKGROUND_OVERDUE_MS`. */
+  overdue?: ReturnType<typeof setTimeout>;
   bytes?: number;
   lastOutputAt?: number;
   /** A sample is on its way; a CLI that does not answer gets no pile of them. */
@@ -436,11 +438,8 @@ export class AgentSession {
         if (event.role === "tool_result") this.explanation = "";
       }
       if (event.kind === "connection") this.reconnecting = event.reconnecting;
-      if (event.kind === "background_started") {
-        const { type, toolUseId } = event;
-        this.tasks.set(event.taskId, { type, toolUseId, startedAt: Date.now() });
-      }
-      if (event.kind === "background_ended") this.tasks.delete(event.taskId);
+      if (event.kind === "background_started") this.track(event);
+      if (event.kind === "background_ended") this.untrack(event.taskId);
       this.options.emit(event);
     }
     this.watchOutputs();
@@ -464,6 +463,22 @@ export class AgentSession {
     }
   }
 
+  private track({ taskId, type, toolUseId }: BackgroundStarted): void {
+    // A resumed task keeps its id and runs anew.
+    this.untrack(taskId);
+    const overdue = isAwaited(type)
+      ? setTimeout(() => {
+          if (this.tasks.has(taskId)) this.options.emit({ kind: "background_overdue", taskId });
+        }, BACKGROUND_OVERDUE_MS).unref()
+      : undefined;
+    this.tasks.set(taskId, { type, toolUseId, overdue });
+  }
+
+  private untrack(taskId: string): void {
+    clearTimeout(this.tasks.get(taskId)?.overdue);
+    this.tasks.delete(taskId);
+  }
+
   /** Samples the shells' output while any runs, so a quiet one shows without anyone looking. */
   private watchOutputs(): void {
     const watching = [...this.tasks.values()].some((task) => writesOutput(task.type));
@@ -477,14 +492,6 @@ export class AgentSession {
 
   private sampleOutputs(): void {
     for (const [taskId, task] of this.tasks) {
-      if (
-        task.type === "local_bash" &&
-        !task.overdue &&
-        Date.now() - task.startedAt >= SHELL_BUSY_MS
-      ) {
-        task.overdue = true;
-        this.options.emit({ kind: "background_overdue", taskId });
-      }
       if (!writesOutput(task.type) || task.sampling) continue;
       task.sampling = true;
       void this.taskOutput(taskId)
@@ -497,7 +504,8 @@ export class AgentSession {
 
   /** A process takes its tasks with it when it ends. */
   private endTasks(): void {
-    for (const taskId of this.tasks.keys()) {
+    for (const taskId of [...this.tasks.keys()]) {
+      this.untrack(taskId);
       this.options.emit({
         kind: "background_ended",
         taskId,
@@ -505,7 +513,6 @@ export class AgentSession {
         summary: "Ended with the session.",
       });
     }
-    this.tasks.clear();
     this.watchOutputs();
   }
 

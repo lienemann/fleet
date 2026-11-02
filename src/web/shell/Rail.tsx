@@ -4,6 +4,7 @@ import { lastWorkspace } from "../../shared/hosts.ts";
 import { LEGAL_NOTICE, NOTICE_URL } from "../../shared/legal.ts";
 import { type AgentView, agentList, type FleetState } from "../../shared/reducer.ts";
 import {
+  agentState,
   holderOf,
   lastTaskOf,
   needsYou,
@@ -57,7 +58,7 @@ const DIRECTOR_RANK: Partial<Record<AgentView["role"], number>> = {
 export function railOrder(state: FleetState, agents: readonly AgentView[]): AgentView[] {
   const rank = (agent: AgentView): number =>
     DIRECTOR_RANK[agent.role] ??
-    (needsYou(state, agent) ? 2 : agent.activity === "working" ? 3 : isFree(agent) ? 5 : 4);
+    (needsYou(state, agent) ? 2 : agentState(agent) === "working" ? 3 : isFree(agent) ? 5 : 4);
   return [...agents].sort((a, b) => rank(a) - rank(b) || a.createdSeq - b.createdSeq);
 }
 

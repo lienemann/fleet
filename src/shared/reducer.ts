@@ -68,7 +68,7 @@ export interface BackgroundTask {
   /** False while the tool call that started it waits for it. */
   backgrounded: boolean;
   startedAt: number;
-  /** A shell that has run longer than the session's busy threshold. */
+  /** A shell or subagent that has run longer than the session waits for one. */
   overdue?: boolean;
   end?: { status: TaskEnd; at: number; summary?: string; outputFile?: string };
 }
@@ -76,6 +76,23 @@ export interface BackgroundTask {
 /** Task types the CLI keeps an output for: shells and monitors. */
 const OUTPUT_TYPES: ReadonlySet<string> = new Set(["local_bash", "monitor"]);
 export const writesOutput = (type: string): boolean => OUTPUT_TYPES.has(type);
+
+/** Task types whose end wakes the agent to go on with its work: shells and subagents. */
+const AWAITED_TYPES: ReadonlySet<string> = new Set(["local_bash", "local_agent"]);
+export const isAwaited = (type: string): boolean => AWAITED_TYPES.has(type);
+
+/**
+ * Whether the agent waits for a shell or subagent it moved to the background and that is not
+ * overdue yet. Its work goes on when that ends, so a rest meanwhile ends no stretch of work.
+ */
+export const awaitsBackground = (agent: AgentView): boolean =>
+  agent.backgroundTasks.some((t) => isAwaited(t.type) && t.backgrounded && !t.end && !t.overdue);
+
+/** What the agent last wrote before it rested to wait for its background work, while it waits. */
+export const heldText = (agent: AgentView): string | undefined =>
+  agent.activity === "idle" && awaitsBackground(agent) && !agent.stretch?.endedByUser
+    ? agent.stretch?.text
+    : undefined;
 
 export interface Subagent {
   toolUseId: string;
@@ -146,6 +163,8 @@ interface Stretch {
   messaged?: string;
   /** The agent reported its task's result in this stretch. */
   reported?: boolean;
+  /** The agent wrote to the user or handed them open points in this stretch. */
+  asked?: boolean;
 }
 
 /**
@@ -855,6 +874,9 @@ function trackStretch(before: FleetState, after: FleetState, event: FleetEvent):
   }
   if (event.kind === "message") {
     stretch = { ...stretch, messaged: event.to === USER ? undefined : event.to };
+  }
+  if ((event.kind === "message" && event.to === USER) || event.kind === "open_points") {
+    stretch = { ...stretch, asked: true };
   }
   if (event.kind === "report") stretch = { ...stretch, reported: true };
   if (event.kind === "resumed" && stretch.countingSince !== undefined) {

@@ -2,11 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { EventLog } from "../src/daemon/eventLog.ts";
-import type { QueryFn } from "../src/daemon/session.ts";
-import { Supervisor } from "../src/daemon/supervisor.ts";
+import { BACKGROUND_OVERDUE_MS, type QueryFn } from "../src/daemon/session.ts";
+import { Supervisor, WAKE_GRACE_MS } from "../src/daemon/supervisor.ts";
 import { USER } from "../src/shared/events.ts";
+import { type AgentView, heldText } from "../src/shared/reducer.ts";
+import { agentState, needsYou } from "../src/shared/tasks.ts";
 import {
   assistantText,
   DIRECTOR,
@@ -16,6 +18,7 @@ import {
   noChanges,
   result,
   sdk,
+  task,
   testConfig,
   until,
 } from "./helpers.ts";
@@ -420,6 +423,161 @@ describe("Finished runs that put the task into review", () => {
     );
     expect(log.state.tasks.t1?.state).toBe("in_progress");
     expect(alpha()?.finished).toEqual([]);
+  });
+});
+
+describe("Finished runs that wait for background work", () => {
+  const running = sdk({ type: "system", subtype: "session_state_changed", state: "running" });
+  const resting = sdk({ type: "system", subtype: "session_state_changed", state: "idle" });
+  const ended = task("task_notification", "bg1", { status: "completed", summary: "Tests pass" });
+  const woken = [running, assistantText("Tests pass. Done."), result(), resting];
+  const interim = "The tests run in the background; I'll check on them.";
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * A turn that starts a task of `type` in the background, calling `during` mid-turn, and rests;
+   * once `wake()` is called, `then` is what the CLI sends next, after which the CLI exits if it
+   * `ends`.
+   */
+  function waiting(
+    then: () => AsyncGenerator<SDKMessage>,
+    {
+      type = "local_bash",
+      during,
+      ends = false,
+    }: { type?: string; during?: (s: Supervisor) => void; ends?: boolean } = {},
+  ) {
+    let wake = () => {};
+    const gate = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    let supervisor: Supervisor | undefined;
+    const script: Script = async function* () {
+      yield running;
+      if (supervisor) during?.(supervisor);
+      yield assistantText(interim);
+      yield task("task_started", "bg1", {
+        task_type: type,
+        description: "Run the tests",
+        is_backgrounded: true,
+      });
+      yield result();
+      yield resting;
+      await gate;
+      yield* then();
+      if (!ends) await new Promise(() => {});
+    };
+    const test = setup(script);
+    supervisor = test.supervisor;
+    test.supervisor.createTask("Fix it", "Do it.", "ws1");
+    const items = () => test.log.since(0).filter((e) => e.kind === "run_finished");
+    return { ...test, wake, items };
+  }
+
+  it("holds the item while the work runs, showing the agent at work with its text", async () => {
+    const { alpha, log, wake, items } = waiting(async function* () {
+      yield ended;
+      yield* woken;
+    });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    const agent = alpha() as AgentView;
+    expect(agent.finished).toEqual([]);
+    expect(needsYou(log.state, agent)).toBe(false);
+    expect(agentState(agent)).toBe("working");
+    expect(heldText(agent)).toBe(interim);
+
+    wake();
+    await until(() => alpha()?.finished.length === 1);
+    expect(alpha()?.finished[0]?.text).toBe("Tests pass. Done.");
+    expect(items()).toHaveLength(1);
+  });
+
+  it("waits for the woken turn when the CLI reports the end first", async () => {
+    let resume = () => {};
+    const { alpha, wake, items } = waiting(async function* () {
+      yield ended;
+      await new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      yield* woken;
+    });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    wake();
+    await until(() => alpha()?.backgroundTasks[0]?.end !== undefined);
+    await vi.advanceTimersByTimeAsync(WAKE_GRACE_MS / 2);
+    expect(alpha()?.finished).toEqual([]);
+    resume();
+    await until(() => alpha()?.finished.length === 1);
+    expect(alpha()?.finished[0]?.text).toBe("Tests pass. Done.");
+    await vi.advanceTimersByTimeAsync(WAKE_GRACE_MS);
+    expect(items()).toHaveLength(1);
+  });
+
+  it("goes on in the woken turn when the CLI reports the end inside it", async () => {
+    const { alpha, wake, items } = waiting(async function* () {
+      yield running;
+      yield ended;
+      yield* woken.slice(1);
+    });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    wake();
+    await until(() => alpha()?.finished.length === 1);
+    expect(alpha()?.finished[0]?.text).toBe("Tests pass. Done.");
+    await vi.advanceTimersByTimeAsync(WAKE_GRACE_MS);
+    expect(items()).toHaveLength(1);
+  });
+
+  it("makes the item when the agent does not wake up to the end", async () => {
+    const { alpha, wake } = waiting(async function* () {
+      yield ended;
+    });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    wake();
+    await until(() => alpha()?.backgroundTasks[0]?.end !== undefined);
+    expect(alpha()?.finished).toEqual([]);
+    await vi.advanceTimersByTimeAsync(WAKE_GRACE_MS);
+    expect(alpha()?.finished).toMatchObject([{ text: interim, stopped: undefined }]);
+  });
+
+  it("makes the item once the work runs overdue", async () => {
+    const { alpha } = waiting(async function* () {}, { type: "local_agent" });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    await vi.advanceTimersByTimeAsync(BACKGROUND_OVERDUE_MS - WAKE_GRACE_MS);
+    expect(alpha()?.finished).toEqual([]);
+    await vi.advanceTimersByTimeAsync(WAKE_GRACE_MS);
+    expect(alpha()?.finished).toMatchObject([{ text: interim }]);
+    expect(agentState(alpha() as AgentView)).toBe("waiting");
+  });
+
+  it("does not wait for a monitor", async () => {
+    const { alpha } = waiting(async function* () {}, { type: "monitor" });
+    await until(() => alpha()?.finished.length === 1);
+  });
+
+  it("makes the item at once for a report or a message to the user", async () => {
+    const report = { summary: "Fixed.", changes: [], openQuestions: [] };
+    for (const during of [
+      (s: Supervisor) => s.report("alpha", report),
+      (s: Supervisor) => s.message("alpha", USER, "Which database should I use?"),
+    ]) {
+      const { alpha } = waiting(async function* () {}, { during });
+      await until(() => alpha()?.finished.length === 1);
+      expect(alpha()?.finished[0]?.text).toBe(interim);
+    }
+  });
+
+  it("makes a Stopped item at once when the session ends meanwhile", async () => {
+    const { alpha, wake } = waiting(async function* () {}, { ends: true });
+    await until(() => alpha()?.activity === "idle" && alpha()?.backgroundTasks.length === 1);
+    wake();
+    await until(() => alpha()?.activity === "stopped");
+    expect(alpha()?.finished).toMatchObject([{ text: interim, stopped: "crashed" }]);
   });
 });
 
