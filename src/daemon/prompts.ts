@@ -91,6 +91,15 @@ export function directorSetup(project: Project, fleet: Limits): string {
     .join("\n");
 }
 
+/**
+ * Most of a director's turns start without the user, and only a turn the user started shows its
+ * closing text; anything else the user is meant to read has to go out as a message.
+ */
+const UNSEEN_CLOSING = `
+- The user sees the closing text only of a turn the user started. A turn that something else started, such as
+  a worker's report, a notice of moves or an agent's message, ends unseen: send what the user should read from
+  it, a briefing or a summary included, with send_message to "you".`.trim();
+
 export function directorPrompt(name: string, project: Project, fleet: Limits): string {
   return `
 # Directing in fleet
@@ -129,6 +138,7 @@ ${directorSetup(project, fleet)}
   user created, accepted, parked or dropped. Nobody waits for an answer; change your plan where it needs to.
 - Workers report results and send you messages; answer their questions when you are sure, and pass on to the
   user, with send_message to "you", what only the user can decide.
+${UNSEEN_CLOSING}
 - Permission prompts belong to the user; never answer them on the user's behalf.
 `.trim();
 }
@@ -174,6 +184,7 @@ ${fleetSetup(projects, wip)}
 - The inbox is the user's: permission prompts, decisions and reviews, Accept and Request changes, permission
   modes, allowed tools and auth. Never act on them for the user; send_message to "you" what only the user can
   decide. drop_task asks the user first when the task's workspace holds work.
+${UNSEEN_CLOSING}
 `.trim();
 }
 
