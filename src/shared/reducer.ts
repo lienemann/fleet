@@ -256,6 +256,8 @@ export interface AgentView {
   briefing?: "due" | "done";
   /** The last transcript entry the tile shows, when the session left fleet. */
   transcriptMark?: string;
+  /** Loose work the user kept: the change the worker's next task starts on top of. */
+  keptWork?: string;
   /** Prompts waiting until fleet runs the detached session again. */
   held?: HeldText[];
 }
@@ -623,6 +625,8 @@ function apply(state: FleetState, event: FleetEvent): FleetState {
       return patch({ briefing: "done" });
     case "transcript_mark":
       return patch({ transcriptMark: event.uuid });
+    case "work_kept":
+      return patch({ keptWork: event.change });
     case "held":
       return patch({ held: event.texts.slice(-HELD_LIMIT) });
     case "session_started":
@@ -1030,6 +1034,8 @@ function startConversation(
     briefing: event.imported ? "due" : undefined,
     transcriptMark: undefined,
     waitsOn: undefined,
+    // The task that starts now took the kept work along.
+    keptWork: event.task === undefined ? agent.keptWork : undefined,
   };
   return { ...state, tasks, agents: { ...state.agents, [agent.name]: fresh } };
 }

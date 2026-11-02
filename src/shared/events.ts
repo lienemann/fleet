@@ -306,6 +306,11 @@ export type EventBody =
   | { kind: "briefed" }
   /** The last transcript entry the tile shows; turns after it were made in another client. */
   | { kind: "transcript_mark"; uuid: string }
+  /**
+   * The user kept the worker's loose work: its next task starts on top of `change`. Without
+   * `change`, nothing is kept any more.
+   */
+  | { kind: "work_kept"; change?: string }
   /** Prompts waiting until fleet runs the detached session again; replaces the earlier list. */
   | { kind: "held"; texts: HeldText[] }
   /**

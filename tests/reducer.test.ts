@@ -1307,6 +1307,14 @@ describe("conversations", () => {
     sessionId,
   });
 
+  it("of a task take kept loose work along; one without a task leaves it kept", () => {
+    const kept: NewEvent = { kind: "work_kept", agent: "a", change: "kxqv" };
+    expect(run(kept).keptWork).toBe("kxqv");
+    expect(run(kept, { kind: "work_kept", agent: "a" }).keptWork).toBeUndefined();
+    expect(run(kept, start()).keptWork).toBe("kxqv");
+    expect(run(kept, start(T)).keptWork).toBeUndefined();
+  });
+
   it("archive the previous conversation into its task and start the agent afresh", () => {
     const state = runState(
       running,

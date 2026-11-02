@@ -92,7 +92,7 @@ describe("work in a free worker's workspace that no task owns", () => {
       options: [
         expect.objectContaining({ label: "Make it a task" }),
         expect.objectContaining({ label: "Keep" }),
-        expect.objectContaining({ label: "Abandon" }),
+        expect.objectContaining({ label: "Set aside" }),
       ],
     });
     expect(env.asked()?.explanation).toContain("kxqv");
@@ -160,12 +160,32 @@ describe("work in a free worker's workspace that no task owns", () => {
     expect(env.task("t1")?.state).toBe("queued");
   });
 
-  it("goes aside into the jj history when the user abandons it, and the next task starts from trunk", async () => {
+  it("stays kept across a restart until a task takes it along", async () => {
     const env = setup();
     await env.looseWork();
     env.supervisor.createTask("Next", "x", undefined);
     await until(() => env.asked() !== undefined);
-    env.answer("Abandon");
+    // The task goes before the user answers, so nothing takes the work yet.
+    env.supervisor.handle({ type: "drop", task: "t1" });
+    await until(() => env.task("t1")?.state === "dropped");
+    env.answer("Keep");
+    await until(() => env.log.state.agents.alpha?.keptWork === "kxqv");
+
+    await env.supervisor.shutdown();
+    const again = env.restart();
+    again.createTask("Later", "x", undefined);
+    await until(() => env.task("t2")?.state === "in_progress");
+    expect(env.asked()).toBeUndefined();
+    expect(env.changes.startChange.mock.calls).toEqual([["/work/ws1", "kxqv"]]);
+    expect(env.log.state.agents.alpha?.keptWork).toBeUndefined();
+  });
+
+  it("goes aside into the jj history when the user sets it aside, and the next task starts from trunk", async () => {
+    const env = setup();
+    await env.looseWork();
+    env.supervisor.createTask("Next", "x", undefined);
+    await until(() => env.asked() !== undefined);
+    env.answer("Set aside");
 
     await until(() => env.task("t1")?.state === "in_progress");
     expect(env.changes.setAside.mock.calls).toEqual([["/work/ws1", "Loose work of alpha in ws1"]]);

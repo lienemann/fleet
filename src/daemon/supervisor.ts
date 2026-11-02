@@ -391,8 +391,6 @@ export class Supervisor implements ToolHost {
    * meanwhile.
    */
   private readonly reserved = new Set<string>();
-  /** Loose work the user kept, by worker: the change its next task starts on top of. */
-  private readonly kept = new Map<string, string>();
   private readonly holders: HolderHost | undefined;
   /** The pid of the holder each detached agent waits for; it is picked up once that exits. */
   private readonly seen = new Map<string, number>();
@@ -3641,7 +3639,7 @@ export class Supervisor implements ToolHost {
     } catch (error) {
       console.error(`fleet: looking for work in ${worker.workspace} failed:`, error);
     }
-    if (!work || this.kept.get(worker.name) === work.change) return false;
+    if (!work || this.agent(worker.name)?.keptWork === work.change) return false;
     this.reserved.add(worker.name);
     this.background(this.askAboutLooseWork(worker, work));
     return true;
@@ -3649,9 +3647,10 @@ export class Supervisor implements ToolHost {
 
   /**
    * Asks the user in the inbox, in the worker's name, what becomes of its loose work: Make it a
-   * task puts it in Review, held by the worker; Keep lets its next task start on top of it;
-   * Abandon moves the workspace to trunk and leaves the work in the jj history. A question that
-   * goes stale, as on a restart, comes again when the pool next readies the worker.
+   * task puts it in Review, held by the worker; Keep lets its next task start on top of it, also
+   * after a restart; Set aside moves the workspace to trunk and leaves the work in the jj
+   * history. A question that goes stale, as on a restart, comes again when the pool next readies
+   * the worker.
    */
   private async askAboutLooseWork({ name, workspace }: AgentView, work: Work): Promise<void> {
     const question = `${name} has loose work in ${workspace}`;
@@ -3672,8 +3671,8 @@ export class Supervisor implements ToolHost {
               { label: "Make it a task", description: `A task in Review that ${name} holds.` },
               { label: "Keep", description: `${name}'s next task starts on top of it.` },
               {
-                label: "Abandon",
-                description: `${workspace} starts from trunk; the change stays in the jj history.`,
+                label: "Set aside",
+                description: `${workspace} starts from trunk; the change stays in the jj history as "${title}".`,
               },
             ],
           },
@@ -3682,15 +3681,19 @@ export class Supervisor implements ToolHost {
       const choice = answer?.behavior === "answers" ? answer.answers[question] : undefined;
       const worker = this.agent(name);
       if (!answer || !worker) return;
+      if (choice === "Make it a task" || choice === "Set aside") {
+        // Work kept from an earlier question is in this change too, or under it.
+        if (worker.keptWork !== undefined) this.append(name, { kind: "work_kept" });
+      }
       if (choice === "Make it a task") {
         this.taskOfLooseWork(worker, title, `${title}, the change ${work.change}:\n\n${files}`);
-      } else if (choice === "Abandon") {
+      } else if (choice === "Set aside") {
         // A prompt meanwhile may have woken the worker; its working copy moves once it rests.
         await this.until(() => this.agent(name)?.activity !== "working");
         await this.changes.setAside(worker.cwd, title);
       } else {
         // Keep, or no choice at all: nothing moves.
-        this.kept.set(name, work.change);
+        this.append(name, { kind: "work_kept", change: work.change });
       }
     } finally {
       this.reserved.delete(name);
@@ -3725,8 +3728,7 @@ export class Supervisor implements ToolHost {
    */
   private async prepare(task: TaskView, worker: AgentView, planned: Opening): Promise<Readied> {
     const own = planned.kind === "follow" ? await this.changeOf(worker) : undefined;
-    const kept = this.kept.get(worker.name);
-    this.kept.delete(worker.name);
+    const kept = this.agent(worker.name)?.keptWork;
     await this.closeSession(worker.name);
     let opening = planned;
     let resume =
