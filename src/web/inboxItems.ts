@@ -1,13 +1,18 @@
 import { USER } from "../shared/events.ts";
 import type { Command } from "../shared/protocol.ts";
 import {
+  type Decision,
   FINISHED_READ_LIMIT,
   type FinishedRun,
   type FleetState,
   type Message,
+  type OpenPointsDoc,
+  openPointDocs,
+  pendingDecisions,
 } from "../shared/reducer.ts";
 import { messageReference, runReference } from "../shared/replies.ts";
-import { awaitingVerdict, taskOf, unreadThreads } from "../shared/tasks.ts";
+import type { LineThread } from "../shared/review.ts";
+import { awaitingVerdict, type TaskView, taskOf, unreadThreads } from "../shared/tasks.ts";
 import { itemSlot, liveItem } from "./drafts.ts";
 import { foldKey } from "./folds.ts";
 import { movesOf } from "./taskMoves.ts";
@@ -74,6 +79,30 @@ export function inboxGroups(state: FleetState): InboxGroup[] {
     .map(([agent, items]) => ({ agent, items }))
     .sort((a, b) => (b.items.at(-1)?.at ?? 0) - (a.items.at(-1)?.at ?? 0));
 }
+
+/** The cards the inbox shows, section by section. */
+interface InboxCards {
+  decisions: Decision[];
+  groups: InboxGroup[];
+  verdicts: TaskView[];
+  points: OpenPointsDoc[];
+  replies: Array<{ task: string; thread: LineThread }>;
+}
+
+export const inboxCards = (state: FleetState): InboxCards => ({
+  decisions: pendingDecisions(state),
+  groups: inboxGroups(state),
+  verdicts: awaitingVerdict(state),
+  points: openPointDocs(state),
+  replies: unreadThreads(state),
+});
+
+/**
+ * The Inbox tab's count: the cards the inbox shows. An agent's group counts once, however many
+ * Finished items and messages it holds, and so does a document of open points.
+ */
+export const inboxCount = (state: FleetState): number =>
+  Object.values(inboxCards(state)).reduce((n, cards) => n + cards.length, 0);
 
 /** The items the user has dealt with, newest first, the last FINISHED_READ_LIMIT of each agent. */
 export function readItems(state: FleetState): Array<{ agent: string; item: GroupItem }> {

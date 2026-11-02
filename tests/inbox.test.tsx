@@ -2,11 +2,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { type FleetEvent, type NewEvent, USER } from "../src/shared/events.ts";
 import type { Command, DaemonInfo, ProjectInfo } from "../src/shared/protocol.ts";
-import { type FinishedRun, type FleetState, inboxCount, reduceAll } from "../src/shared/reducer.ts";
+import {
+  type FinishedRun,
+  type FleetState,
+  reduceAll,
+  withoutProjects,
+} from "../src/shared/reducer.ts";
+import { needsYou, replyFrom } from "../src/shared/tasks.ts";
 import { itemSlot, liveItem } from "../src/web/drafts.ts";
 import { type Fleet, FleetContext } from "../src/web/fleet.tsx";
 import { foldKey, folds } from "../src/web/folds.ts";
 import {
+  inboxCards,
+  inboxCount,
   inboxGroups,
   liveFolds,
   liveItems,
@@ -289,5 +297,115 @@ describe("the inbox", () => {
     const html = render();
     expect(html).toMatch(/<button type="button" class="link name"[^>]*>alpha<\/button>/);
     expect(html).not.toMatch(/>Open</);
+  });
+
+  describe("and its tab's count", () => {
+    const asks = (agent: string, requestId: string): NewEvent => ({
+      kind: "decision_requested",
+      agent,
+      requestId,
+      decision: "permission",
+      toolName: "Bash",
+      input: {},
+      explanation: "",
+      risk: [],
+    });
+    const points: NewEvent = {
+      kind: "open_points",
+      agent: "bravo",
+      docId: "d1",
+      path: "points.md",
+      points: [
+        { id: "p1", text: "First?" },
+        { id: "p2", text: "Second?" },
+      ],
+    };
+    const thread = (id: string, from: "user" | "agent"): NewEvent => ({
+      kind: "thread_message",
+      agent: "bravo",
+      task: "t2",
+      threadId: "th",
+      message: { id, from, body: `${from} ${id}`, ts: now },
+    });
+    // A reply on bravo's task that comes after bravo moved on: it names bravo all the same.
+    const replied = then(state, [
+      ...heldTask("t2", "bravo"),
+      { kind: "conversation_started", agent: "bravo", task: "t2" },
+      {
+        kind: "thread_opened",
+        agent: "bravo",
+        task: "t2",
+        thread: {
+          id: "th",
+          path: "x.ts",
+          side: "head",
+          lines: { start: 1, endExclusive: 2 },
+          quote: [],
+        },
+        message: { id: "m1", from: "user", body: "Why?", ts: now },
+      },
+      taskState("t2", "done"),
+      thread("m2", "agent"),
+    ]);
+    const twoRuns = then(state, [
+      finished("bravo", "b1", { endedAt: now - 60_000 }),
+      finished("bravo", "b2"),
+      asks("alpha", "q1"),
+    ]);
+    const states: Record<string, FleetState> = {
+      "a group of a Finished item and a message": state,
+      "two groups and a decision": twoRuns,
+      "a group of messages only": then(state, [message("bravo", "One"), message("bravo", "Two")]),
+      "a task in Review whose items were read": then(state, [
+        { kind: "finished_read", agent: "alpha", ids: ["r1"] },
+        {
+          kind: "messages_read",
+          agent: "alpha",
+          seqs: [seqOf(state, "Which port should it use?")],
+        },
+      ]),
+      nothing: then(state, [taskState("t1", "done")]),
+      "a document of open points, one answered": then(state, [
+        points,
+        { kind: "point_answered", agent: "bravo", docId: "d1", pointId: "p1", answer: "Yes" },
+      ]),
+      "a reply on a closed task": replied,
+      "a message from an agent of a project no longer configured": withoutProjects(
+        then(state, [worker("gone", { project: "old" }), message("gone", "Still there?")]),
+        new Set(["test"]),
+      ),
+    };
+
+    /** The agents the inbox's cards name, but for a verdict's, which marks nobody. */
+    const named = (shown: FleetState): Set<string | undefined> => {
+      const { decisions, groups, points, replies } = inboxCards(shown);
+      return new Set([
+        ...decisions.map((d) => d.agent),
+        ...groups.map((g) => g.agent),
+        ...points.map((doc) => doc.agent),
+        ...replies.map(({ task }) => replyFrom(shown, task)),
+      ]);
+    };
+
+    it.each(Object.entries(states))("equals the cards the inbox shows with %s", (_, shown) => {
+      const cards = render([], shown).match(/<article class="(decision|finished) /g) ?? [];
+      expect(inboxCount(shown)).toBe(cards.length);
+    });
+
+    it.each(Object.entries(states))(
+      "marks exactly the agents its cards name with %s",
+      (_, shown) => {
+        const marked = Object.values(shown.agents).filter((a) => needsYou(shown, a));
+        expect(new Set(marked.map((a) => a.name))).toEqual(named(shown));
+      },
+    );
+
+    it("counts an agent's group once, however many items it holds", () => {
+      expect(inboxCount(twoRuns)).toBe(3);
+    });
+
+    it("leaves a reply on a closed task with the agent that worked on it last", () => {
+      expect(named(replied)).toContain("bravo");
+    });
   });
 });

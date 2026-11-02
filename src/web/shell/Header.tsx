@@ -1,8 +1,9 @@
-import { agentList, costOn, inboxCount, unansweredPoints } from "../../shared/reducer.ts";
+import { agentList, costOn, unansweredPoints } from "../../shared/reducer.ts";
 import { agentState, needsYou, taskList } from "../../shared/tasks.ts";
 import { useFleet } from "../fleet.tsx";
+import { inboxCount } from "../inboxItems.ts";
 import { keyLabel } from "../keys/keymap.tsx";
-import { useProjectFilter, useProjects } from "../projects.tsx";
+import { useProjectFilter, useProjects, useShownState } from "../projects.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { FONT_LABELS, type Font } from "../useFont.ts";
 import type { Notifications } from "../useNotifications.ts";
@@ -41,7 +42,8 @@ export function Header({
   const { state, info, send, theme, toggleTheme } = useFleet();
   const agents = agentList(state);
   const openPoints = unansweredPoints(state);
-  const inbox = inboxCount(state);
+  // The tab counts what the inbox shows, so it narrows to the shown project too.
+  const inbox = inboxCount(useShownState());
   const counters: Counter[] = [
     {
       n: agents.filter((a) => agentState(a) === "working").length,

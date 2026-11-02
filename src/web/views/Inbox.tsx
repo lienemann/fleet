@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { type OpenPointsDoc, openPointDocs, pendingDecisions } from "../../shared/reducer.ts";
+import type { OpenPointsDoc } from "../../shared/reducer.ts";
 import type { LineThread } from "../../shared/review.ts";
-import { awaitingVerdict, lastAgentOf, type TaskView, unreadThreads } from "../../shared/tasks.ts";
+import { replyFrom, type TaskView } from "../../shared/tasks.ts";
 import { itemSlot, useAgentDraft } from "../drafts.ts";
 import { useFleet } from "../fleet.tsx";
 import { foldKey, useFold } from "../folds.ts";
-import { inboxGroups, readCommands, reviewItem } from "../inboxItems.ts";
+import { inboxCards, readCommands, reviewItem } from "../inboxItems.ts";
 import { useCommands } from "../keys/keymap.tsx";
 import { useShownState } from "../projects.tsx";
 import { threadPlace } from "../review/Thread.tsx";
@@ -41,11 +41,8 @@ export function Inbox({
 }) {
   const { send, state: all } = useFleet();
   const state = useShownState();
-  const items = pendingDecisions(state);
-  const docs = openPointDocs(state);
-  const replies = unreadThreads(state);
-  const groups = inboxGroups(state);
-  const verdicts = awaitingVerdict(state);
+  const cards = inboxCards(state);
+  const { decisions: items, points: docs, replies, groups, verdicts } = cards;
   const [cursor, setCursor] = useState(0);
   const index = Math.min(cursor, Math.max(0, items.length - 1));
   const focused = items[index];
@@ -112,13 +109,9 @@ export function Inbox({
   return (
     <OpenAgentProvider value={onOpen}>
       <div className="inbox">
-        {items.length === 0 &&
-          docs.length === 0 &&
-          replies.length === 0 &&
-          groups.length === 0 &&
-          verdicts.length === 0 && (
-            <p className="empty-box">Nothing waits on you. Agents keep working.</p>
-          )}
+        {Object.values(cards).every((section) => section.length === 0) && (
+          <p className="empty-box">Nothing waits on you. Agents keep working.</p>
+        )}
         {items.map((decision) => (
           <DecisionCard
             key={decision.requestId}
@@ -339,7 +332,5 @@ function PointForm({ doc, point }: { doc: OpenPointsDoc; point: OpenPointsDoc["p
 /** Who a reply comes from: the task's agent, or the task itself once nobody holds it. */
 function ReplyFrom({ task }: { task: string }) {
   const { state } = useFleet();
-  const view = state.tasks[task];
-  const agent = view && lastAgentOf(state, view);
-  return <TaskHead task={task} agent={agent} />;
+  return <TaskHead task={task} agent={replyFrom(state, task)} />;
 }

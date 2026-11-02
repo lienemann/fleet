@@ -16,7 +16,6 @@ import {
   FINISHED_READ_LIMIT,
   FINISHED_UNREAD_LIMIT,
   type FleetState,
-  inboxCount,
   LOG_LIMIT,
   MESSAGE_LIMIT,
   pendingDecisions,
@@ -546,14 +545,6 @@ describe("line threads", () => {
     expect(unreadThreads(state).map((u) => u.thread.id)).toEqual(["early", "late"]);
   });
 
-  it("counts unread replies in the Inbox tab's count", () => {
-    const base = [request, opened()];
-    expect(inboxCount(runState(...base))).toBe(1);
-    const replied = [...base, say(message("m2", "agent"))];
-    expect(inboxCount(runState(...replied))).toBe(2);
-    expect(inboxCount(runState(...replied, read))).toBe(1);
-  });
-
   it("marks the holder new when it replies, not when the user writes", () => {
     const opening = [running, opened(), { kind: "agent_opened", agent: "a" } as NewEvent];
     expect(run(...opening, say(message("m2", "user"))).unseen).toBe(false);
@@ -995,13 +986,6 @@ describe("finished runs", () => {
       ["b", ["b1"]],
       ["a", ["a2", "a1"]],
     ]);
-  });
-
-  it("counts unread Finished items in the inbox", () => {
-    const runOf = (id: string, read = false): NewEvent => runFinished(finished(id, { read }));
-    expect(
-      inboxCount(reduceAll(events(worker("a"), runOf("r1"), runOf("r2"), runOf("r3", true)))),
-    ).toBe(2);
   });
 
   it("keeps 20 read items per agent and caps unread ones", () => {

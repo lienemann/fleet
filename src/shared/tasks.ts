@@ -108,6 +108,12 @@ export const holderOf = (state: FleetState, task: TaskView): AgentView | undefin
 export const lastAgentOf = (state: FleetState, task: TaskView): string | undefined =>
   task.agent ?? liveConversation(state, task)?.agent ?? task.conversations.at(-1)?.agent;
 
+/** Whom a reply in a thread of `task` names: who holds the task, or who worked on it last. */
+export const replyFrom = (state: FleetState, task: string): string | undefined => {
+  const view = state.tasks[task];
+  return view && lastAgentOf(state, view);
+};
+
 /** The conversation of the task that is still an agent's current one, if any. */
 function liveConversation(state: FleetState, task: TaskView): Conversation | undefined {
   const agent = Object.values(state.agents).find((a) => a.conversationTask === task.id);
@@ -137,8 +143,9 @@ export const agentState = (agent: AgentView): "working" | "waiting" | "free" =>
 
 /**
  * Whether the agent has something in the inbox for the user: a decision or permission prompt,
- * open points, an unread reply in a thread of its task, an unread Finished item, or an unread
- * message. An agent that only rests, or waits on another agent, has nothing.
+ * open points, an unread reply in a thread of a task it holds or worked on last, an unread
+ * Finished item, or an unread message. An agent that only rests, or waits on another agent, has
+ * nothing.
  */
 export const needsYou = (state: FleetState, agent: AgentView): boolean =>
   needsYouCount(state, agent) > 0;
@@ -151,7 +158,8 @@ export function needsYouCount(state: FleetState, agent: AgentView): number {
   return (
     agent.pending +
     count(Object.values(state.openPoints), (doc) => doc.agent === name) +
-    count(taskOf(state, agent)?.threads ?? [], (t) => t.unread) +
+    // A reply names the task's last agent, even after that agent has moved on.
+    count(unreadThreads(state), ({ task }) => replyFrom(state, task) === name) +
     count(agent.finished, (run) => !run.read) +
     count(state.messages, (m) => m.from === name && m.to === USER && !m.read)
   );

@@ -26,15 +26,7 @@ import {
   USER,
   type Usage,
 } from "./events.ts";
-import {
-  applyTask,
-  awaitingVerdict,
-  laneOf,
-  needsYou,
-  type TaskView,
-  unlink,
-  unreadThreads,
-} from "./tasks.ts";
+import { applyTask, laneOf, needsYou, type TaskView, unlink } from "./tasks.ts";
 
 /** What a timeline lane shows: the agent's state, with Needs you apart from other waiting. */
 export type Lane = "working" | "waiting" | "needs_you" | "free" | "stopped";
@@ -417,17 +409,6 @@ export const unansweredPoints = (state: FleetState): number =>
   openPointDocs(state)
     .flatMap((doc) => doc.points)
     .filter((p) => p.answer === undefined).length;
-
-/**
- * The Inbox tab's count: decisions and permissions, unanswered open points, unread thread
- * replies, unread Finished items and the tasks in Review that wait for a verdict without one.
- */
-export const inboxCount = (state: FleetState): number =>
-  pendingDecisions(state).length +
-  unansweredPoints(state) +
-  unreadThreads(state).length +
-  unreadFinished(state).reduce((n, group) => n + group.runs.length, 0) +
-  awaitingVerdict(state).length;
 
 const ROLE_ORDER: Record<Role, number> = {
   "fleet-director": 0,
