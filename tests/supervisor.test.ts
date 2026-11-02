@@ -324,6 +324,15 @@ describe("workspaces and their workers", () => {
     await until(() => log.state.agents.bravo === undefined);
     expect(Object.keys(log.state.agents)).toEqual(["alpha"]);
   });
+
+  it("removes the guests in a workspace with it, and leaves those elsewhere", async () => {
+    const { log, supervisor } = setup();
+    log.append(worker("charlie", { workspace: "ws2", cwd: "/work/ws2", guest: true }));
+    log.append(worker("delta", { workspace: "ws1", cwd: "/work/ws1", guest: true }));
+    await supervisor.call({ type: "remove_workspace", id: "1", workspace: "ws2", delete: false });
+    await until(() => log.state.agents.bravo === undefined);
+    expect(Object.keys(log.state.agents)).toEqual(["alpha", "delta"]);
+  });
 });
 
 describe("restart", () => {

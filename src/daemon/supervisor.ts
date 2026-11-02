@@ -1216,8 +1216,9 @@ export class Supervisor implements ToolHost {
   }
 
   /**
-   * Takes a workspace out of fleet and config.toml. With `deleteDirectory`, its worker ends and
-   * the workspace is snapshotted, forgotten in jj and deleted; without, jj and the directory stay.
+   * Takes a workspace out of fleet and config.toml, its worker and guests with it. With
+   * `deleteDirectory`, they end and the workspace is snapshotted, forgotten in jj and deleted;
+   * without, jj and the directory stay.
    */
   private async removeWorkspace(name: string, deleteDirectory: boolean): Promise<void> {
     const project = this.config.projects.find((p) => p.workspaces.some((ws) => ws.name === name));
@@ -1230,7 +1231,11 @@ export class Supervisor implements ToolHost {
     if (reason) throw new Error(`${name} stays: ${reason}.`);
     project.workspaces = project.workspaces.filter((ws) => ws !== workspace);
     this.configChanged([project]);
-    const ended = this.removeWorker(name);
+    const guests = this.agents.filter((a) => a.guest && a.workspace === name);
+    const ended = Promise.all([
+      this.removeWorker(name),
+      ...guests.map((guest) => this.removeAgent(guest.name)),
+    ]);
     if (!deleteDirectory) return this.background(ended);
     await ended;
     await this.workspaceHost.remove(project.path, workspace.path).catch((error: unknown) => {

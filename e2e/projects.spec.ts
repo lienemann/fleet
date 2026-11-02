@@ -213,3 +213,60 @@ test("a guest becomes the worker of a new workspace, and another guest is remove
   await expect(removal).toBeHidden();
   await expect(guest).toBeHidden();
 });
+
+test("removing a workspace takes its guests along, and its dialog names them", async ({ page }) => {
+  test.setTimeout(60_000);
+  const repo = newRepo("deck");
+  await page.goto("/");
+  const rail = page.getByRole("complementary", { name: "Agents" });
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("textbox", { name: "Command" }).fill("Add a project");
+  await page.keyboard.press("Enter");
+  const adding = page.getByRole("dialog", { name: "Add a project" });
+  await adding.getByLabel("Directory").fill(repo);
+  await adding.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(adding).toContainText("Added deck.");
+  await adding.getByRole("button", { name: "Close" }).click();
+  // A workspace of its own first, then the checkout as a second one, where imports join as guests.
+  await rail.getByTitle(/^Add a workspace( to deck)?: /).click();
+  const opening = page.getByRole("dialog", { name: "Add a workspace" });
+  const offer = opening.locator(".new-workspace");
+  await offer.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(offer).toContainText("opened deck-ws1");
+  const other = opening.locator(".other-directory");
+  await other.getByLabel("Directory").fill(repo);
+  await other.getByRole("button", { name: "Check" }).click();
+  await expect(other).toContainText("deck-2");
+  await other.getByRole("button", { name: "Add", exact: true }).click();
+  await opening.getByRole("button", { name: "Close" }).click();
+
+  // The first session becomes the conversation of the checkout's worker, which keeps it open,
+  // so the second joins as its guest.
+  const importing = page.getByRole("dialog", { name: "Import sessions" });
+  const importInto = async (title: string) => {
+    await rail.getByTitle(/^Import Claude Code sessions/).click();
+    await importing.getByLabel("Workspace").selectOption("deck-2");
+    await importing.getByLabel(title).check();
+    await importing.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(importing).toBeHidden();
+  };
+  await importInto("Explain the scheduler");
+  await rail.getByTitle(/^Import Claude Code sessions/).click();
+  await importing.getByLabel("Workspace").selectOption("deck-2");
+  await expect(importing.locator(".option", { hasText: "Explain the scheduler" })).toContainText(
+    "has it",
+  );
+  await importing.getByRole("button", { name: "Cancel" }).click();
+  await importInto("Speed up the event log replay");
+  const guest = rail.locator(".rail-row", { hasText: "Speed up the event log replay" });
+  const moves = guest.getByRole("button", { name: /^Moves of / });
+  const name = (await moves.getAttribute("aria-label"))?.replace("Moves of ", "") ?? "";
+
+  await rail.getByRole("button", { name: "Remove deck-2" }).click();
+  const removal = page.getByRole("dialog", { name: "Remove deck-2" });
+  await expect(removal).toContainText(`and its guest ${name} leave fleet`);
+  await removal.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(removal).toBeHidden();
+  await expect(guest).toBeHidden();
+  await expect(rail.getByRole("button", { name: "Remove deck-2" })).toHaveCount(0);
+});

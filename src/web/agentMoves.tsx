@@ -97,7 +97,7 @@ function unreadItems(state: FleetState, agent: AgentView): string[] {
 }
 
 /** The inbox items that leave with an agent, if it has any. */
-function LeavingItems({ agent }: { agent: AgentView }) {
+export function LeavingItems({ agent }: { agent: AgentView }) {
   const { state } = useFleet();
   const items = unreadItems(state, agent);
   if (items.length === 0) return null;
